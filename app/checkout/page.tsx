@@ -58,8 +58,8 @@ export default function CheckoutPage() {
       setError(isArabic ? 'ارفع صورة أو ملف PDF للإيصال.' : 'Upload an image or PDF receipt.')
       return
     }
-    if (file.size > 5 * 1024 * 1024) {
-      setError(isArabic ? 'حجم الإيصال يجب أن يكون أقل من 5 MB.' : 'Receipt must be less than 5 MB.')
+    if (file.size > 2 * 1024 * 1024) {
+      setError(isArabic ? 'حجم الإيصال يجب أن يكون أقل من 2 MB.' : 'Receipt must be less than 2 MB.')
       return
     }
 
@@ -127,7 +127,11 @@ export default function CheckoutPage() {
         body: JSON.stringify(payload),
       })
 
-      if (!response.ok) throw new Error('Order API failed')
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null)
+        const message = errorData?.message || errorData?.error || 'Order API failed'
+        throw new Error(message)
+      }
 
       await fetch('/api/customers', {
         method: 'POST',
@@ -143,8 +147,9 @@ export default function CheckoutPage() {
       createTrackedOrder(payload)
       clearCart()
       router.push(ROUTES.ORDERS)
-    } catch {
-      setError(isArabic ? 'حدث خطأ أثناء تقديم الطلب.' : 'Something went wrong while placing the order.')
+    } catch (err) {
+      const details = err instanceof Error && err.message ? ` ${err.message}` : ''
+      setError(isArabic ? `تعذر استكمال الطلب.${details}` : `Could not complete the order.${details}`)
     } finally {
       setLoading(false)
     }

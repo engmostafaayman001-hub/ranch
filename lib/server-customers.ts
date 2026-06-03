@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { AppCustomer } from '@/lib/customers'
 
-const DATA_DIR = join(process.cwd(), 'data')
+const DATA_DIR = process.env.VERCEL ? '/tmp/ranch-data' : join(process.cwd(), 'data')
 const CUSTOMERS_FILE = join(DATA_DIR, 'customers.json')
 
 async function ensureDataFile() {
@@ -64,4 +64,3 @@ export async function upsertServerCustomer(input: {
   await writeFile(CUSTOMERS_FILE, JSON.stringify(updated, null, 2), 'utf8')
   return customer
 }
-
