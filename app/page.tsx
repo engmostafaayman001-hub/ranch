@@ -14,6 +14,7 @@ import { useAuthStore } from '@/lib/store'
 export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [downloadModalOpen, setDownloadModalOpen] = useState(false)
+  const [cartMessage, setCartMessage] = useState('')
   const { isLoggedIn, logout } = useAuthStore()
   const { language, appName } = useLanguage()
   const { products, settings, addToCart } = useAppStore()
@@ -27,10 +28,19 @@ export default function Home() {
     setSidebarOpen(false)
   }
 
+  const handleAddToCart = (productId: string) => {
+    const product = products.find((item) => item.id === productId)
+    const productName = product ? (isArabic ? product.nameAr : product.nameEn) : ''
+    addToCart(productId)
+    setCartMessage(isArabic ? `تمت إضافة ${productName || 'المنتج'} إلى السلة` : `${productName || 'Product'} added to cart`)
+    window.setTimeout(() => setCartMessage(''), 2200)
+  }
+
   return (
     <main className="flex min-h-screen flex-col">
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} isLoggedIn={isLoggedIn} onLogout={handleLogout} />
       <Navbar onMenuOpen={() => setSidebarOpen(true)} isLoggedIn={isLoggedIn} onLogout={handleLogout} />
+      {cartMessage && <CartToast message={cartMessage} isArabic={isArabic} />}
 
       <section className="bg-gradient-to-br from-red-50 to-amber-50 dark:from-slate-950 dark:to-slate-900">
         <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 py-16 sm:px-6 lg:grid-cols-2 lg:px-8">
@@ -89,7 +99,7 @@ export default function Home() {
                     <div className="p-4">
                       <h3 className="mb-2 text-lg font-bold">{name}</h3>
                       <p className="mb-4 text-xl font-bold text-red-600">{product.price} {currency}</p>
-                      <Button size="sm" className="w-full bg-red-600 hover:bg-red-700" onClick={() => addToCart(product.id)}>{isArabic ? 'أضف إلى السلة' : 'Add to Cart'}</Button>
+                      <Button size="sm" className="w-full bg-red-600 hover:bg-red-700" onClick={() => handleAddToCart(product.id)}>{isArabic ? 'أضف إلى السلة' : 'Add to Cart'}</Button>
                     </div>
                   </div>
                 )
@@ -129,6 +139,19 @@ function HeroImage({ value }: { value: string }) {
         ) : (
           <span>{value || '🍽️'}</span>
         )}
+      </div>
+    </div>
+  )
+}
+
+function CartToast({ message, isArabic }: { message: string; isArabic: boolean }) {
+  return (
+    <div className="fixed bottom-5 left-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-lg border border-green-200 bg-white p-4 shadow-xl dark:border-green-900 dark:bg-slate-900">
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-semibold text-green-700 dark:text-green-300">{message}</p>
+        <a href="/cart" className="shrink-0 rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700">
+          {isArabic ? 'عرض السلة' : 'View Cart'}
+        </a>
       </div>
     </div>
   )

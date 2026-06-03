@@ -16,6 +16,7 @@ export default function MenuPage() {
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [searchTerm, setSearchTerm] = useState('')
   const [addedProductId, setAddedProductId] = useState<string | null>(null)
+  const [cartMessage, setCartMessage] = useState('')
   const { isLoggedIn, logout } = useAuthStore()
   const { language } = useLanguage()
   const { categories, products, addToCart } = useAppStore()
@@ -33,9 +34,15 @@ export default function MenuPage() {
   })
 
   const handleAddToCart = (productId: string) => {
+    const product = products.find((item) => item.id === productId)
+    const productName = product ? (isArabic ? product.nameAr : product.nameEn) : ''
     addToCart(productId)
     setAddedProductId(productId)
-    window.setTimeout(() => setAddedProductId(null), 1200)
+    setCartMessage(isArabic ? `تمت إضافة ${productName || 'المنتج'} إلى السلة` : `${productName || 'Product'} added to cart`)
+    window.setTimeout(() => {
+      setAddedProductId(null)
+      setCartMessage('')
+    }, 2200)
   }
 
   const handleLogout = () => {
@@ -47,6 +54,7 @@ export default function MenuPage() {
     <main className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} isLoggedIn={isLoggedIn} onLogout={handleLogout} />
       <Navbar onMenuOpen={() => setSidebarOpen(true)} isLoggedIn={isLoggedIn} onLogout={handleLogout} />
+      {cartMessage && <CartToast message={cartMessage} isArabic={isArabic} />}
 
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <input
@@ -117,4 +125,17 @@ function ProductImage({ value, name }: { value: string; name: string }) {
     return <img src={value} alt={name} className="h-full w-full object-cover" />
   }
   return <span>{value || '🍽️'}</span>
+}
+
+function CartToast({ message, isArabic }: { message: string; isArabic: boolean }) {
+  return (
+    <div className="fixed bottom-5 left-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-lg border border-green-200 bg-white p-4 shadow-xl dark:border-green-900 dark:bg-slate-900">
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-semibold text-green-700 dark:text-green-300">{message}</p>
+        <a href="/cart" className="shrink-0 rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700">
+          {isArabic ? 'عرض السلة' : 'View Cart'}
+        </a>
+      </div>
+    </div>
+  )
 }
