@@ -28,6 +28,8 @@ export interface OrderPayment {
 
 export interface TrackedOrder {
   id: string
+  source?: string
+  externalReference?: string
   customer: string
   phone: string
   address: string
