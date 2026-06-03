@@ -72,6 +72,8 @@ interface AppStore {
   team: TeamMember[]
   drivers: DeliveryDriver[]
   settings: AppSettings
+  setCatalog: (catalog: { categories: MenuCategory[]; products: MenuProduct[] }) => void
+  setSettings: (settings: AppSettings) => void
   addCategory: (category: Omit<MenuCategory, 'id'>) => void
   updateCategory: (id: string, updates: Partial<MenuCategory>) => void
   deleteCategory: (id: string) => void
@@ -96,7 +98,7 @@ export const defaultCategories: MenuCategory[] = []
 
 export const defaultProducts: MenuProduct[] = []
 
-const defaultSettings: AppSettings = {
+export const defaultSettings: AppSettings = {
   restaurantNameAr: 'رانش',
   restaurantNameEn: 'Ranch',
   email: 'info@ranch.app',
@@ -125,6 +127,12 @@ export const useAppStore = create<AppStore>()(
       team: [],
       drivers: [],
       settings: defaultSettings,
+      setCatalog: (catalog) =>
+        set({
+          categories: catalog.categories,
+          products: catalog.products,
+        }),
+      setSettings: (settings) => set({ settings }),
       addCategory: (category) =>
         set((state) => ({ categories: [...state.categories, { ...category, id: createId('category') }] })),
       updateCategory: (id, updates) =>
@@ -175,18 +183,24 @@ export const useAppStore = create<AppStore>()(
     {
       name: 'ranch-app-data',
       storage: createJSONStorage(() => localStorage),
-      version: 2,
+      version: 3,
       migrate: (persistedState) => {
         const state = persistedState as Partial<AppStore> | undefined
         const sampleIds = new Set(['classic-burger', 'cheese-pizza', 'grilled-chicken', 'shawarma-wrap'])
         return {
           ...state,
-          categories: state?.categories?.filter((category) => !['burgers', 'pizza', 'chicken', 'sandwiches'].includes(category.id)) || [],
-          products: state?.products?.filter((product) => !sampleIds.has(product.id)) || [],
+          categories: [],
+          products: [],
+          settings: defaultSettings,
           cart: state?.cart?.filter((item) => !sampleIds.has(item.productId)) || [],
           drivers: state?.drivers || [],
         }
       },
+      partialize: (state) => ({
+        cart: state.cart,
+        team: state.team,
+        drivers: state.drivers,
+      }),
     }
   )
 )

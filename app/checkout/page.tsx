@@ -14,8 +14,10 @@ import { CURRENCY, CURRENCY_EN, PAYMENT_METHOD_LABELS, PAYMENT_METHOD_LABELS_EN,
 import { useAppStore } from '@/lib/app-store'
 import { createTrackedOrder, PaymentStatus, TrackingStatus } from '@/lib/order-tracking'
 import { useAuthStore } from '@/lib/store'
+import { useSharedAppData } from '@/lib/use-shared-app-data'
 
 export default function CheckoutPage() {
+  useSharedAppData()
   const router = useRouter()
   const { language, appName } = useLanguage()
   const { user, isLoggedIn } = useAuthStore()

@@ -8,7 +8,8 @@ import { FileInput } from '@/components/ui/file-input'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { MenuProduct, useAppStore } from '@/lib/app-store'
+import { MenuCategory, MenuProduct, useAppStore } from '@/lib/app-store'
+import { saveSharedCatalog, useSharedAppData } from '@/lib/use-shared-app-data'
 
 const emptyProduct = {
   nameAr: '',
@@ -23,26 +24,37 @@ const emptyProduct = {
   bestSeller: false,
 }
 
+const createId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
 export default function DashboardProductsPage() {
-  const {
-    categories,
-    products,
-    addCategory,
-    updateCategory,
-    deleteCategory,
-    addProduct,
-    updateProduct,
-    deleteProduct,
-    toggleProductAvailability,
-  } = useAppStore()
+  useSharedAppData()
+  const { categories, products, setCatalog } = useAppStore()
   const [categoryForm, setCategoryForm] = useState({ nameAr: '', nameEn: '', active: true })
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null)
   const [productForm, setProductForm] = useState(emptyProduct)
   const [editingProductId, setEditingProductId] = useState<string | null>(null)
   const [uploadStatus, setUploadStatus] = useState('')
+  const [saveStatus, setSaveStatus] = useState('')
+  const [saving, setSaving] = useState(false)
 
   const activeCategories = useMemo(() => categories.filter((category) => category.active), [categories])
   const categoryName = (id: string) => categories.find((category) => category.id === id)?.nameAr || 'بدون قسم'
+
+  const publishCatalog = async (nextCategories: MenuCategory[], nextProducts: MenuProduct[]) => {
+    setCatalog({ categories: nextCategories, products: nextProducts })
+    setSaving(true)
+    setSaveStatus('')
+    try {
+      const data = await saveSharedCatalog(nextCategories, nextProducts)
+      setCatalog({ categories: data.categories || nextCategories, products: data.products || nextProducts })
+      setSaveStatus('تم حفظ التغييرات وظهورها لجميع المستخدمين.')
+    } catch (error) {
+      setSaveStatus(error instanceof Error ? error.message : 'تم حفظ التغيير محلياً فقط.')
+    } finally {
+      setSaving(false)
+      window.setTimeout(() => setSaveStatus(''), 3000)
+    }
+  }
 
   const resetProduct = () => {
     setEditingProductId(null)
@@ -53,11 +65,15 @@ export default function DashboardProductsPage() {
   const submitCategory = (event: FormEvent) => {
     event.preventDefault()
     if (!categoryForm.nameAr.trim() || !categoryForm.nameEn.trim()) return
+
     if (editingCategoryId) {
-      updateCategory(editingCategoryId, categoryForm)
+      publishCatalog(
+        categories.map((category) => (category.id === editingCategoryId ? { ...category, ...categoryForm } : category)),
+        products
+      )
       setEditingCategoryId(null)
     } else {
-      addCategory(categoryForm)
+      publishCatalog([...categories, { ...categoryForm, id: createId('category') }], products)
     }
     setCategoryForm({ nameAr: '', nameEn: '', active: true })
   }
@@ -67,6 +83,13 @@ export default function DashboardProductsPage() {
     if (!category) return
     setEditingCategoryId(id)
     setCategoryForm({ nameAr: category.nameAr, nameEn: category.nameEn, active: category.active })
+  }
+
+  const deleteCategory = (id: string) => {
+    publishCatalog(
+      categories.filter((category) => category.id !== id),
+      products.filter((product) => product.categoryId !== id)
+    )
   }
 
   const handleImageUpload = (event: ChangeEvent<HTMLInputElement>) => {
@@ -85,8 +108,7 @@ export default function DashboardProductsPage() {
 
     const reader = new FileReader()
     reader.onload = () => {
-      const imagePath = String(reader.result)
-      setProductForm((current) => ({ ...current, image: imagePath }))
+      setProductForm((current) => ({ ...current, image: String(reader.result) }))
       setUploadStatus(`تم رفع الصورة بنجاح: ${file.name}`)
     }
     reader.onerror = () => setUploadStatus('تعذر رفع الصورة. حاول مرة أخرى.')
@@ -107,9 +129,12 @@ export default function DashboardProductsPage() {
     }
 
     if (editingProductId) {
-      updateProduct(editingProductId, payload)
+      publishCatalog(
+        categories,
+        products.map((product) => (product.id === editingProductId ? { ...product, ...payload } : product))
+      )
     } else {
-      addProduct(payload)
+      publishCatalog(categories, [...products, { ...payload, id: createId('product'), rating: 0, reviews: 0 }])
     }
     resetProduct()
   }
@@ -131,11 +156,23 @@ export default function DashboardProductsPage() {
     setUploadStatus('')
   }
 
+  const toggleProductAvailability = (id: string) => {
+    publishCatalog(
+      categories,
+      products.map((product) => (product.id === id ? { ...product, available: !product.available } : product))
+    )
+  }
+
+  const deleteProduct = (id: string) => {
+    publishCatalog(categories, products.filter((product) => product.id !== id))
+  }
+
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-3xl font-bold">إدارة المنتجات والأقسام</h2>
-        <p className="mt-2 text-slate-500 dark:text-slate-400">ارفع صورة المنتج أو ضع رابط صورة، وستظهر مباشرة في القائمة والصفحة الرئيسية.</p>
+        <p className="mt-2 text-slate-500 dark:text-slate-400">أي منتج تضيفه أو تعدله هنا يتم حفظه على السيرفر ويظهر لكل المستخدمين.</p>
+        {saveStatus && <p className="mt-3 rounded-md bg-slate-100 px-3 py-2 text-sm text-slate-700 dark:bg-slate-900 dark:text-slate-200">{saveStatus}</p>}
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[360px_1fr]">
@@ -157,7 +194,7 @@ export default function DashboardProductsPage() {
                   القسم ظاهر في القائمة
                 </label>
                 <div className="flex gap-2">
-                  <Button type="submit" className="bg-red-600 hover:bg-red-700">{editingCategoryId ? 'حفظ القسم' : 'إضافة القسم'}</Button>
+                  <Button type="submit" disabled={saving} className="bg-red-600 hover:bg-red-700">{editingCategoryId ? 'حفظ القسم' : 'إضافة القسم'}</Button>
                   {editingCategoryId && <Button type="button" variant="outline" onClick={() => setEditingCategoryId(null)}>إلغاء</Button>}
                 </div>
               </form>
@@ -168,7 +205,7 @@ export default function DashboardProductsPage() {
             <CardHeader><CardTitle>الأقسام الحالية</CardTitle></CardHeader>
             <CardContent className="space-y-3">
               {categories.length === 0 ? (
-                <p className="py-8 text-center text-slate-500">أضف قسمًا أولًا قبل إضافة المنتجات.</p>
+                <p className="py-8 text-center text-slate-500">أضف قسماً أولاً قبل إضافة المنتجات.</p>
               ) : (
                 categories.map((category) => (
                   <div key={category.id} className="rounded-md border border-slate-200 p-3 dark:border-slate-800">
@@ -181,7 +218,7 @@ export default function DashboardProductsPage() {
                     </div>
                     <div className="mt-3 flex gap-2">
                       <Button type="button" size="sm" variant="outline" onClick={() => editCategory(category.id)}>تعديل</Button>
-                      <Button type="button" size="sm" variant="destructive" onClick={() => deleteCategory(category.id)}>حذف</Button>
+                      <Button type="button" size="sm" variant="destructive" disabled={saving} onClick={() => deleteCategory(category.id)}>حذف</Button>
                     </div>
                   </div>
                 ))
@@ -214,7 +251,7 @@ export default function DashboardProductsPage() {
                 <div>
                   <Label htmlFor="category">القسم</Label>
                   <select id="category" value={productForm.categoryId || activeCategories[0]?.id || ''} onChange={(event) => setProductForm({ ...productForm, categoryId: event.target.value })} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950">
-                    <option value="" disabled>اختر قسمًا</option>
+                    <option value="" disabled>اختر قسماً</option>
                     {activeCategories.map((category) => <option key={category.id} value={category.id}>{category.nameAr} / {category.nameEn}</option>)}
                   </select>
                 </div>
@@ -250,11 +287,11 @@ export default function DashboardProductsPage() {
                   </label>
                   <label className="flex items-center gap-2 text-sm">
                     <input type="checkbox" checked={productForm.bestSeller} onChange={(event) => setProductForm({ ...productForm, bestSeller: event.target.checked })} />
-                    يظهر في الأكثر مبيعًا
+                    يظهر في الأكثر مبيعاً
                   </label>
                 </div>
                 <div className="flex gap-2 md:col-span-2">
-                  <Button type="submit" className="bg-red-600 hover:bg-red-700">{editingProductId ? 'حفظ المنتج' : 'إضافة المنتج'}</Button>
+                  <Button type="submit" disabled={saving} className="bg-red-600 hover:bg-red-700">{editingProductId ? 'حفظ المنتج' : 'إضافة المنتج'}</Button>
                   {editingProductId && <Button type="button" variant="outline" onClick={resetProduct}>إلغاء</Button>}
                 </div>
               </form>
@@ -276,16 +313,16 @@ export default function DashboardProductsPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="font-bold">{product.nameAr}</h3>
                         <Badge className={product.available ? 'bg-green-600' : 'bg-slate-500'}>{product.available ? 'متوفر' : 'غير متوفر'}</Badge>
-                        {product.bestSeller && <Badge className="bg-red-600">الأكثر مبيعًا</Badge>}
+                        {product.bestSeller && <Badge className="bg-red-600">الأكثر مبيعاً</Badge>}
                       </div>
                       <p className="text-sm text-slate-500">{product.nameEn}</p>
                       <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{product.descriptionAr}</p>
-                      <p className="mt-2 text-sm font-semibold text-red-600">{product.price} ج.م · {categoryName(product.categoryId)}</p>
+                      <p className="mt-2 text-sm font-semibold text-red-600">{product.price} ج.م - {categoryName(product.categoryId)}</p>
                     </div>
                     <div className="flex flex-wrap gap-2 md:flex-col">
                       <Button size="sm" variant="outline" onClick={() => editProduct(product)}>تعديل</Button>
-                      <Button size="sm" variant="outline" onClick={() => toggleProductAvailability(product.id)}>{product.available ? 'غير متوفر' : 'متوفر'}</Button>
-                      <Button size="sm" variant="destructive" onClick={() => deleteProduct(product.id)}>حذف</Button>
+                      <Button size="sm" variant="outline" disabled={saving} onClick={() => toggleProductAvailability(product.id)}>{product.available ? 'غير متوفر' : 'متوفر'}</Button>
+                      <Button size="sm" variant="destructive" disabled={saving} onClick={() => deleteProduct(product.id)}>حذف</Button>
                     </div>
                   </div>
                 ))

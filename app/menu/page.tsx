@@ -10,8 +10,10 @@ import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN } from '@/lib/constants'
 import { useAppStore } from '@/lib/app-store'
 import { useAuthStore } from '@/lib/store'
+import { useSharedAppData } from '@/lib/use-shared-app-data'
 
 export default function MenuPage() {
+  useSharedAppData()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [searchTerm, setSearchTerm] = useState('')

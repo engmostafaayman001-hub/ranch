@@ -9,8 +9,10 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useLanguage } from '@/components/language-provider'
 import { useAppStore } from '@/lib/app-store'
+import { saveSharedSettings, useSharedAppData } from '@/lib/use-shared-app-data'
 
 export default function DashboardSettingsPage() {
+  useSharedAppData()
   const { language, setLanguage } = useLanguage()
   const { settings, updateSettings } = useAppStore()
   const [saveStatus, setSaveStatus] = useState('')
@@ -24,9 +26,15 @@ export default function DashboardSettingsPage() {
     reader.readAsDataURL(file)
   }
 
-  const handleSave = () => {
-    setSaveStatus(isArabic ? 'تم حفظ التعديلات بنجاح.' : 'Changes saved successfully.')
-    window.setTimeout(() => setSaveStatus(''), 2200)
+  const handleSave = async () => {
+    try {
+      const data = await saveSharedSettings(settings)
+      if (data.settings) updateSettings(data.settings)
+      setSaveStatus(isArabic ? 'تم حفظ التعديلات وظهورها للجميع.' : 'Changes saved and published to everyone.')
+    } catch (error) {
+      setSaveStatus(error instanceof Error ? error.message : (isArabic ? 'تعذر حفظ التعديلات.' : 'Could not save changes.'))
+    }
+    window.setTimeout(() => setSaveStatus(''), 3000)
   }
 
   return (
@@ -134,3 +142,4 @@ function HeroPreview({ value }: { value: string }) {
     </div>
   )
 }
+
