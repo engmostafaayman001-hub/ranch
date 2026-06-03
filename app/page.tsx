@@ -1,176 +1,67 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
-import { Sidebar } from '@/components/sidebar'
-import { Navbar } from '@/components/navbar'
 import { DownloadModal } from '@/components/download-modal'
-import { useAuthStore } from '@/lib/store'
+import { Navbar } from '@/components/navbar'
+import { Sidebar } from '@/components/sidebar'
 import { useLanguage } from '@/components/language-provider'
+import { CURRENCY, CURRENCY_EN } from '@/lib/constants'
+import { useAppStore } from '@/lib/app-store'
+import { useAuthStore } from '@/lib/store'
 
 export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [downloadModalOpen, setDownloadModalOpen] = useState(false)
   const { isLoggedIn, logout } = useAuthStore()
-  const [mounted, setMounted] = useState(false)
-
-  useEffect(() => {
-    setMounted(true)
-  }, [])
+  const { language, appName } = useLanguage()
+  const { products, settings, addToCart } = useAppStore()
+  const isArabic = language === 'ar'
+  const currency = isArabic ? CURRENCY : CURRENCY_EN
+  const bestSellers = products.filter((product) => product.bestSeller && product.available).slice(0, 4)
+  const visibleProducts = bestSellers.length > 0 ? bestSellers : products.filter((product) => product.available).slice(0, 4)
 
   const handleLogout = () => {
     logout()
     setSidebarOpen(false)
   }
 
-  if (!mounted) return null
-
-  return <HomeContent
-    sidebarOpen={sidebarOpen}
-    setSidebarOpen={setSidebarOpen}
-    downloadModalOpen={downloadModalOpen}
-    setDownloadModalOpen={setDownloadModalOpen}
-    isLoggedIn={isLoggedIn}
-    handleLogout={handleLogout}
-  />
-}
-
-function HomeContent({
-  sidebarOpen,
-  setSidebarOpen,
-  downloadModalOpen,
-  setDownloadModalOpen,
-  isLoggedIn,
-  handleLogout
-}: any) {
-  const { language, appName } = useLanguage()
-  const isArabic = language === 'ar'
-
-  const content = {
-    title: isArabic ? 'اطلب من' : 'Order from',
-    subtitle: isArabic
-      ? 'وجبات طازة وشهية وساخنة توصل لباب منزلك في دقائق.'
-      : 'Fresh, delicious hot meals delivered to your door in minutes.',
-    orderNow: isArabic ? 'اطلب الآن' : 'Order Now',
-    learnMore: isArabic ? 'تعرف أكثر' : 'Learn More',
-    whyChoose: isArabic ? 'لماذا تختار' : 'Why Choose',
-    features: [
-      {
-        icon: '⚡',
-        title: isArabic ? 'توصيل سريع' : 'Fast Delivery',
-        desc: isArabic ? 'احصل على طلبك في 30 دقيقة أو أقل' : 'Get your order in 30 minutes or less'
-      },
-      {
-        icon: '🍽️',
-        title: isArabic ? 'طعام طازج' : 'Fresh Food',
-        desc: isArabic ? 'محضر طازة حسب الطلب في كل مرة' : 'Prepared fresh to order every time'
-      },
-      {
-        icon: '💰',
-        title: isArabic ? 'أسعار رائعة' : 'Great Prices',
-        desc: isArabic ? 'أفضل قيمة مقابل المال في المدينة' : 'Best value for money in the city'
-      }
-    ],
-    bestSellers: isArabic ? 'أكثر المنتجات مبيعًا' : 'Best Sellers',
-    products: [
-      {
-        name: isArabic ? 'برجر لذيذ' : 'Delicious Burger',
-        price: isArabic ? '85 ج.م' : '$8.50',
-        icon: '🍔',
-        popular: true
-      },
-      {
-        name: isArabic ? 'بيتزا الجبن' : 'Cheese Pizza',
-        price: isArabic ? '120 ج.م' : '$12.00',
-        icon: '🍕',
-        popular: true
-      },
-      {
-        name: isArabic ? 'دجاج مشوي' : 'Grilled Chicken',
-        price: isArabic ? '110 ج.م' : '$11.00',
-        icon: '🍗',
-        popular: false
-      },
-      {
-        name: isArabic ? 'سندويش الشاورما' : 'Shawarma Sandwich',
-        price: isArabic ? '75 ج.م' : '$7.50',
-        icon: '🌯',
-        popular: true
-      }
-    ],
-    mostPopular: isArabic ? 'الأكثر مبيعًا' : 'Best Seller',
-    addToCart: isArabic ? 'أضف إلى السلة' : 'Add to Cart',
-    downloadApp: isArabic ? 'نزّل التطبيق الآن' : 'Download App Now',
-    exclusiveOffers: isArabic ? 'احصل على عروض حصرية وتتبع فوري لطلباتك' : 'Get exclusive offers and real-time tracking for your orders',
-    download: isArabic ? '⬇️ تنزيل التطبيق' : '⬇️ Download App',
-    hungry: isArabic ? 'جوعان؟' : 'Hungry?',
-    startOrder: isArabic ? 'ابدأ الطلب الآن' : 'Start Order Now',
-  }
-
   return (
-    <main className="flex flex-col min-h-screen">
-      {/* Sidebar */}
-      <Sidebar
-        isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        isLoggedIn={isLoggedIn}
-        onLogout={handleLogout}
-      />
+    <main className="flex min-h-screen flex-col">
+      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} isLoggedIn={isLoggedIn} onLogout={handleLogout} />
+      <Navbar onMenuOpen={() => setSidebarOpen(true)} isLoggedIn={isLoggedIn} onLogout={handleLogout} />
 
-      {/* Navigation */}
-      <Navbar
-        onMenuOpen={() => setSidebarOpen(true)}
-        isLoggedIn={isLoggedIn}
-        onLogout={handleLogout}
-      />
-
-      {/* Hero Section */}
-      <section className="flex-1 bg-gradient-to-br from-red-50 to-orange-50 dark:from-slate-900 dark:to-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
-          <div className={`grid md:grid-cols-2 gap-12 items-center ${isArabic ? 'flex-row-reverse' : ''}`}>
-            <div className={isArabic ? 'order-2 md:order-1' : 'order-1'}>
-              <h1 className="text-5xl md:text-6xl font-bold text-slate-900 dark:text-white mb-6">
-                {content.title} <span className="text-red-600">{appName}</span>
-              </h1>
-              <p className="text-xl text-slate-600 dark:text-slate-400 mb-8">
-                {content.subtitle}
-              </p>
-              <div className={`flex gap-4 ${isArabic ? 'flex-row-reverse' : ''}`}>
-                <Link href="/menu">
-                  <Button size="lg" className="bg-red-600 hover:bg-red-700">
-                    {content.orderNow}
-                  </Button>
-                </Link>
-                <Link href="/about">
-                  <Button size="lg" variant="outline">
-                    {content.learnMore}
-                  </Button>
-                </Link>
-              </div>
-            </div>
-            <div className={isArabic ? 'order-1 md:order-2' : 'order-2'}>
-              <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-8">
-                <div className="aspect-square bg-gradient-to-br from-red-100 to-orange-100 dark:from-red-900 dark:to-orange-900 rounded-lg flex items-center justify-center">
-                  <span className="text-9xl">🍔</span>
-                </div>
-              </div>
+      <section className="bg-gradient-to-br from-red-50 to-amber-50 dark:from-slate-950 dark:to-slate-900">
+        <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 py-16 sm:px-6 lg:grid-cols-2 lg:px-8">
+          <div>
+            <h1 className="mb-6 text-4xl font-bold leading-tight text-slate-950 dark:text-white md:text-6xl">
+              {isArabic ? settings.heroTitleAr : settings.heroTitleEn}
+            </h1>
+            <p className="mb-8 text-xl text-slate-600 dark:text-slate-400">
+              {isArabic ? settings.heroSubtitleAr : settings.heroSubtitleEn}
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <Link href="/menu"><Button size="lg" className="bg-red-600 hover:bg-red-700">{isArabic ? 'اطلب الآن' : 'Order Now'}</Button></Link>
+              <Link href="/about"><Button size="lg" variant="outline">{isArabic ? 'تعرف أكثر' : 'Learn More'}</Button></Link>
             </div>
           </div>
+          <HeroImage value={settings.heroImage} />
         </div>
       </section>
 
-      {/* Features Section */}
-      <section className="py-20 bg-white dark:bg-slate-900">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h2 className="text-3xl font-bold text-center mb-12">
-            {content.whyChoose} {appName}?
-          </h2>
-          <div className="grid md:grid-cols-3 gap-8">
-            {content.features.map((feature) => (
+      <section className="bg-white py-16 dark:bg-slate-950">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <h2 className="mb-10 text-center text-3xl font-bold">{isArabic ? 'لماذا تختار' : 'Why Choose'} {appName}?</h2>
+          <div className="grid gap-8 md:grid-cols-3">
+            {[
+              { icon: '⚡', title: isArabic ? 'توصيل سريع' : 'Fast Delivery', desc: isArabic ? `يصلك طلبك في حوالي ${settings.deliveryTime} دقيقة.` : `Your order arrives in about ${settings.deliveryTime} minutes.` },
+              { icon: '🍽️', title: isArabic ? 'إدارة قائمة مباشرة' : 'Live Menu Control', desc: isArabic ? 'كل منتج يظهر هنا يتم إضافته من لوحة التحكم.' : 'Every product shown here is managed from the dashboard.' },
+              { icon: '🔔', title: isArabic ? 'عروض وتنبيهات' : 'Offers and Alerts', desc: isArabic ? 'الإشعارات تصل للعملاء فور إرسالها من لوحة التحكم.' : 'Customers see notifications as soon as they are sent from the dashboard.' },
+            ].map((feature) => (
               <div key={feature.title} className="text-center">
-                <div className="text-5xl mb-4">{feature.icon}</div>
-                <h3 className="text-xl font-bold mb-2">{feature.title}</h3>
+                <div className="mb-4 text-5xl">{feature.icon}</div>
+                <h3 className="mb-2 text-xl font-bold">{feature.title}</h3>
                 <p className="text-slate-600 dark:text-slate-400">{feature.desc}</p>
               </div>
             ))}
@@ -178,115 +69,76 @@ function HomeContent({
         </div>
       </section>
 
-      {/* Best Sellers Section */}
-      <section className="py-20 bg-slate-50 dark:bg-slate-900">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h2 className="text-3xl font-bold text-center mb-12">{content.bestSellers}</h2>
-          <div className="grid md:grid-cols-4 gap-6">
-            {content.products.map((product) => (
-              <div
-                key={product.name}
-                className="bg-white dark:bg-slate-800 rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-shadow"
-              >
-                <div className="relative">
-                  <div className="aspect-square bg-gradient-to-br from-red-100 to-orange-100 dark:from-red-900 dark:to-orange-900 flex items-center justify-center">
-                    <span className="text-6xl">{product.icon}</span>
-                  </div>
-                  {product.popular && (
-                    <div className={`absolute top-2 ${isArabic ? 'right-2' : 'left-2'} bg-red-600 text-white px-3 py-1 rounded-full text-sm font-semibold`}>
-                      {content.mostPopular}
+      <section className="bg-slate-50 py-16 dark:bg-slate-900">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <h2 className="mb-10 text-center text-3xl font-bold">{isArabic ? 'منتجات القائمة' : 'Menu Products'}</h2>
+          {visibleProducts.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-slate-300 bg-white p-10 text-center text-slate-500 dark:border-slate-700 dark:bg-slate-950">
+              {isArabic ? 'لا توجد منتجات منشورة بعد. أضف المنتجات من لوحة التحكم لتظهر هنا.' : 'No published products yet. Add products from the dashboard to show them here.'}
+            </div>
+          ) : (
+            <div className="grid gap-6 md:grid-cols-4">
+              {visibleProducts.map((product) => {
+                const name = isArabic ? product.nameAr : product.nameEn
+                return (
+                  <div key={product.id} className="overflow-hidden rounded-lg bg-white shadow-lg transition-shadow hover:shadow-xl dark:bg-slate-800">
+                    <div className="relative flex aspect-square items-center justify-center bg-gradient-to-br from-red-50 to-amber-50 text-6xl dark:from-red-950 dark:to-slate-900">
+                      <ProductImage value={product.image} name={name} />
+                      {product.bestSeller && <div className="absolute top-2 rounded-full bg-red-600 px-3 py-1 text-sm font-semibold text-white ltr:left-2 rtl:right-2">{isArabic ? 'الأكثر مبيعًا' : 'Best Seller'}</div>}
                     </div>
-                  )}
-                </div>
-                <div className="p-4">
-                  <h3 className="font-bold text-lg mb-2">{product.name}</h3>
-                  <p className="text-red-600 font-bold text-xl mb-4">{product.price}</p>
-                  <Link href="/menu" className="block">
-                    <Button size="sm" className="w-full bg-red-600 hover:bg-red-700">
-                      {content.addToCart}
-                    </Button>
-                  </Link>
-                </div>
-              </div>
-            ))}
-          </div>
+                    <div className="p-4">
+                      <h3 className="mb-2 text-lg font-bold">{name}</h3>
+                      <p className="mb-4 text-xl font-bold text-red-600">{product.price} {currency}</p>
+                      <Button size="sm" className="w-full bg-red-600 hover:bg-red-700" onClick={() => addToCart(product.id)}>{isArabic ? 'أضف إلى السلة' : 'Add to Cart'}</Button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       </section>
 
-      {/* Download App Section */}
-      <section className="bg-gradient-to-r from-red-600 to-orange-600 text-white py-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h2 className="text-4xl font-bold mb-4">{content.downloadApp}</h2>
-          <p className="text-xl mb-6 opacity-90">{content.exclusiveOffers}</p>
-          <Button
-            onClick={() => setDownloadModalOpen(true)}
-            className="bg-white text-red-600 hover:bg-gray-100 font-bold text-lg px-8"
-          >
-            {content.download}
-          </Button>
+      <section className="bg-gradient-to-r from-red-600 to-orange-600 py-16 text-white">
+        <div className="mx-auto max-w-7xl px-4 text-center sm:px-6 lg:px-8">
+          <h2 className="mb-4 text-4xl font-bold">{isArabic ? 'نزّل التطبيق الآن' : 'Download App Now'}</h2>
+          <p className="mb-6 text-xl opacity-90">{isArabic ? 'احصل على إشعارات العروض وتتبع طلباتك بسهولة.' : 'Get offer notifications and track your orders easily.'}</p>
+          <Button onClick={() => setDownloadModalOpen(true)} className="bg-white px-8 text-lg font-bold text-red-600 hover:bg-gray-100">{isArabic ? 'تنزيل التطبيق' : 'Download App'}</Button>
         </div>
       </section>
 
-      {/* CTA Section */}
-      <section className="bg-red-600 text-white py-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h2 className="text-4xl font-bold mb-6">{content.hungry}</h2>
-          <Link href="/menu">
-            <Button size="lg" className="bg-white text-red-600 hover:bg-gray-100">
-              {content.startOrder}
-            </Button>
-          </Link>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="bg-slate-900 text-white py-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid md:grid-cols-4 gap-8 mb-8">
-            <div>
-              <h4 className="font-bold text-lg mb-4">{appName}</h4>
-              <p className="text-slate-400">
-                {isArabic ? 'طعام لذيذ وتوصيل سريع' : 'Delicious food and fast delivery'}
-              </p>
-            </div>
-            <div>
-              <h4 className="font-bold mb-4">{isArabic ? 'روابط سريعة' : 'Quick Links'}</h4>
-              <ul className="space-y-2 text-slate-400">
-                <li><Link href="/menu" className="hover:text-white">{isArabic ? 'القائمة' : 'Menu'}</Link></li>
-                <li><Link href="/orders" className="hover:text-white">{isArabic ? 'الطلبات' : 'Orders'}</Link></li>
-                <li><Link href="/profile" className="hover:text-white">{isArabic ? 'الملف الشخصي' : 'Profile'}</Link></li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-bold mb-4">{isArabic ? 'الشركة' : 'Company'}</h4>
-              <ul className="space-y-2 text-slate-400">
-                <li><Link href="/about" className="hover:text-white">{isArabic ? 'من نحن' : 'About Us'}</Link></li>
-                <li><Link href="/contact" className="hover:text-white">{isArabic ? 'اتصل بنا' : 'Contact Us'}</Link></li>
-                <li><Link href="/faq" className="hover:text-white">{isArabic ? 'الأسئلة الشائعة' : 'FAQ'}</Link></li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-bold mb-4">{isArabic ? 'القانونية' : 'Legal'}</h4>
-              <ul className="space-y-2 text-slate-400">
-                <li><Link href="/privacy" className="hover:text-white">{isArabic ? 'سياسة الخصوصية' : 'Privacy Policy'}</Link></li>
-                <li><Link href="/terms" className="hover:text-white">{isArabic ? 'الشروط والأحكام' : 'Terms & Conditions'}</Link></li>
-                <li><Link href="/refund" className="hover:text-white">{isArabic ? 'سياسة الاسترجاع' : 'Refund Policy'}</Link></li>
-              </ul>
-            </div>
-          </div>
-          <div className="border-t border-slate-800 pt-8 text-center text-slate-400">
-            <p>
-              &copy; 2026 {appName} {isArabic ? 'مطعم' : 'Restaurant'}. {isArabic ? 'جميع الحقوق محفوظة' : 'All rights reserved'}.
-            </p>
-          </div>
+      <footer className="bg-slate-900 py-12 text-white">
+        <div className="mx-auto max-w-7xl px-4 text-center text-slate-400 sm:px-6 lg:px-8">
+          <p>&copy; 2026 {appName}. {isArabic ? 'جميع الحقوق محفوظة' : 'All rights reserved'}.</p>
         </div>
       </footer>
 
-      {/* Download Modal */}
-      <DownloadModal
-        isOpen={downloadModalOpen}
-        onClose={() => setDownloadModalOpen(false)}
-      />
+      <DownloadModal isOpen={downloadModalOpen} onClose={() => setDownloadModalOpen(false)} />
     </main>
   )
+}
+
+function HeroImage({ value }: { value: string }) {
+  const isImage = value.startsWith('data:image') || value.startsWith('http') || value.startsWith('/')
+  return (
+    <div className="overflow-hidden rounded-lg bg-white p-4 shadow-lg dark:bg-slate-800">
+      <div className="flex aspect-square items-center justify-center overflow-hidden rounded-md bg-gradient-to-br from-red-100 to-amber-100 text-9xl dark:from-red-950 dark:to-slate-900">
+        {isImage ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={value} alt="Ranch hero" className="h-full w-full object-cover" />
+        ) : (
+          <span>{value || '🍽️'}</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ProductImage({ value, name }: { value: string; name: string }) {
+  const isImage = value.startsWith('data:image') || value.startsWith('http') || value.startsWith('/')
+  if (isImage) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={value} alt={name} className="h-full w-full object-cover" />
+  }
+  return <span>{value || '🍽️'}</span>
 }

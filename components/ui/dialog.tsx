@@ -1,6 +1,5 @@
 import * as React from "react"
-import { Slot } from "@radix-ui/react-slot"
-import { cva, type VariantProps } from "class-variance-authority"
+import { cva } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
@@ -12,8 +11,7 @@ const dialogVariants = cva(
   }
 )
 
-export interface DialogProps
-  extends React.HTMLAttributes<HTMLDivElement> {}
+export type DialogProps = React.HTMLAttributes<HTMLDivElement>
 
 const Dialog = React.forwardRef<HTMLDivElement, DialogProps>(
   ({ className, ...props }, ref) => (

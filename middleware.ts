@@ -18,6 +18,12 @@ const protectedDashboardRoutes = [
 
 const authRoutes = ['/login', '/register']
 
+type CookieToSet = {
+  name: string
+  value: string
+  options?: Record<string, unknown>
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
@@ -38,12 +44,12 @@ export async function middleware(request: NextRequest) {
         value: cookie.value,
       }))
     },
-    setAll(cookiesToSet: any) {
-      cookiesToSet.forEach(({ name, value, options }: any) => {
+    setAll(cookiesToSet: CookieToSet[]) {
+      cookiesToSet.forEach(({ name, value, options }) => {
         response.cookies.set(name, value, options)
       })
     },
-  } as any)
+  })
 
   // Get current session
   const {

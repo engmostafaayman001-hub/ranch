@@ -1,4 +1,5 @@
 'use client'
+
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/logo'
@@ -21,94 +22,46 @@ export function Navbar({ onMenuOpen, isLoggedIn, onLogout }: NavbarProps) {
   const canOpenDashboard = canAccessDashboardByEmail(user?.email)
 
   return (
-    <nav className="sticky top-0 z-40 w-full bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center h-16">
-          {/* Left side - Logo */}
-          <Link href="/" className="flex items-center space-x-3 flex-row-reverse group">
-            <Logo size="md" />
-            <span className="font-bold text-xl text-red-600 hidden sm:inline group-hover:text-red-700 transition">{appName}</span>
-          </Link>
-
-          {/* Right side - Actions */}
-          <div className="flex items-center space-x-2">
-            {/* Language Toggle */}
-            {isLoggedIn && <NotificationBell />}
-
-            {/* Language Toggle */}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={toggleLanguage}
-              title={language === 'ar' ? 'English' : 'العربية'}
-              className="text-sm font-semibold"
-            >
-              {language === 'ar' ? 'EN' : 'AR'}
-            </Button>
-
-            {/* Theme Toggle */}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={toggleTheme}
-              title={theme === 'light' ? t('darkMode') : t('lightMode')}
-            >
-              {theme === 'light' ? '☾' : '☀'}
-            </Button>
-
-            {/* Desktop Menu */}
-            <div className="hidden lg:flex items-center space-x-4">
-              <Link href="/menu">
-                <Button variant="ghost">{t('menu')}</Button>
-              </Link>
-              <Link href="/cart">
-                    <Button variant="ghost">🛒 {t('cart')}</Button>
-              </Link>
-              <Link href="/track">
-                <Button variant="ghost">{t('trackOrder')}</Button>
-              </Link>
-              {isLoggedIn ? (
-                <>
-                  <Link href="/profile">
-                    <Button variant="ghost">👤 {t('profile')}</Button>
-                  </Link>
-                  <Link href="/my-orders">
-                    <Button variant="ghost">{language === 'ar' ? 'طلباتي' : 'My Orders'}</Button>
-                  </Link>
-                  {canOpenDashboard && (
-                    <Link href="/dashboard">
-                      <Button variant="ghost">{language === 'ar' ? 'لوحة التحكم' : 'Dashboard'}</Button>
-                    </Link>
-                  )}
-                  <Button
-                    onClick={onLogout}
-                    variant="destructive"
-                    size="sm"
-                  >
-                    {t('logout')}
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Link href="/login">
-                    <Button>{t('login')}</Button>
-                  </Link>
-                  <Link href="/register">
-                    <Button variant="outline">{t('register')}</Button>
-                  </Link>
-                </>
-              )}
-            </div>
-
-            {/* Hamburger Menu - Always visible */}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onMenuOpen}
-              title={t('menu')}
-            >
+    <nav className="sticky top-0 z-40 w-full border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="flex h-16 items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" onClick={onMenuOpen} title={language === 'ar' ? 'فتح القائمة' : 'Open menu'}>
               ☰
             </Button>
+            <Link href="/" className="flex items-center gap-3">
+              <Logo size="md" />
+              <span className="hidden text-xl font-bold text-red-600 sm:inline">{appName}</span>
+            </Link>
+          </div>
+
+          <div className="hidden items-center gap-1 lg:flex">
+            <Link href="/menu"><Button variant="ghost">{t('menu')}</Button></Link>
+            <Link href="/cart"><Button variant="ghost">السلة</Button></Link>
+            <Link href="/track"><Button variant="ghost">{t('trackOrder')}</Button></Link>
+            <Link href="/my-orders"><Button variant="ghost">{language === 'ar' ? 'طلباتي' : 'My Orders'}</Button></Link>
+            {isLoggedIn && <Link href="/profile"><Button variant="ghost">{t('profile')}</Button></Link>}
+            {isLoggedIn && canOpenDashboard && <Link href="/dashboard"><Button variant="ghost">{language === 'ar' ? 'لوحة التحكم' : 'Dashboard'}</Button></Link>}
+          </div>
+
+          <div className="flex items-center gap-1">
+            <NotificationBell />
+            <Button variant="ghost" size="icon" onClick={toggleLanguage} title={language === 'ar' ? 'English' : 'العربية'} className="font-semibold">
+              {language === 'ar' ? 'EN' : 'AR'}
+            </Button>
+            <Button variant="ghost" size="icon" onClick={toggleTheme} title={theme === 'light' ? t('darkMode') : t('lightMode')}>
+              {theme === 'light' ? '☾' : '☀'}
+            </Button>
+            {isLoggedIn ? (
+              <Button onClick={onLogout} variant="destructive" size="sm" className="hidden sm:inline-flex">
+                {t('logout')}
+              </Button>
+            ) : (
+              <div className="hidden gap-2 sm:flex">
+                <Link href="/login"><Button size="sm" className="bg-red-600 hover:bg-red-700">{t('login')}</Button></Link>
+                <Link href="/register"><Button size="sm" variant="outline">{t('register')}</Button></Link>
+              </div>
+            )}
           </div>
         </div>
       </div>

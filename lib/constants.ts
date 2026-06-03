@@ -74,7 +74,7 @@ export const APP_NAME_EN = process.env.NEXT_PUBLIC_APP_NAME_EN || 'Ranch'
 export const APP_NAME = APP_NAME_AR
 
 export const SITE_DESCRIPTION_AR =
-  'رانش هو منصة طلبات مطاعم ذكية تمنح العملاء تجربة طلب سريعة، تتبع لحظي من التحضير حتى الاستلام، وربط مباشر مع نقاط البيع ولوحة التحكم.'
+  'رانش منصة طلبات مطاعم ذكية تمنح العملاء تجربة طلب سريعة، تتبع لحظي من التحضير حتى الاستلام، وربط مباشر مع نقاط البيع ولوحة التحكم.'
 export const SITE_DESCRIPTION_EN =
   'Ranch is a smart restaurant ordering platform with real-time order tracking, POS-ready order intake, fast delivery workflows, and a polished customer experience.'
 

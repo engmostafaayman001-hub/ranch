@@ -11,9 +11,11 @@ export function NotificationBell() {
   const [unreadCount, setUnreadCount] = useState(0)
 
   useEffect(() => {
+    let active = true
+
     const loadNotifications = async () => {
-      const response = await fetch('/api/notifications')
-      if (!response.ok) return
+      const response = await fetch('/api/notifications', { cache: 'no-store' })
+      if (!response.ok || !active) return
 
       const data = await response.json()
       const notifications: AppNotification[] = Array.isArray(data.notifications) ? data.notifications : []
@@ -22,11 +24,14 @@ export function NotificationBell() {
     }
 
     loadNotifications().catch(() => {})
-    const interval = window.setInterval(() => {
-      loadNotifications().catch(() => {})
-    }, 15000)
+    const interval = window.setInterval(() => loadNotifications().catch(() => {}), 10000)
+    window.addEventListener('focus', loadNotifications)
 
-    return () => window.clearInterval(interval)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+      window.removeEventListener('focus', loadNotifications)
+    }
   }, [])
 
   return (

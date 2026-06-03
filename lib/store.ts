@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 interface User {
   id: string
@@ -27,7 +28,11 @@ export const useAuthStore = create<AuthStore>((set) => ({
   logout: () => {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('user')
+      localStorage.removeItem('ranch-profile')
       document.cookie = 'app_user_email=; path=/; max-age=0; SameSite=Lax'
+      createSupabaseBrowserClient().auth.signOut().finally(() => {
+        window.location.href = '/'
+      })
     }
     set({ user: null, isLoggedIn: false })
   },

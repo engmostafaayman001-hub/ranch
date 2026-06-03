@@ -29,8 +29,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const stored = localStorage.getItem('theme') as Theme | null
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
     const initialTheme = stored || (prefersDark ? 'dark' : 'light')
-    setTheme(initialTheme)
     applyTheme(initialTheme)
+    queueMicrotask(() => setTheme(initialTheme))
   }, [])
 
   const toggleTheme = () => {

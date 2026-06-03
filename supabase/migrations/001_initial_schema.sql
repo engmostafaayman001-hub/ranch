@@ -1,4 +1,5 @@
 -- Create extensions
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "http";
 
@@ -14,7 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- Restaurant table
 CREATE TABLE IF NOT EXISTS restaurants (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
   address TEXT NOT NULL,
   phone TEXT,
@@ -26,7 +27,7 @@ CREATE TABLE IF NOT EXISTS restaurants (
 
 -- Team members with roles
 CREATE TABLE IF NOT EXISTS team_members (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   restaurant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
   role TEXT NOT NULL CHECK (role IN ('super_admin', 'admin', 'manager', 'cashier', 'delivery', 'support')),
@@ -38,7 +39,7 @@ CREATE TABLE IF NOT EXISTS team_members (
 
 -- Categories
 CREATE TABLE IF NOT EXISTS categories (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   restaurant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   image_url TEXT,
@@ -49,7 +50,7 @@ CREATE TABLE IF NOT EXISTS categories (
 
 -- Products
 CREATE TABLE IF NOT EXISTS products (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   restaurant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
   category_id UUID NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
@@ -64,7 +65,7 @@ CREATE TABLE IF NOT EXISTS products (
 
 -- Product sizes
 CREATE TABLE IF NOT EXISTS product_sizes (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
   size TEXT NOT NULL,
   price_modifier DECIMAL(10, 2) DEFAULT 0,
@@ -73,7 +74,7 @@ CREATE TABLE IF NOT EXISTS product_sizes (
 
 -- Product extras
 CREATE TABLE IF NOT EXISTS product_extras (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   price DECIMAL(10, 2) DEFAULT 0,
@@ -82,7 +83,7 @@ CREATE TABLE IF NOT EXISTS product_extras (
 
 -- Product reviews
 CREATE TABLE IF NOT EXISTS product_reviews (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   rating INT CHECK (rating >= 1 AND rating <= 5),
@@ -92,7 +93,7 @@ CREATE TABLE IF NOT EXISTS product_reviews (
 
 -- Customers
 CREATE TABLE IF NOT EXISTS customers (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   restaurant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
   phone TEXT,
@@ -105,7 +106,7 @@ CREATE TABLE IF NOT EXISTS customers (
 
 -- Customer addresses
 CREATE TABLE IF NOT EXISTS customer_addresses (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
   label TEXT,
   address TEXT NOT NULL,
@@ -117,7 +118,7 @@ CREATE TABLE IF NOT EXISTS customer_addresses (
 
 -- Orders
 CREATE TABLE IF NOT EXISTS orders (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   restaurant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
   customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'preparing', 'ready_for_delivery', 'out_for_delivery', 'delivered', 'cancelled', 'rejected', 'refunded')),
@@ -131,7 +132,7 @@ CREATE TABLE IF NOT EXISTS orders (
 
 -- Order items
 CREATE TABLE IF NOT EXISTS order_items (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
   product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
   quantity INT NOT NULL CHECK (quantity > 0),
@@ -142,7 +143,7 @@ CREATE TABLE IF NOT EXISTS order_items (
 
 -- Order timeline (for tracking status changes)
 CREATE TABLE IF NOT EXISTS order_timeline (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
   status TEXT NOT NULL,
   notes TEXT,
@@ -152,7 +153,7 @@ CREATE TABLE IF NOT EXISTS order_timeline (
 
 -- Payments
 CREATE TABLE IF NOT EXISTS payments (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   order_id UUID NOT NULL UNIQUE REFERENCES orders(id) ON DELETE CASCADE,
   method TEXT NOT NULL CHECK (method IN ('cash', 'vodafone_cash', 'instapay')),
   amount DECIMAL(10, 2) NOT NULL,
@@ -164,7 +165,7 @@ CREATE TABLE IF NOT EXISTS payments (
 
 -- Coupons
 CREATE TABLE IF NOT EXISTS coupons (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   restaurant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
   code TEXT NOT NULL UNIQUE,
   discount_percent DECIMAL(5, 2),
@@ -178,7 +179,7 @@ CREATE TABLE IF NOT EXISTS coupons (
 
 -- Offers
 CREATE TABLE IF NOT EXISTS offers (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   restaurant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   description TEXT,
@@ -191,7 +192,7 @@ CREATE TABLE IF NOT EXISTS offers (
 
 -- Banners
 CREATE TABLE IF NOT EXISTS banners (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   restaurant_id UUID NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   image_url TEXT NOT NULL,
@@ -203,7 +204,7 @@ CREATE TABLE IF NOT EXISTS banners (
 
 -- Notifications
 CREATE TABLE IF NOT EXISTS notifications (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   recipient_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   message TEXT NOT NULL,
@@ -215,7 +216,7 @@ CREATE TABLE IF NOT EXISTS notifications (
 
 -- POS Integration settings
 CREATE TABLE IF NOT EXISTS pos_integration (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   restaurant_id UUID NOT NULL UNIQUE REFERENCES restaurants(id) ON DELETE CASCADE,
   url TEXT,
   api_key TEXT,

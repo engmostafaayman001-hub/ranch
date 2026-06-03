@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useEffect, useState } from 'react'
 import { APP_NAME_AR, APP_NAME_EN } from '@/lib/constants'
 
 type Language = 'ar' | 'en'
@@ -16,9 +16,9 @@ const translations = {
     logout: 'تسجيل الخروج',
     login: 'دخول',
     register: 'تسجيل',
-    backHome: '← الصفحة الرئيسية',
-    lightMode: '☀️ الوضع الفاتح',
-    darkMode: '🌙 الوضع الداكن',
+    backHome: 'العودة للرئيسية',
+    lightMode: 'الوضع الفاتح',
+    darkMode: 'الوضع الداكن',
     aboutUs: 'من نحن',
     contactUs: 'اتصل بنا',
     faq: 'الأسئلة الشائعة',
@@ -32,17 +32,17 @@ const translations = {
     fastDelivery: 'توصيل سريع',
     freshFood: 'طعام طازج',
     greatPrices: 'أسعار رائعة',
-    featured: 'أكثر المنتجات مبيعًا',
+    featured: 'الأكثر مبيعًا',
     loginToAccount: 'تسجيل الدخول إلى حسابك',
-    email: 'عنوان البريد الإلكتروني',
+    email: 'البريد الإلكتروني',
     password: 'كلمة المرور',
     confirmPassword: 'تأكيد كلمة المرور',
     forgotPassword: 'هل نسيت كلمة المرور؟',
     noAccount: 'ليس لديك حساب؟',
-    haveAccount: 'هل لديك حساب بالفعل؟',
-    createAccount: 'إنشاء الحساب',
-    signUpHere: 'قم بالتسجيل هنا',
-    signInHere: 'تسجيل الدخول هنا',
+    haveAccount: 'لديك حساب بالفعل؟',
+    createAccount: 'إنشاء حساب',
+    signUpHere: 'سجل هنا',
+    signInHere: 'ادخل هنا',
     downloadApp: 'نزّل التطبيق الآن',
     installApp: 'ثبّت التطبيق الآن',
     installNow: 'ثبّت التطبيق',
@@ -50,8 +50,8 @@ const translations = {
     installing: 'جاري التثبيت...',
     getBestExperience: 'احصل على أفضل تجربة مع التطبيق المثبت',
     instantAccess: 'وصول فوري بضغطة واحدة',
-    offlineSupport: 'يعمل بدون إنترنت جزئيًا',
-    notifications: 'اشعارات فورية للطلبات',
+    offlineSupport: 'يعمل جزئيًا بدون إنترنت',
+    notifications: 'إشعارات فورية للطلبات',
     smallSize: 'لا يشغل مساحة كبيرة',
     aboutTitle: 'عن رانش',
     contactTitle: 'اتصل بنا',
@@ -67,9 +67,9 @@ const translations = {
     logout: 'Logout',
     login: 'Login',
     register: 'Register',
-    backHome: '← Back Home',
-    lightMode: '☀️ Light Mode',
-    darkMode: '🌙 Dark Mode',
+    backHome: 'Back Home',
+    lightMode: 'Light Mode',
+    darkMode: 'Dark Mode',
     aboutUs: 'About Us',
     contactUs: 'Contact Us',
     faq: 'FAQ',
@@ -113,39 +113,43 @@ const translations = {
 interface LanguageContextType {
   language: Language
   appName: string
+  setLanguage: (language: Language) => void
   toggleLanguage: () => void
   t: (key: keyof typeof translations.ar) => string
 }
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined)
 
+function applyLanguage(language: Language) {
+  localStorage.setItem('language', language)
+  document.documentElement.lang = language
+  document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr'
+}
+
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
-  const [language, setLanguage] = useState<Language>('en')
+  const [language, setLanguageState] = useState<Language>('ar')
 
   useEffect(() => {
     const stored = localStorage.getItem('language') as Language | null
-    if (stored) {
-      setLanguage(stored)
-      document.documentElement.lang = stored
-      document.documentElement.dir = stored === 'ar' ? 'rtl' : 'ltr'
-    }
+    const initial = stored || 'ar'
+    applyLanguage(initial)
+    queueMicrotask(() => setLanguageState(initial))
   }, [])
 
-  const toggleLanguage = () => {
-    const newLang = language === 'ar' ? 'en' : 'ar'
-    setLanguage(newLang)
-    localStorage.setItem('language', newLang)
-    document.documentElement.lang = newLang
-    document.documentElement.dir = newLang === 'ar' ? 'rtl' : 'ltr'
+  const setLanguage = (nextLanguage: Language) => {
+    setLanguageState(nextLanguage)
+    applyLanguage(nextLanguage)
   }
 
-  const t = (key: keyof typeof translations.ar): string => {
-    return translations[language][key] || translations.ar[key]
+  const toggleLanguage = () => {
+    setLanguage(language === 'ar' ? 'en' : 'ar')
   }
+
+  const t = (key: keyof typeof translations.ar): string => translations[language][key] || translations.ar[key]
   const appName = language === 'ar' ? APP_NAME_AR : APP_NAME_EN
 
   return (
-    <LanguageContext.Provider value={{ language, appName, toggleLanguage, t }}>
+    <LanguageContext.Provider value={{ language, appName, setLanguage, toggleLanguage, t }}>
       {children}
     </LanguageContext.Provider>
   )
