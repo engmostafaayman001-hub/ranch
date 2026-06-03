@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -15,9 +16,11 @@ import { signInWithGoogle, signOut, signUpWithEmail } from '@/lib/auth'
 
 export default function RegisterPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { login } = useAuthStore()
   const { language, appName, t } = useLanguage()
   const isArabic = language === 'ar'
+  const nextPath = searchParams.get('next') || '/'
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -57,7 +60,7 @@ export default function RegisterPage() {
       }).catch(() => {})
       login(userData)
       router.refresh()
-      window.location.href = '/'
+      window.location.href = nextPath
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : (isArabic ? 'فشل التسجيل' : 'Registration failed'))
     } finally {
@@ -70,7 +73,7 @@ export default function RegisterPage() {
     setError(null)
     try {
       await signOut().catch(() => {})
-      await signInWithGoogle()
+      await signInWithGoogle(nextPath)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : (isArabic ? 'فشل التسجيل مع جوجل' : 'Google signup failed'))
       setLoading(false)

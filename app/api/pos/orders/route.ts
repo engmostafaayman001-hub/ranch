@@ -1,6 +1,9 @@
 import { NextRequest } from 'next/server'
 import { deleteServerOrder, readServerOrders, updateServerOrderStatus, upsertServerOrder } from '@/lib/server-orders'
 import { PaymentStatus, TrackingStatus, trackingSteps, TrackedOrder } from '@/lib/order-tracking'
+import { canRequestAccessDashboard, getRequestUserEmail } from '@/lib/server-access'
+import { validateNotificationDiscount } from '@/lib/discounts'
+import { readServerNotifications } from '@/lib/server-notifications'
 
 export const runtime = 'nodejs'
 
@@ -82,14 +85,35 @@ function normalizePaymentStatus(value: unknown, method: string): PaymentStatus {
   return 'pending'
 }
 
+function getOrderSubtotal(body: Record<string, unknown>) {
+  if (Array.isArray(body.lines)) {
+    const linesTotal = body.lines.reduce((sum, line) => {
+      if (!line || typeof line !== 'object') return sum
+      const item = line as Record<string, unknown>
+      return sum + Number(item.price || 0) * Number(item.quantity || 0)
+    }, 0)
+    if (linesTotal > 0) return linesTotal
+  }
+
+  return Number(body.subtotal || body.itemsTotal || body.amount || body.total || 0)
+}
+
 export async function OPTIONS() {
   return new Response(null, { headers: corsHeaders })
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const userEmail = getRequestUserEmail(request)
+    const isAdmin = await canRequestAccessDashboard(request)
     const orders = await readServerOrders()
-    return json({ orders })
+
+    if (isAdmin) return json({ orders })
+    if (!userEmail) return json({ orders: [] })
+
+    return json({
+      orders: orders.filter((order) => order.customerEmail?.toLowerCase() === userEmail),
+    })
   } catch (error) {
     console.error('Failed to read POS orders:', error)
     return json({ error: 'Could not load orders', message: error instanceof Error ? error.message : 'Unknown error' }, { status: 500 })
@@ -109,15 +133,47 @@ export async function POST(request: NextRequest) {
     const customer = body.customer && typeof body.customer === 'object' ? body.customer : {}
     const payment = body.payment && typeof body.payment === 'object' ? body.payment : {}
     const paymentMethod = String(payment.method || body.paymentMethod || body.payMethod || 'cash')
+    const customerEmail = String(customer.email || body.customerEmail || body.email || '').toLowerCase()
+    const requestEmail = getRequestUserEmail(request)
+    const hasValidPosKey = getRequestApiKey(request) ? validateOptionalApiKey(request) : false
+    const isAdmin = await canRequestAccessDashboard(request)
+
+    if (!hasValidPosKey && !isAdmin && (!requestEmail || requestEmail !== customerEmail)) {
+      return json({ error: 'You can only create orders for your signed-in account' }, { status: 403 })
+    }
+
+    const subtotal = getOrderSubtotal(body)
+    const tax = Math.max(0, Number(body.tax || 0))
+    const deliveryFee = Math.max(0, Number(body.deliveryFee || body.delivery || 0))
+    const discountCode = String(body.discountCode || body.discount?.code || '').trim()
+    let discount: TrackedOrder['discount'] | undefined
+
+    if (discountCode) {
+      const notifications = await readServerNotifications()
+      const result = validateNotificationDiscount(notifications, discountCode, subtotal)
+      if (!result.valid) {
+        return json({ error: result.reason }, { status: 400 })
+      }
+      discount = {
+        code: result.code,
+        type: result.discountType,
+        value: result.discountValue,
+        amount: Number(result.discountAmount.toFixed(2)),
+      }
+    }
+
+    const calculatedTotal = subtotal + tax + deliveryFee - (discount?.amount || 0)
+    const finalTotal = Math.max(0, Number(calculatedTotal.toFixed(2)))
 
     const order: TrackedOrder = {
       id,
       source: String(body.source || 'app'),
       externalReference: body.externalReference || body.posOrderId ? String(body.externalReference || body.posOrderId) : undefined,
       customer: String(customer.name || body.customerName || body.customer || 'Customer'),
+      customerEmail,
       phone: String(customer.phone || body.phone || ''),
       address: String(customer.address || body.address || ''),
-      total: Number(body.total || body.amount || body.grandTotal || 0),
+      total: finalTotal,
       items: Number(body.items || body.itemsCount || body.lines?.length || 0),
       status,
       createdAt: String(body.createdAt || now),
@@ -134,6 +190,7 @@ export async function POST(request: NextRequest) {
         receiptDataUrl: payment.receiptDataUrl ? String(payment.receiptDataUrl) : undefined,
         receiptUploadedAt: payment.receiptUploadedAt ? String(payment.receiptUploadedAt) : undefined,
       },
+      discount,
       history: Array.isArray(body.history) && body.history.length > 0
         ? body.history
         : [{ status, at: String(body.createdAt || now) }],
@@ -149,7 +206,9 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    if (!validateOptionalApiKey(request)) {
+    const hasValidPosKey = getRequestApiKey(request) ? validateOptionalApiKey(request) : false
+    const isAdmin = await canRequestAccessDashboard(request)
+    if (!hasValidPosKey && !isAdmin) {
       return json({ error: 'Invalid POS API key' }, { status: 401 })
     }
 
@@ -189,7 +248,9 @@ export async function PATCH(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    if (!validateOptionalApiKey(request)) {
+    const hasValidPosKey = getRequestApiKey(request) ? validateOptionalApiKey(request) : false
+    const isAdmin = await canRequestAccessDashboard(request)
+    if (!hasValidPosKey && !isAdmin) {
       return json({ error: 'Invalid POS API key' }, { status: 401 })
     }
 

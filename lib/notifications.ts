@@ -3,6 +3,11 @@ export interface AppNotification {
   title: string
   message: string
   code?: string
+  discountType?: 'percent' | 'fixed'
+  discountValue?: number
+  minSubtotal?: number
+  active?: boolean
+  expiresAt?: string
   audience: 'all_customers'
   createdAt: string
 }

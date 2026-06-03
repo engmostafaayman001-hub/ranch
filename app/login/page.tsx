@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -15,9 +16,11 @@ import { signInWithEmail, signInWithGoogle } from '@/lib/auth'
 
 export default function LoginPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { login } = useAuthStore()
   const { language, appName, t } = useLanguage()
   const isArabic = language === 'ar'
+  const nextPath = searchParams.get('next') || '/'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -42,7 +45,7 @@ export default function LoginPage() {
         email: authUser.email || normalizedEmail,
       })
       router.refresh()
-      window.location.href = '/'
+      window.location.href = nextPath
     } catch {
       setError(isArabic ? 'هذا البريد غير مسجل أو كلمة المرور غير صحيحة. من فضلك سجل حسابًا جديدًا إذا لم يكن لديك حساب.' : 'This email is not registered or the password is incorrect. Please create an account if you do not have one.')
     } finally {
@@ -54,7 +57,7 @@ export default function LoginPage() {
     setLoading(true)
     setError(null)
     try {
-      await signInWithGoogle()
+      await signInWithGoogle(nextPath)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : (isArabic ? 'فشل تسجيل الدخول مع جوجل' : 'Google login failed'))
       setLoading(false)

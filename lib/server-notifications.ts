@@ -25,13 +25,18 @@ export async function readServerNotifications(): Promise<AppNotification[]> {
   }
 }
 
-export async function createServerNotification(input: Pick<AppNotification, 'title' | 'message' | 'code'>) {
+export async function createServerNotification(input: Pick<AppNotification, 'title' | 'message' | 'code' | 'discountType' | 'discountValue' | 'minSubtotal' | 'active' | 'expiresAt'>) {
   const notifications = await readServerNotifications()
   const notification: AppNotification = {
     id: `NTF${Date.now()}`,
     title: input.title,
     message: input.message,
-    code: input.code,
+    code: input.code?.trim().toUpperCase() || undefined,
+    discountType: 'discountType' in input && input.discountType === 'fixed' ? 'fixed' : 'percent',
+    discountValue: 'discountValue' in input ? Number(input.discountValue) || undefined : undefined,
+    minSubtotal: 'minSubtotal' in input ? Number(input.minSubtotal) || 0 : 0,
+    active: 'active' in input ? input.active !== false : true,
+    expiresAt: 'expiresAt' in input && input.expiresAt ? String(input.expiresAt) : undefined,
     audience: 'all_customers',
     createdAt: new Date().toISOString(),
   }

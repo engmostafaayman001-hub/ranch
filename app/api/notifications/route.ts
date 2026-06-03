@@ -18,13 +18,31 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const title = String(body.title || '').trim()
     const message = String(body.message || '').trim()
-    const code = String(body.code || '').trim()
+    const code = String(body.code || '').trim().toUpperCase()
+    const discountType = body.discountType === 'fixed' ? 'fixed' : 'percent'
+    const discountValue = Number(body.discountValue || 0)
+    const minSubtotal = Number(body.minSubtotal || 0)
+    const active = body.active !== false
+    const expiresAt = body.expiresAt ? String(body.expiresAt) : undefined
 
     if (!title || !message) {
       return Response.json({ error: 'Title and message are required' }, { status: 400 })
     }
 
-    const notification = await createServerNotification({ title, message, code: code || undefined })
+    if (code && (!Number.isFinite(discountValue) || discountValue <= 0)) {
+      return Response.json({ error: 'Discount value is required when a code is provided' }, { status: 400 })
+    }
+
+    const notification = await createServerNotification({
+      title,
+      message,
+      code: code || undefined,
+      discountType,
+      discountValue: code ? discountValue : undefined,
+      minSubtotal,
+      active,
+      expiresAt,
+    })
     return Response.json({ notification }, { status: 201 })
   } catch (error) {
     console.error('Notifications POST failed:', error)

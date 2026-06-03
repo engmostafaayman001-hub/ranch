@@ -1,13 +1,13 @@
 'use client'
 
 import Link from 'next/link'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/logo'
 import { useTheme } from '@/components/theme-provider'
 import { useLanguage } from '@/components/language-provider'
 import { ROUTES } from '@/lib/constants'
 import { useAuthStore } from '@/lib/store'
-import { canAccessDashboardByEmail } from '@/lib/access'
 
 interface SidebarProps {
   isOpen: boolean
@@ -20,10 +20,31 @@ export function Sidebar({ isOpen, onClose, isLoggedIn, onLogout }: SidebarProps)
   const { theme, toggleTheme } = useTheme()
   const { language, appName, toggleLanguage, t } = useLanguage()
   const user = useAuthStore((state) => state.user)
-  const canOpenDashboard = canAccessDashboardByEmail(user?.email)
+  const [canOpenDashboard, setCanOpenDashboard] = useState(false)
   const align = language === 'ar' ? 'justify-end text-right' : 'justify-start text-left'
 
   const itemClass = `w-full ${align}`
+
+  useEffect(() => {
+    if (!isLoggedIn || !user?.email) {
+      queueMicrotask(() => setCanOpenDashboard(false))
+      return
+    }
+
+    let active = true
+    fetch('/api/auth/dashboard-access', { cache: 'no-store' })
+      .then((response) => response.json())
+      .then((data) => {
+        if (active) setCanOpenDashboard(Boolean(data.allowed))
+      })
+      .catch(() => {
+        if (active) setCanOpenDashboard(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [isLoggedIn, user?.email])
 
   return (
     <>

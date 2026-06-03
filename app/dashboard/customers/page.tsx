@@ -50,7 +50,7 @@ export default function DashboardCustomersPage() {
     }
 
     for (const order of orders) {
-      const key = order.phone || order.customer.toLowerCase()
+      const key = order.customerEmail?.toLowerCase() || order.phone || order.customer.toLowerCase()
       const existing = map.get(key)
       if (existing) {
         existing.ordersCount += 1

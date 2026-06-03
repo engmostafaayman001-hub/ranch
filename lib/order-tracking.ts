@@ -28,11 +28,19 @@ export interface OrderPayment {
   receiptUploadedAt?: string
 }
 
+export interface OrderDiscount {
+  code: string
+  type: 'percent' | 'fixed'
+  value: number
+  amount: number
+}
+
 export interface TrackedOrder {
   id: string
   source?: string
   externalReference?: string
   customer: string
+  customerEmail?: string
   phone: string
   address: string
   total: number
@@ -46,6 +54,7 @@ export interface TrackedOrder {
     rating: number
   }
   payment?: OrderPayment
+  discount?: OrderDiscount
   history: TrackingEvent[]
 }
 
@@ -88,6 +97,13 @@ export function getTrackedOrders(): TrackedOrder[] {
   }
 }
 
+export function getTrackedOrdersForEmail(email?: string | null): TrackedOrder[] {
+  const normalized = email?.trim().toLowerCase()
+  const orders = getTrackedOrders()
+  if (!normalized) return orders.filter((order) => !order.customerEmail)
+  return orders.filter((order) => order.customerEmail?.toLowerCase() === normalized)
+}
+
 export function saveTrackedOrders(orders: TrackedOrder[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(orders))
 }
@@ -119,6 +135,17 @@ export function syncTrackedOrdersFromServer(serverOrders: TrackedOrder[]) {
   const merged = Array.from(byId.values()).sort((a, b) => latestOrderTime(b) - latestOrderTime(a))
   saveTrackedOrders(merged)
   return merged
+}
+
+export function syncTrackedOrdersForEmail(serverOrders: TrackedOrder[], email?: string | null) {
+  const normalized = email?.trim().toLowerCase()
+  const scopedOrders = normalized
+    ? serverOrders.filter((order) => order.customerEmail?.toLowerCase() === normalized)
+    : serverOrders.filter((order) => !order.customerEmail)
+
+  return syncTrackedOrdersFromServer(scopedOrders).filter((order) =>
+    normalized ? order.customerEmail?.toLowerCase() === normalized : !order.customerEmail
+  )
 }
 
 export function upsertTrackedOrder(order: TrackedOrder) {

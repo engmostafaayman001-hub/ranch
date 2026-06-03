@@ -11,14 +11,14 @@ import { Sidebar } from '@/components/sidebar'
 import { CURRENCY, PAYMENT_METHOD_LABELS, ROUTES } from '@/lib/constants'
 import { useLanguage } from '@/components/language-provider'
 import { useAuthStore } from '@/lib/store'
-import { findTrackedOrder, getStatusIndex, statusLabels, syncTrackedOrdersFromServer, TrackedOrder, trackingSteps, upsertTrackedOrder } from '@/lib/order-tracking'
+import { getStatusIndex, getTrackedOrdersForEmail, statusLabels, syncTrackedOrdersForEmail, TrackedOrder, trackingSteps, upsertTrackedOrder } from '@/lib/order-tracking'
 
 export default function TrackOrderPage() {
   const params = useParams()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [order, setOrder] = useState<TrackedOrder | null>(null)
   const [loading, setLoading] = useState(true)
-  const { isLoggedIn, logout } = useAuthStore()
+  const { isLoggedIn, logout, user } = useAuthStore()
   const { language } = useLanguage()
   const isArabic = language === 'ar'
   const orderId = String(params.orderId || '')
@@ -31,18 +31,19 @@ export default function TrackOrderPage() {
         const response = await fetch('/api/pos/orders', { cache: 'no-store' })
         const data = await response.json().catch(() => ({}))
         const apiOrders = Array.isArray(data.orders) ? data.orders as TrackedOrder[] : []
+        const visibleOrders = isLoggedIn && user?.email
+          ? syncTrackedOrdersForEmail(apiOrders, user.email)
+          : getTrackedOrdersForEmail(null)
         const apiOrder = apiOrders.find((item) => item.id.toLowerCase() === orderId.toLowerCase())
+        const visibleOrder = visibleOrders.find((item) => item.id.toLowerCase() === orderId.toLowerCase())
 
-        if (apiOrders.length > 0) {
-          syncTrackedOrdersFromServer(apiOrders)
-          if (active) setOrder(apiOrder || null)
-        } else if (active) {
-          setOrder(findTrackedOrder(orderId) || null)
-        }
+        if (active) setOrder(visibleOrder || null)
 
-        if (apiOrder) upsertTrackedOrder(apiOrder)
+        if (apiOrder && visibleOrder) upsertTrackedOrder(apiOrder)
       } catch {
-        if (active) setOrder(findTrackedOrder(orderId) || null)
+        const localOrder = (isLoggedIn && user?.email ? getTrackedOrdersForEmail(user.email) : getTrackedOrdersForEmail(null))
+          .find((item) => item.id.toLowerCase() === orderId.toLowerCase())
+        if (active) setOrder(localOrder || null)
       } finally {
         if (active) setLoading(false)
       }
@@ -55,7 +56,7 @@ export default function TrackOrderPage() {
       window.clearTimeout(timer)
       window.clearInterval(interval)
     }
-  }, [orderId])
+  }, [orderId, isLoggedIn, user?.email])
 
   const handleLogout = () => {
     logout()

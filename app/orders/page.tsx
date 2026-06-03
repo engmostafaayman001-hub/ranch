@@ -10,7 +10,7 @@ import { Sidebar } from '@/components/sidebar'
 import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN, ROUTES } from '@/lib/constants'
 import { useAuthStore } from '@/lib/store'
-import { getTrackedOrders, statusLabels, syncTrackedOrdersFromServer, TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
+import { getTrackedOrdersForEmail, statusLabels, syncTrackedOrdersForEmail, TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
 
 const getStatusColor = (status: TrackingStatus) => {
   switch (status) {
@@ -32,7 +32,7 @@ export default function OrdersPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [orders, setOrders] = useState<TrackedOrder[]>([])
   const [loading, setLoading] = useState(true)
-  const { isLoggedIn, logout } = useAuthStore()
+  const { isLoggedIn, logout, user } = useAuthStore()
   const { language } = useLanguage()
   const isArabic = language === 'ar'
   const currency = isArabic ? CURRENCY : CURRENCY_EN
@@ -45,10 +45,12 @@ export default function OrdersPage() {
         const response = await fetch('/api/pos/orders', { cache: 'no-store' })
         const data = await response.json().catch(() => ({}))
         const apiOrders = Array.isArray(data.orders) ? data.orders as TrackedOrder[] : []
-        const nextOrders = apiOrders.length > 0 ? syncTrackedOrdersFromServer(apiOrders) : getTrackedOrders()
+
+        const userEmail = user?.email?.toLowerCase()
+        const nextOrders = userEmail ? syncTrackedOrdersForEmail(apiOrders, userEmail) : []
         if (active) setOrders(nextOrders)
       } catch {
-        if (active) setOrders(getTrackedOrders())
+        if (active) setOrders(user?.email ? getTrackedOrdersForEmail(user.email) : [])
       } finally {
         if (active) setLoading(false)
       }
@@ -61,7 +63,7 @@ export default function OrdersPage() {
       window.clearTimeout(timer)
       window.clearInterval(interval)
     }
-  }, [])
+  }, [user?.email])
 
   const handleLogout = () => {
     logout()

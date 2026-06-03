@@ -10,7 +10,16 @@ import { AppNotification } from '@/lib/notifications'
 
 export default function DashboardNotificationsPage() {
   const [notifications, setNotifications] = useState<AppNotification[]>([])
-  const [form, setForm] = useState({ title: '', message: '', code: '' })
+  const [form, setForm] = useState({
+    title: '',
+    message: '',
+    code: '',
+    discountType: 'percent',
+    discountValue: '10',
+    minSubtotal: '',
+    active: true,
+    expiresAt: '',
+  })
   const [status, setStatus] = useState('')
   const [sending, setSending] = useState(false)
 
@@ -44,7 +53,7 @@ export default function DashboardNotificationsPage() {
         throw new Error(errorData.message || errorData.error || 'Notification failed')
       }
 
-      setForm({ title: '', message: '', code: '' })
+      setForm({ title: '', message: '', code: '', discountType: 'percent', discountValue: '10', minSubtotal: '', active: true, expiresAt: '' })
       setStatus('تم إرسال الإشعار إلى العملاء بنجاح.')
       await loadNotifications()
     } catch (error) {
@@ -80,6 +89,33 @@ export default function DashboardNotificationsPage() {
                 <Label htmlFor="code">كود الخصم</Label>
                 <Input id="code" value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value.toUpperCase() })} placeholder="RANCH20" />
               </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor="discountType">نوع الخصم</Label>
+                  <select id="discountType" value={form.discountType} onChange={(event) => setForm({ ...form, discountType: event.target.value })} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950">
+                    <option value="percent">نسبة مئوية</option>
+                    <option value="fixed">مبلغ ثابت</option>
+                  </select>
+                </div>
+                <div>
+                  <Label htmlFor="discountValue">قيمة الخصم</Label>
+                  <Input id="discountValue" type="number" min="0" step="0.01" value={form.discountValue} onChange={(event) => setForm({ ...form, discountValue: event.target.value })} placeholder="10" />
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor="minSubtotal">حد أدنى للطلب</Label>
+                  <Input id="minSubtotal" type="number" min="0" step="0.01" value={form.minSubtotal} onChange={(event) => setForm({ ...form, minSubtotal: event.target.value })} placeholder="0" />
+                </div>
+                <div>
+                  <Label htmlFor="expiresAt">تاريخ الانتهاء</Label>
+                  <Input id="expiresAt" type="date" value={form.expiresAt} onChange={(event) => setForm({ ...form, expiresAt: event.target.value })} />
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <input type="checkbox" checked={form.active} onChange={(event) => setForm({ ...form, active: event.target.checked })} />
+                الكود فعال
+              </label>
               <Button disabled={sending} className="bg-red-600 hover:bg-red-700">
                 {sending ? 'جاري الإرسال...' : 'إرسال لجميع العملاء'}
               </Button>
@@ -100,6 +136,11 @@ export default function DashboardNotificationsPage() {
                     <p className="font-semibold">{notification.title}</p>
                     {notification.code && <span className="rounded bg-red-600 px-2 py-1 text-xs text-white">{notification.code}</span>}
                   </div>
+                  {notification.code && (
+                    <p className="mt-1 text-xs font-semibold text-green-700 dark:text-green-300">
+                      {notification.active === false ? 'غير فعال' : 'فعال'} - {notification.discountType === 'fixed' ? `${Number(notification.discountValue || 10).toFixed(2)} ج.م` : `${Number(notification.discountValue || 10)}%`}
+                    </p>
+                  )}
                   <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{notification.message}</p>
                   <p className="mt-2 text-xs text-slate-500">{new Date(notification.createdAt).toLocaleString('ar-EG')}</p>
                 </div>

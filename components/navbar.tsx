@@ -1,12 +1,12 @@
 'use client'
 
 import Link from 'next/link'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/logo'
 import { useTheme } from '@/components/theme-provider'
 import { useLanguage } from '@/components/language-provider'
 import { useAuthStore } from '@/lib/store'
-import { canAccessDashboardByEmail } from '@/lib/access'
 import { NotificationBell } from '@/components/notification-bell'
 
 interface NavbarProps {
@@ -19,7 +19,28 @@ export function Navbar({ onMenuOpen, isLoggedIn, onLogout }: NavbarProps) {
   const { theme, toggleTheme } = useTheme()
   const { language, appName, toggleLanguage, t } = useLanguage()
   const user = useAuthStore((state) => state.user)
-  const canOpenDashboard = canAccessDashboardByEmail(user?.email)
+  const [canOpenDashboard, setCanOpenDashboard] = useState(false)
+
+  useEffect(() => {
+    if (!isLoggedIn || !user?.email) {
+      queueMicrotask(() => setCanOpenDashboard(false))
+      return
+    }
+
+    let active = true
+    fetch('/api/auth/dashboard-access', { cache: 'no-store' })
+      .then((response) => response.json())
+      .then((data) => {
+        if (active) setCanOpenDashboard(Boolean(data.allowed))
+      })
+      .catch(() => {
+        if (active) setCanOpenDashboard(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [isLoggedIn, user?.email])
 
   return (
     <nav className="sticky top-0 z-40 w-full border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">

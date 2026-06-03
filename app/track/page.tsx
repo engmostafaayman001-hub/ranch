@@ -12,14 +12,14 @@ import { Sidebar } from '@/components/sidebar'
 import { CURRENCY } from '@/lib/constants'
 import { useLanguage } from '@/components/language-provider'
 import { useAuthStore } from '@/lib/store'
-import { TrackedOrder, getTrackedOrders, statusLabels, syncTrackedOrdersFromServer } from '@/lib/order-tracking'
+import { TrackedOrder, getTrackedOrdersForEmail, statusLabels, syncTrackedOrdersForEmail } from '@/lib/order-tracking'
 
 export default function TrackPage() {
   const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [orderId, setOrderId] = useState('')
   const [recentOrders, setRecentOrders] = useState<TrackedOrder[]>([])
-  const { isLoggedIn, logout } = useAuthStore()
+  const { isLoggedIn, logout, user } = useAuthStore()
   const { language } = useLanguage()
   const isArabic = language === 'ar'
 
@@ -31,10 +31,12 @@ export default function TrackPage() {
         const response = await fetch('/api/pos/orders', { cache: 'no-store' })
         const data = await response.json().catch(() => ({}))
         const orders = Array.isArray(data.orders) ? data.orders as TrackedOrder[] : []
-        const nextOrders = orders.length > 0 ? syncTrackedOrdersFromServer(orders) : getTrackedOrders()
+        const nextOrders = isLoggedIn && user?.email
+          ? syncTrackedOrdersForEmail(orders, user.email)
+          : getTrackedOrdersForEmail(null)
         if (active) setRecentOrders(nextOrders)
       } catch {
-        if (active) setRecentOrders(getTrackedOrders())
+        if (active) setRecentOrders(isLoggedIn && user?.email ? getTrackedOrdersForEmail(user.email) : getTrackedOrdersForEmail(null))
       }
     }
 
@@ -45,7 +47,7 @@ export default function TrackPage() {
       window.clearTimeout(timer)
       window.clearInterval(interval)
     }
-  }, [])
+  }, [isLoggedIn, user?.email])
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault()
