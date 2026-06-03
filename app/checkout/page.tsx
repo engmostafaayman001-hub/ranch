@@ -30,7 +30,7 @@ export default function CheckoutPage() {
     phone: '',
     address: '',
     city: '',
-    paymentMethod: 'cash',
+    paymentMethod: PAYMENT_METHODS.CASH,
   })
   const [receipt, setReceipt] = useState<{ name: string; dataUrl: string } | null>(null)
   const [loading, setLoading] = useState(false)
@@ -106,7 +106,7 @@ export default function CheckoutPage() {
     setAppliedDiscount(null)
 
     if (!code) {
-      setDiscountMessage(isArabic ? 'اكتب كود الخصم أولاً.' : 'Enter a discount code first.')
+      setDiscountMessage(isArabic ? 'اكتب كود الخصم أولًا.' : 'Enter a discount code first.')
       return
     }
 
@@ -289,7 +289,7 @@ export default function CheckoutPage() {
                       <Input id="email" name="email" type="email" value={formData.email || user?.email || ''} disabled required />
                     </div>
                     <div>
-                      <Label htmlFor="phone">{isArabic ? 'رقم الهاتف' : 'Phone'}</Label>
+                      <Label htmlFor="phone">{isArabic ? 'الهاتف' : 'Phone'}</Label>
                       <Input id="phone" name="phone" value={formData.phone} onChange={handleChange} required />
                     </div>
                   </div>
@@ -342,7 +342,7 @@ export default function CheckoutPage() {
                         placeholder="RANCH20"
                       />
                       <Button type="button" variant="outline" disabled={validatingDiscount || subtotal <= 0} onClick={applyDiscountCode}>
-                        {validatingDiscount ? (isArabic ? 'جاري...' : 'Checking...') : (isArabic ? 'تطبيق' : 'Apply')}
+                        {validatingDiscount ? (isArabic ? 'جاري الفحص...' : 'Checking...') : (isArabic ? 'تطبيق' : 'Apply')}
                       </Button>
                     </div>
                     {discountMessage && (

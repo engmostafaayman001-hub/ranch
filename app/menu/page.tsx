@@ -98,7 +98,7 @@ export default function MenuPage() {
                     <span className="text-lg font-bold text-red-600">{product.price} {currency}</span>
                     <div className="text-sm"><span className="text-yellow-500">★</span> {product.rating} <span className="text-slate-500">({product.reviews})</span></div>
                   </div>
-                  <div className="text-xs text-slate-500">⏱ {product.preparationTime} {isArabic ? 'دقيقة' : 'min'}</div>
+                  <div className="text-xs text-slate-500">{product.preparationTime} {isArabic ? 'دقيقة' : 'min'}</div>
                 </CardContent>
                 <CardFooter>
                   <Button onClick={() => handleAddToCart(product.id)} disabled={!product.available} className="w-full bg-red-600 hover:bg-red-700">

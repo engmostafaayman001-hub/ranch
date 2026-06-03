@@ -8,6 +8,7 @@ import { FileInput } from '@/components/ui/file-input'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { useLanguage } from '@/components/language-provider'
 import { MenuCategory, MenuProduct, useAppStore } from '@/lib/app-store'
 import { saveSharedCatalog, useSharedAppData } from '@/lib/use-shared-app-data'
 
@@ -28,6 +29,8 @@ const createId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().to
 
 export default function DashboardProductsPage() {
   useSharedAppData()
+  const { language } = useLanguage()
+  const isArabic = language === 'ar'
   const { categories, products, setCatalog } = useAppStore()
   const [categoryForm, setCategoryForm] = useState({ nameAr: '', nameEn: '', active: true })
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null)
@@ -38,7 +41,16 @@ export default function DashboardProductsPage() {
   const [saving, setSaving] = useState(false)
 
   const activeCategories = useMemo(() => categories.filter((category) => category.active), [categories])
-  const categoryName = (id: string) => categories.find((category) => category.id === id)?.nameAr || 'بدون قسم'
+  const categoryName = (id: string) => categories.find((category) => category.id === id)?.[isArabic ? 'nameAr' : 'nameEn'] || (isArabic ? 'بدون قسم' : 'No category')
+
+  const t = {
+    title: isArabic ? 'إدارة المنتجات والأقسام' : 'Products & Categories',
+    subtitle: isArabic ? 'أي منتج تضيفه أو تعدله هنا يتم حفظه على السيرفر ويظهر لكل المستخدمين.' : 'Products added or edited here are saved on the server and shown to all users.',
+    saveOk: isArabic ? 'تم حفظ التغييرات وظهورها لجميع المستخدمين.' : 'Changes saved and published to all users.',
+    saveLocal: isArabic ? 'تم حفظ التغيير محليًا فقط.' : 'Changes were saved locally only.',
+    categoryForm: editingCategoryId ? (isArabic ? 'تعديل قسم' : 'Edit Category') : (isArabic ? 'إضافة قسم' : 'Add Category'),
+    productForm: editingProductId ? (isArabic ? 'تعديل منتج' : 'Edit Product') : (isArabic ? 'إضافة منتج' : 'Add Product'),
+  }
 
   const publishCatalog = async (nextCategories: MenuCategory[], nextProducts: MenuProduct[]) => {
     setCatalog({ categories: nextCategories, products: nextProducts })
@@ -47,9 +59,9 @@ export default function DashboardProductsPage() {
     try {
       const data = await saveSharedCatalog(nextCategories, nextProducts)
       setCatalog({ categories: data.categories || nextCategories, products: data.products || nextProducts })
-      setSaveStatus('تم حفظ التغييرات وظهورها لجميع المستخدمين.')
+      setSaveStatus(t.saveOk)
     } catch (error) {
-      setSaveStatus(error instanceof Error ? error.message : 'تم حفظ التغيير محلياً فقط.')
+      setSaveStatus(error instanceof Error ? error.message : t.saveLocal)
     } finally {
       setSaving(false)
       window.setTimeout(() => setSaveStatus(''), 3000)
@@ -67,10 +79,7 @@ export default function DashboardProductsPage() {
     if (!categoryForm.nameAr.trim() || !categoryForm.nameEn.trim()) return
 
     if (editingCategoryId) {
-      publishCatalog(
-        categories.map((category) => (category.id === editingCategoryId ? { ...category, ...categoryForm } : category)),
-        products
-      )
+      publishCatalog(categories.map((category) => (category.id === editingCategoryId ? { ...category, ...categoryForm } : category)), products)
       setEditingCategoryId(null)
     } else {
       publishCatalog([...categories, { ...categoryForm, id: createId('category') }], products)
@@ -78,46 +87,18 @@ export default function DashboardProductsPage() {
     setCategoryForm({ nameAr: '', nameEn: '', active: true })
   }
 
-  const editCategory = (id: string) => {
-    const category = categories.find((item) => item.id === id)
-    if (!category) return
-    setEditingCategoryId(id)
+  const editCategory = (category: MenuCategory) => {
+    setEditingCategoryId(category.id)
     setCategoryForm({ nameAr: category.nameAr, nameEn: category.nameEn, active: category.active })
   }
 
   const deleteCategory = (id: string) => {
-    publishCatalog(
-      categories.filter((category) => category.id !== id),
-      products.filter((product) => product.categoryId !== id)
-    )
-  }
-
-  const handleImageUpload = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
-
-    if (!file.type.startsWith('image/')) {
-      setUploadStatus('اختر ملف صورة فقط.')
-      return
-    }
-
-    if (file.size > 2 * 1024 * 1024) {
-      setUploadStatus('حجم الصورة يجب أن يكون أقل من 2 MB.')
-      return
-    }
-
-    const reader = new FileReader()
-    reader.onload = () => {
-      setProductForm((current) => ({ ...current, image: String(reader.result) }))
-      setUploadStatus(`تم رفع الصورة بنجاح: ${file.name}`)
-    }
-    reader.onerror = () => setUploadStatus('تعذر رفع الصورة. حاول مرة أخرى.')
-    reader.readAsDataURL(file)
+    publishCatalog(categories.filter((category) => category.id !== id), products.filter((product) => product.categoryId !== id))
   }
 
   const submitProduct = (event: FormEvent) => {
     event.preventDefault()
-    const categoryId = productForm.categoryId || activeCategories[0]?.id
+    const categoryId = productForm.categoryId || activeCategories[0]?.id || categories[0]?.id || ''
     if (!productForm.nameAr.trim() || !productForm.nameEn.trim() || !categoryId) return
 
     const payload = {
@@ -125,14 +106,10 @@ export default function DashboardProductsPage() {
       categoryId,
       price: Number(productForm.price),
       preparationTime: Number(productForm.preparationTime),
-      image: productForm.image.trim() || '🍽️',
     }
 
     if (editingProductId) {
-      publishCatalog(
-        categories,
-        products.map((product) => (product.id === editingProductId ? { ...product, ...payload } : product))
-      )
+      publishCatalog(categories, products.map((product) => (product.id === editingProductId ? { ...product, ...payload } : product)))
     } else {
       publishCatalog(categories, [...products, { ...payload, id: createId('product'), rating: 0, reviews: 0 }])
     }
@@ -156,190 +133,158 @@ export default function DashboardProductsPage() {
     setUploadStatus('')
   }
 
-  const toggleProductAvailability = (id: string) => {
-    publishCatalog(
-      categories,
-      products.map((product) => (product.id === id ? { ...product, available: !product.available } : product))
-    )
-  }
-
   const deleteProduct = (id: string) => {
     publishCatalog(categories, products.filter((product) => product.id !== id))
+  }
+
+  const toggleProductAvailability = (id: string) => {
+    publishCatalog(categories, products.map((product) => (product.id === id ? { ...product, available: !product.available } : product)))
+  }
+
+  const handleImageUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setUploadStatus(isArabic ? 'اختر ملف صورة فقط.' : 'Choose an image file only.')
+      return
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setUploadStatus(isArabic ? 'حجم الصورة يجب أن يكون أقل من 2 MB.' : 'Image size must be less than 2 MB.')
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      setProductForm((current) => ({ ...current, image: String(reader.result) }))
+      setUploadStatus(isArabic ? `تم رفع الصورة: ${file.name}` : `Image uploaded: ${file.name}`)
+    }
+    reader.onerror = () => setUploadStatus(isArabic ? 'تعذر رفع الصورة. حاول مرة أخرى.' : 'Could not upload the image. Try again.')
+    reader.readAsDataURL(file)
   }
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-3xl font-bold">إدارة المنتجات والأقسام</h2>
-        <p className="mt-2 text-slate-500 dark:text-slate-400">أي منتج تضيفه أو تعدله هنا يتم حفظه على السيرفر ويظهر لكل المستخدمين.</p>
-        {saveStatus && <p className="mt-3 rounded-md bg-slate-100 px-3 py-2 text-sm text-slate-700 dark:bg-slate-900 dark:text-slate-200">{saveStatus}</p>}
+        <h2 className="text-3xl font-bold">{t.title}</h2>
+        <p className="mt-2 text-slate-500 dark:text-slate-400">{t.subtitle}</p>
+        {saveStatus && <p className="mt-2 text-sm font-medium text-green-600">{saveStatus}</p>}
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[360px_1fr]">
-        <div className="space-y-6">
-          <Card>
-            <CardHeader><CardTitle>{editingCategoryId ? 'تعديل قسم' : 'إضافة قسم'}</CardTitle></CardHeader>
-            <CardContent>
-              <form onSubmit={submitCategory} className="space-y-4">
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader><CardTitle>{t.categoryForm}</CardTitle></CardHeader>
+          <CardContent>
+            <form onSubmit={submitCategory} className="space-y-4">
+              <Field id="category-ar" label={isArabic ? 'اسم القسم بالعربية' : 'Category name in Arabic'} value={categoryForm.nameAr} onChange={(value) => setCategoryForm({ ...categoryForm, nameAr: value })} />
+              <Field id="category-en" label={isArabic ? 'اسم القسم بالإنجليزية' : 'Category name in English'} value={categoryForm.nameEn} onChange={(value) => setCategoryForm({ ...categoryForm, nameEn: value })} />
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={categoryForm.active} onChange={(event) => setCategoryForm({ ...categoryForm, active: event.target.checked })} />
+                {isArabic ? 'القسم ظاهر في القائمة' : 'Category is visible in the menu'}
+              </label>
+              <Button type="submit" disabled={saving} className="bg-red-600 hover:bg-red-700">{editingCategoryId ? (isArabic ? 'حفظ القسم' : 'Save Category') : (isArabic ? 'إضافة قسم' : 'Add Category')}</Button>
+            </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle>{isArabic ? 'الأقسام الحالية' : 'Current Categories'}</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            {categories.length === 0 ? (
+              <p className="py-8 text-center text-slate-500">{isArabic ? 'أضف قسمًا أولًا قبل إضافة المنتجات.' : 'Add a category before adding products.'}</p>
+            ) : categories.map((category) => (
+              <div key={category.id} className="flex items-center justify-between rounded-md border border-slate-200 p-3 dark:border-slate-800">
                 <div>
-                  <Label htmlFor="category-ar">اسم القسم بالعربي</Label>
-                  <Input id="category-ar" value={categoryForm.nameAr} onChange={(event) => setCategoryForm({ ...categoryForm, nameAr: event.target.value })} />
+                  <p className="font-semibold">{isArabic ? category.nameAr : category.nameEn}</p>
+                  <Badge className={category.active ? 'bg-green-600' : 'bg-slate-500'}>{category.active ? (isArabic ? 'ظاهر' : 'Visible') : (isArabic ? 'مخفي' : 'Hidden')}</Badge>
                 </div>
-                <div>
-                  <Label htmlFor="category-en">Category name in English</Label>
-                  <Input id="category-en" value={categoryForm.nameEn} onChange={(event) => setCategoryForm({ ...categoryForm, nameEn: event.target.value })} />
-                </div>
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={categoryForm.active} onChange={(event) => setCategoryForm({ ...categoryForm, active: event.target.checked })} />
-                  القسم ظاهر في القائمة
-                </label>
                 <div className="flex gap-2">
-                  <Button type="submit" disabled={saving} className="bg-red-600 hover:bg-red-700">{editingCategoryId ? 'حفظ القسم' : 'إضافة القسم'}</Button>
-                  {editingCategoryId && <Button type="button" variant="outline" onClick={() => setEditingCategoryId(null)}>إلغاء</Button>}
+                  <Button size="sm" variant="outline" disabled={saving} onClick={() => editCategory(category)}>{isArabic ? 'تعديل' : 'Edit'}</Button>
+                  <Button size="sm" variant="destructive" disabled={saving} onClick={() => deleteCategory(category.id)}>{isArabic ? 'حذف' : 'Delete'}</Button>
                 </div>
-              </form>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader><CardTitle>الأقسام الحالية</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
-              {categories.length === 0 ? (
-                <p className="py-8 text-center text-slate-500">أضف قسماً أولاً قبل إضافة المنتجات.</p>
-              ) : (
-                categories.map((category) => (
-                  <div key={category.id} className="rounded-md border border-slate-200 p-3 dark:border-slate-800">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-semibold">{category.nameAr}</p>
-                        <p className="text-sm text-slate-500">{category.nameEn}</p>
-                      </div>
-                      <Badge className={category.active ? 'bg-green-600' : 'bg-slate-500'}>{category.active ? 'ظاهر' : 'مخفي'}</Badge>
-                    </div>
-                    <div className="mt-3 flex gap-2">
-                      <Button type="button" size="sm" variant="outline" onClick={() => editCategory(category.id)}>تعديل</Button>
-                      <Button type="button" size="sm" variant="destructive" disabled={saving} onClick={() => deleteCategory(category.id)}>حذف</Button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="space-y-6">
-          <Card>
-            <CardHeader><CardTitle>{editingProductId ? 'تعديل منتج' : 'إضافة منتج'}</CardTitle></CardHeader>
-            <CardContent>
-              <form onSubmit={submitProduct} className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <Label htmlFor="name-ar">اسم المنتج بالعربي</Label>
-                  <Input id="name-ar" value={productForm.nameAr} onChange={(event) => setProductForm({ ...productForm, nameAr: event.target.value })} required />
-                </div>
-                <div>
-                  <Label htmlFor="name-en">Product name in English</Label>
-                  <Input id="name-en" value={productForm.nameEn} onChange={(event) => setProductForm({ ...productForm, nameEn: event.target.value })} required />
-                </div>
-                <div>
-                  <Label htmlFor="description-ar">الوصف بالعربي</Label>
-                  <Textarea id="description-ar" value={productForm.descriptionAr} onChange={(event) => setProductForm({ ...productForm, descriptionAr: event.target.value })} />
-                </div>
-                <div>
-                  <Label htmlFor="description-en">Description in English</Label>
-                  <Textarea id="description-en" value={productForm.descriptionEn} onChange={(event) => setProductForm({ ...productForm, descriptionEn: event.target.value })} />
-                </div>
-                <div>
-                  <Label htmlFor="category">القسم</Label>
-                  <select id="category" value={productForm.categoryId || activeCategories[0]?.id || ''} onChange={(event) => setProductForm({ ...productForm, categoryId: event.target.value })} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950">
-                    <option value="" disabled>اختر قسماً</option>
-                    {activeCategories.map((category) => <option key={category.id} value={category.id}>{category.nameAr} / {category.nameEn}</option>)}
-                  </select>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label htmlFor="price">السعر</Label>
-                    <Input id="price" type="number" min="0" value={productForm.price} onChange={(event) => setProductForm({ ...productForm, price: Number(event.target.value) })} />
-                  </div>
-                  <div>
-                    <Label htmlFor="time">الدقائق</Label>
-                    <Input id="time" type="number" min="1" value={productForm.preparationTime} onChange={(event) => setProductForm({ ...productForm, preparationTime: Number(event.target.value) })} />
-                  </div>
-                </div>
-                <div className="md:col-span-2">
-                  <Label htmlFor="image-upload">رفع صورة المنتج</Label>
-                  <FileInput id="image-upload" accept="image/*" onChange={handleImageUpload} className="mt-1" />
-                  {uploadStatus && <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">{uploadStatus}</p>}
-                </div>
-                <div className="md:col-span-2">
-                  <Label htmlFor="image">مسار الصورة أو الرمز</Label>
-                  <Input id="image" value={productForm.image} onChange={(event) => setProductForm({ ...productForm, image: event.target.value })} placeholder="/images/product.png أو رابط صورة أو رمز" />
-                </div>
-                <div className="md:col-span-2">
-                  <Label>معاينة الصورة</Label>
-                  <div className="mt-2 h-44 overflow-hidden rounded-md border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900">
-                    <ProductPreview value={productForm.image} />
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-4 md:col-span-2">
-                  <label className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={productForm.available} onChange={(event) => setProductForm({ ...productForm, available: event.target.checked })} />
-                    متوفر للبيع
-                  </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={productForm.bestSeller} onChange={(event) => setProductForm({ ...productForm, bestSeller: event.target.checked })} />
-                    يظهر في الأكثر مبيعاً
-                  </label>
-                </div>
-                <div className="flex gap-2 md:col-span-2">
-                  <Button type="submit" disabled={saving} className="bg-red-600 hover:bg-red-700">{editingProductId ? 'حفظ المنتج' : 'إضافة المنتج'}</Button>
-                  {editingProductId && <Button type="button" variant="outline" onClick={resetProduct}>إلغاء</Button>}
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader><CardTitle>كل المنتجات</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
-              {products.length === 0 ? (
-                <p className="py-8 text-center text-slate-500">لا توجد منتجات حتى الآن.</p>
-              ) : (
-                products.map((product) => (
-                  <div key={product.id} className="grid gap-4 rounded-md border border-slate-200 p-4 dark:border-slate-800 md:grid-cols-[80px_1fr_auto]">
-                    <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-md bg-red-50 text-4xl dark:bg-red-950">
-                      <ProductPreview value={product.image} />
-                    </div>
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="font-bold">{product.nameAr}</h3>
-                        <Badge className={product.available ? 'bg-green-600' : 'bg-slate-500'}>{product.available ? 'متوفر' : 'غير متوفر'}</Badge>
-                        {product.bestSeller && <Badge className="bg-red-600">الأكثر مبيعاً</Badge>}
-                      </div>
-                      <p className="text-sm text-slate-500">{product.nameEn}</p>
-                      <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{product.descriptionAr}</p>
-                      <p className="mt-2 text-sm font-semibold text-red-600">{product.price} ج.م - {categoryName(product.categoryId)}</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2 md:flex-col">
-                      <Button size="sm" variant="outline" onClick={() => editProduct(product)}>تعديل</Button>
-                      <Button size="sm" variant="outline" disabled={saving} onClick={() => toggleProductAvailability(product.id)}>{product.available ? 'غير متوفر' : 'متوفر'}</Button>
-                      <Button size="sm" variant="destructive" disabled={saving} onClick={() => deleteProduct(product.id)}>حذف</Button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       </div>
+
+      <Card>
+        <CardHeader><CardTitle>{t.productForm}</CardTitle></CardHeader>
+        <CardContent>
+          <form onSubmit={submitProduct} className="grid gap-4 lg:grid-cols-2">
+            <Field id="name-ar" label={isArabic ? 'اسم المنتج بالعربية' : 'Product name in Arabic'} value={productForm.nameAr} onChange={(value) => setProductForm({ ...productForm, nameAr: value })} />
+            <Field id="name-en" label={isArabic ? 'اسم المنتج بالإنجليزية' : 'Product name in English'} value={productForm.nameEn} onChange={(value) => setProductForm({ ...productForm, nameEn: value })} />
+            <div>
+              <Label htmlFor="description-ar">{isArabic ? 'الوصف بالعربية' : 'Description in Arabic'}</Label>
+              <Textarea id="description-ar" value={productForm.descriptionAr} onChange={(event) => setProductForm({ ...productForm, descriptionAr: event.target.value })} />
+            </div>
+            <div>
+              <Label htmlFor="description-en">{isArabic ? 'الوصف بالإنجليزية' : 'Description in English'}</Label>
+              <Textarea id="description-en" value={productForm.descriptionEn} onChange={(event) => setProductForm({ ...productForm, descriptionEn: event.target.value })} />
+            </div>
+            <div>
+              <Label htmlFor="category">{isArabic ? 'القسم' : 'Category'}</Label>
+              <select id="category" value={productForm.categoryId} onChange={(event) => setProductForm({ ...productForm, categoryId: event.target.value })} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950">
+                <option value="" disabled>{isArabic ? 'اختر قسمًا' : 'Choose a category'}</option>
+                {activeCategories.map((category) => <option key={category.id} value={category.id}>{isArabic ? category.nameAr : category.nameEn}</option>)}
+              </select>
+            </div>
+            <Field id="price" label={isArabic ? 'السعر' : 'Price'} value={String(productForm.price)} onChange={(value) => setProductForm({ ...productForm, price: Number(value) })} type="number" />
+            <Field id="time" label={isArabic ? 'الدقائق' : 'Minutes'} value={String(productForm.preparationTime)} onChange={(value) => setProductForm({ ...productForm, preparationTime: Number(value) })} type="number" />
+            <div>
+              <Label htmlFor="image-upload">{isArabic ? 'رفع صورة المنتج' : 'Upload Product Image'}</Label>
+              <FileInput id="image-upload" accept="image/*" onChange={handleImageUpload} className="mt-1" />
+              {uploadStatus && <p className="mt-2 text-sm text-slate-500">{uploadStatus}</p>}
+            </div>
+            <Field id="image" label={isArabic ? 'مسار الصورة أو الرمز' : 'Image path or emoji'} value={productForm.image} onChange={(value) => setProductForm({ ...productForm, image: value })} />
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={productForm.available} onChange={(event) => setProductForm({ ...productForm, available: event.target.checked })} />
+              {isArabic ? 'متوفر للبيع' : 'Available for sale'}
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={productForm.bestSeller} onChange={(event) => setProductForm({ ...productForm, bestSeller: event.target.checked })} />
+              {isArabic ? 'يظهر في الأكثر مبيعًا' : 'Show as best seller'}
+            </label>
+            <div className="lg:col-span-2 flex gap-2">
+              <Button type="submit" disabled={saving} className="bg-red-600 hover:bg-red-700">{editingProductId ? (isArabic ? 'حفظ المنتج' : 'Save Product') : (isArabic ? 'إضافة منتج' : 'Add Product')}</Button>
+              {editingProductId && <Button type="button" variant="outline" onClick={resetProduct}>{isArabic ? 'إلغاء' : 'Cancel'}</Button>}
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>{isArabic ? 'كل المنتجات' : 'All Products'}</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          {products.length === 0 ? (
+            <p className="py-8 text-center text-slate-500">{isArabic ? 'لا توجد منتجات حتى الآن.' : 'No products yet.'}</p>
+          ) : products.map((product) => (
+            <div key={product.id} className="flex flex-col gap-3 rounded-md border border-slate-200 p-3 dark:border-slate-800 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="font-semibold">{isArabic ? product.nameAr : product.nameEn}</p>
+                <p className="text-sm text-slate-500">{categoryName(product.categoryId)} - {product.price}</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Badge className={product.available ? 'bg-green-600' : 'bg-slate-500'}>{product.available ? (isArabic ? 'متوفر' : 'Available') : (isArabic ? 'غير متوفر' : 'Unavailable')}</Badge>
+                  {product.bestSeller && <Badge className="bg-red-600">{isArabic ? 'الأكثر مبيعًا' : 'Best Seller'}</Badge>}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" disabled={saving} onClick={() => toggleProductAvailability(product.id)}>{product.available ? (isArabic ? 'إخفاء' : 'Hide') : (isArabic ? 'إظهار' : 'Show')}</Button>
+                <Button size="sm" variant="outline" disabled={saving} onClick={() => editProduct(product)}>{isArabic ? 'تعديل' : 'Edit'}</Button>
+                <Button size="sm" variant="destructive" disabled={saving} onClick={() => deleteProduct(product.id)}>{isArabic ? 'حذف' : 'Delete'}</Button>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
     </div>
   )
 }
 
-function ProductPreview({ value }: { value: string }) {
-  const isImage = value.startsWith('data:image') || value.startsWith('http') || value.startsWith('/')
-  if (isImage) {
-    // eslint-disable-next-line @next/next/no-img-element
-    return <img src={value} alt="Product preview" className="h-full w-full object-cover" />
-  }
-  return <div className="flex h-full w-full items-center justify-center text-5xl">{value || '🍽️'}</div>
+function Field({ id, label, value, onChange, type = 'text' }: { id: string; label: string; value: string; onChange: (value: string) => void; type?: string }) {
+  return (
+    <div>
+      <Label htmlFor={id}>{label}</Label>
+      <Input id={id} type={type} value={value} onChange={(event) => onChange(event.target.value)} />
+    </div>
+  )
 }

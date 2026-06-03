@@ -2,8 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -47,7 +46,7 @@ export default function LoginPage() {
       router.refresh()
       window.location.href = nextPath
     } catch {
-      setError(isArabic ? 'هذا البريد غير مسجل أو كلمة المرور غير صحيحة. من فضلك سجل حسابًا جديدًا إذا لم يكن لديك حساب.' : 'This email is not registered or the password is incorrect. Please create an account if you do not have one.')
+      setError(isArabic ? 'هذا البريد غير مسجل أو كلمة المرور غير صحيحة. أنشئ حسابًا إذا لم يكن لديك حساب.' : 'This email is not registered or the password is incorrect. Please create an account if you do not have one.')
     } finally {
       setLoading(false)
     }
@@ -74,7 +73,7 @@ export default function LoginPage() {
             <p className="text-slate-600 dark:text-slate-400">{t('loginToAccount')}</p>
           </div>
 
-          {error && <div className="rounded border border-red-400 bg-red-100 px-4 py-3 text-sm text-red-700 dark:border-red-700 dark:bg-red-900 dark:text-red-200">⚠ {error}</div>}
+          {error && <div className="rounded border border-red-400 bg-red-100 px-4 py-3 text-sm text-red-700 dark:border-red-700 dark:bg-red-900 dark:text-red-200">{error}</div>}
 
           <form onSubmit={handleEmailLogin} className="space-y-4">
             <div>
@@ -83,7 +82,7 @@ export default function LoginPage() {
             </div>
             <div>
               <Label htmlFor="password">{t('password')}</Label>
-              <Input id="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required className="mt-1" placeholder="••••••••" disabled={loading} />
+              <Input id="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required className="mt-1" placeholder="********" disabled={loading} />
             </div>
             <Button type="submit" disabled={loading} className="w-full bg-red-600 text-white hover:bg-red-700">
               {loading ? (isArabic ? 'جاري تسجيل الدخول...' : 'Signing in...') : t('login')}

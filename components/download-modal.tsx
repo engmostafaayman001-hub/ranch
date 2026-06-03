@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { Bell, Download, HardDrive, MousePointerClick, WifiOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useLanguage } from '@/components/language-provider'
 import { Logo } from '@/components/logo'
@@ -24,15 +25,14 @@ export function DownloadModal({ isOpen, onClose }: DownloadModalProps) {
   const isArabic = language === 'ar'
 
   useEffect(() => {
-    const handler = (e: Event) => {
-      e.preventDefault()
-      const evt = e as BeforeInstallPromptEvent
-      setDeferredPrompt(evt)
+    const handler = (event: Event) => {
+      event.preventDefault()
+      const installEvent = event as BeforeInstallPromptEvent
+      setDeferredPrompt(installEvent)
       setCanInstall(true)
     }
 
     window.addEventListener('beforeinstallprompt', handler)
-
     return () => window.removeEventListener('beforeinstallprompt', handler)
   }, [])
 
@@ -50,7 +50,7 @@ export function DownloadModal({ isOpen, onClose }: DownloadModalProps) {
       return
     }
 
-    deferredPrompt.prompt()
+    await deferredPrompt.prompt()
     const { outcome } = await deferredPrompt.userChoice
 
     if (outcome === 'accepted') {
@@ -67,55 +67,46 @@ export function DownloadModal({ isOpen, onClose }: DownloadModalProps) {
 
   if (!isOpen) return null
 
+  const benefits = [
+    { icon: MousePointerClick, text: t('instantAccess') },
+    { icon: WifiOff, text: t('offlineSupport') },
+    { icon: Bell, text: t('notifications') },
+    { icon: HardDrive, text: t('smallSize') },
+  ]
+
   return (
     <>
-      {/* Overlay */}
-      <div className="fixed inset-0 bg-black/50 z-50" onClick={onClose} />
-
-      {/* Modal */}
-      <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-md">
-        <div className="bg-white dark:bg-slate-900 rounded-lg shadow-xl p-6 space-y-6">
-          {/* Header */}
-          <div className="text-center space-y-2">
+      <div className="fixed inset-0 z-50 bg-black/50" onClick={onClose} />
+      <div className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2">
+        <div className="space-y-6 rounded-lg bg-white p-6 shadow-xl dark:bg-slate-900">
+          <div className="space-y-2 text-center">
             <div className="mx-auto flex justify-center">
               <Logo size="xl" />
             </div>
             <h2 className="text-2xl font-bold">
-              {isArabic ? `ثبّت تطبيق ${appName}` : `Install ${appName} App`}
+              {isArabic ? `ثبت تطبيق ${appName}` : `Install ${appName} App`}
             </h2>
-            <p className="text-slate-600 dark:text-slate-400">
-              {t('getBestExperience')}
-            </p>
+            <p className="text-slate-600 dark:text-slate-400">{t('getBestExperience')}</p>
           </div>
 
-          {/* Benefits */}
           <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <span className="text-xl">⚡</span>
-              <span>{t('instantAccess')}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xl">📱</span>
-              <span>{t('offlineSupport')}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xl">🔔</span>
-              <span>{t('notifications')}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xl">💾</span>
-              <span>{t('smallSize')}</span>
-            </div>
+            {benefits.map((item) => {
+              const Icon = item.icon
+              return (
+                <div key={item.text} className="flex items-center gap-3">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-md bg-red-50 text-red-600 dark:bg-red-950">
+                    <Icon className="h-4 w-4" aria-hidden="true" />
+                  </span>
+                  <span>{item.text}</span>
+                </div>
+              )
+            })}
           </div>
 
-          {/* Install Button */}
           <div className="space-y-3">
-            <Button
-              onClick={handleInstall}
-              disabled={downloading}
-              className="w-full bg-red-600 hover:bg-red-700 text-white"
-            >
-              {downloading ? t('installing') : `⬇️ ${canInstall ? t('installNow') : t('downloadApp')}`}
+            <Button onClick={handleInstall} disabled={downloading} className="w-full gap-2 bg-red-600 text-white hover:bg-red-700">
+              <Download className="h-4 w-4" aria-hidden="true" />
+              {downloading ? t('installing') : canInstall ? t('installNow') : t('downloadApp')}
             </Button>
             {installMessage && (
               <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-200">
@@ -124,12 +115,7 @@ export function DownloadModal({ isOpen, onClose }: DownloadModalProps) {
             )}
           </div>
 
-          {/* Close Button */}
-          <Button
-            onClick={onClose}
-            variant="outline"
-            className="w-full"
-          >
+          <Button onClick={onClose} variant="outline" className="w-full">
             {t('notNow')}
           </Button>
         </div>

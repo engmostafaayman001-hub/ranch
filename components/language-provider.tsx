@@ -12,7 +12,10 @@ const translations = {
     cart: 'السلة',
     profile: 'الملف الشخصي',
     orders: 'الطلبات',
+    myOrders: 'طلباتي',
     trackOrder: 'تتبع الطلب',
+    dashboard: 'لوحة التحكم',
+    notifications: 'الإشعارات',
     logout: 'تسجيل الخروج',
     login: 'دخول',
     register: 'تسجيل',
@@ -43,15 +46,14 @@ const translations = {
     createAccount: 'إنشاء حساب',
     signUpHere: 'سجل هنا',
     signInHere: 'ادخل هنا',
-    downloadApp: 'نزّل التطبيق الآن',
-    installApp: 'ثبّت التطبيق الآن',
-    installNow: 'ثبّت التطبيق',
+    downloadApp: 'نزل التطبيق الآن',
+    installApp: 'ثبت التطبيق الآن',
+    installNow: 'ثبت التطبيق',
     notNow: 'ليس الآن',
     installing: 'جاري التثبيت...',
     getBestExperience: 'احصل على أفضل تجربة مع التطبيق المثبت',
     instantAccess: 'وصول فوري بضغطة واحدة',
     offlineSupport: 'يعمل جزئيًا بدون إنترنت',
-    notifications: 'إشعارات فورية للطلبات',
     smallSize: 'لا يشغل مساحة كبيرة',
     aboutTitle: 'عن رانش',
     contactTitle: 'اتصل بنا',
@@ -63,7 +65,10 @@ const translations = {
     cart: 'Cart',
     profile: 'Profile',
     orders: 'Orders',
+    myOrders: 'My Orders',
     trackOrder: 'Track Order',
+    dashboard: 'Dashboard',
+    notifications: 'Notifications',
     logout: 'Logout',
     login: 'Login',
     register: 'Register',
@@ -102,7 +107,6 @@ const translations = {
     getBestExperience: 'Get the best experience with the installed app',
     instantAccess: 'Instant access with one tap',
     offlineSupport: 'Works partially without internet',
-    notifications: 'Instant notifications for orders',
     smallSize: "Doesn't take much space",
     aboutTitle: 'About Ranch',
     contactTitle: 'Contact Us',
@@ -110,12 +114,14 @@ const translations = {
   },
 }
 
+type TranslationKey = keyof typeof translations.ar
+
 interface LanguageContextType {
   language: Language
   appName: string
   setLanguage: (language: Language) => void
   toggleLanguage: () => void
-  t: (key: keyof typeof translations.ar) => string
+  t: (key: TranslationKey) => string
 }
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined)
@@ -145,7 +151,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     setLanguage(language === 'ar' ? 'en' : 'ar')
   }
 
-  const t = (key: keyof typeof translations.ar): string => translations[language][key] || translations.ar[key]
+  const t = (key: TranslationKey): string => translations[language][key] || translations.ar[key]
   const appName = language === 'ar' ? APP_NAME_AR : APP_NAME_EN
 
   return (

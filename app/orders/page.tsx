@@ -45,7 +45,6 @@ export default function OrdersPage() {
         const response = await fetch('/api/pos/orders', { cache: 'no-store' })
         const data = await response.json().catch(() => ({}))
         const apiOrders = Array.isArray(data.orders) ? data.orders as TrackedOrder[] : []
-
         const userEmail = user?.email?.toLowerCase()
         const nextOrders = userEmail ? syncTrackedOrdersForEmail(apiOrders, userEmail) : []
         if (active) setOrders(nextOrders)

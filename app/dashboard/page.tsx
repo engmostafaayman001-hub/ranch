@@ -4,7 +4,8 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { CURRENCY } from '@/lib/constants'
+import { useLanguage } from '@/components/language-provider'
+import { CURRENCY, CURRENCY_EN } from '@/lib/constants'
 import { TrackedOrder } from '@/lib/order-tracking'
 
 type DashboardCustomer = {
@@ -13,6 +14,9 @@ type DashboardCustomer = {
 }
 
 export default function DashboardPage() {
+  const { language } = useLanguage()
+  const isArabic = language === 'ar'
+  const currency = isArabic ? CURRENCY : CURRENCY_EN
   const [orders, setOrders] = useState<TrackedOrder[]>([])
   const [customers, setCustomers] = useState<DashboardCustomer[]>([])
   const [loading, setLoading] = useState(true)
@@ -53,13 +57,13 @@ export default function DashboardPage() {
     const todayOrders = orders.filter((order) => new Date(order.createdAt).toDateString() === today).length
 
     return [
-      ['إجمالي الطلبات', String(orders.length)],
-      ['إيرادات الطلبات', `${revenue.toFixed(2)} ${CURRENCY}`],
-      ['طلبات نشطة', String(activeOrders)],
-      ['طلبات اليوم', String(todayOrders)],
-      ['العملاء', String(customers.length)],
+      [isArabic ? 'إجمالي الطلبات' : 'Total Orders', String(orders.length)],
+      [isArabic ? 'إيرادات الطلبات' : 'Order Revenue', `${revenue.toFixed(2)} ${currency}`],
+      [isArabic ? 'طلبات نشطة' : 'Active Orders', String(activeOrders)],
+      [isArabic ? 'طلبات اليوم' : 'Today Orders', String(todayOrders)],
+      [isArabic ? 'العملاء' : 'Customers', String(customers.length)],
     ]
-  }, [orders, customers])
+  }, [orders, customers, isArabic, currency])
 
   const recentOrders = orders.slice(0, 5)
 
@@ -67,13 +71,13 @@ export default function DashboardPage() {
     <div>
       <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-3xl font-bold">نظرة عامة</h2>
+          <h2 className="text-3xl font-bold">{isArabic ? 'نظرة عامة' : 'Overview'}</h2>
           <p className="mt-2 text-slate-600 dark:text-slate-400">
-            أرقام حقيقية من الطلبات والعملاء، ويتم تحديثها تلقائيًا كل 15 ثانية.
+            {isArabic ? 'أرقام حقيقية من الطلبات والعملاء، ويتم تحديثها تلقائيًا كل 15 ثانية.' : 'Live numbers from orders and customers, refreshed every 15 seconds.'}
           </p>
         </div>
         <Link href="/dashboard/orders">
-          <Button className="bg-red-600 hover:bg-red-700">إدارة الطلبات</Button>
+          <Button className="bg-red-600 hover:bg-red-700">{isArabic ? 'إدارة الطلبات' : 'Manage Orders'}</Button>
         </Link>
       </div>
 
@@ -93,20 +97,20 @@ export default function DashboardPage() {
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <Card>
           <CardHeader>
-            <CardTitle>أحدث الطلبات</CardTitle>
+            <CardTitle>{isArabic ? 'أحدث الطلبات' : 'Recent Orders'}</CardTitle>
           </CardHeader>
           <CardContent>
             {recentOrders.length === 0 ? (
-              <p className="py-8 text-center text-slate-500">لا توجد طلبات حقيقية بعد.</p>
+              <p className="py-8 text-center text-slate-500">{isArabic ? 'لا توجد طلبات حقيقية بعد.' : 'No real orders yet.'}</p>
             ) : (
               <div className="space-y-3">
                 {recentOrders.map((order) => (
                   <div key={order.id} className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="font-semibold">{order.id}</p>
-                      <p className="text-sm text-slate-500">{order.customer} - {order.phone || 'بدون رقم'}</p>
+                      <p className="text-sm text-slate-500">{order.customer} - {order.phone || (isArabic ? 'بدون رقم' : 'No phone')}</p>
                     </div>
-                    <div className="text-sm font-semibold">{Number(order.total || 0).toFixed(2)} {CURRENCY}</div>
+                    <div className="text-sm font-semibold">{Number(order.total || 0).toFixed(2)} {currency}</div>
                   </div>
                 ))}
               </div>
@@ -116,23 +120,19 @@ export default function DashboardPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>ربط POS</CardTitle>
+            <CardTitle>{isArabic ? 'ربط POS' : 'POS Integration'}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-slate-600 dark:text-slate-400">
-              أرسل الطلبات أو تحديثات الحالة إلى هذا المسار لتظهر مباشرة في لوحة الطلبات والتتبع.
+              {isArabic ? 'أرسل الطلبات أو تحديثات الحالة إلى هذا المسار لتظهر مباشرة في لوحة الطلبات والتتبع.' : 'Send orders or status updates to these endpoints so they appear in orders and tracking.'}
             </p>
-            <code className="block overflow-x-auto rounded bg-slate-100 p-3 text-sm dark:bg-slate-900">
-              POST /api/pos/orders
-            </code>
-            <code className="block overflow-x-auto rounded bg-slate-100 p-3 text-sm dark:bg-slate-900">
-              PATCH /api/pos/orders
-            </code>
+            <code className="block overflow-x-auto rounded bg-slate-100 p-3 text-sm dark:bg-slate-900">POST /api/pos/orders</code>
+            <code className="block overflow-x-auto rounded bg-slate-100 p-3 text-sm dark:bg-slate-900">PATCH /api/pos/orders</code>
             <p className="text-sm text-slate-500">
-              يمكن إضافة المفاتيح في البيئة باسم <span className="font-semibold">RANCH_POS_API_KEYS</span> أو <span className="font-semibold">POS_API_KEYS</span>، ثم إرسالها في الهيدر <span className="font-semibold">X-POS-API-Key</span> أو Bearer Token.
+              {isArabic ? 'يمكن إضافة المفاتيح في البيئة باسم RANCH_POS_API_KEYS أو POS_API_KEYS ثم إرسالها في X-POS-API-Key أو Bearer Token.' : 'Add keys in RANCH_POS_API_KEYS or POS_API_KEYS, then send them in X-POS-API-Key or Bearer Token.'}
             </p>
             <Link href="/dashboard/pos">
-              <Button variant="outline">فتح صفحة POS</Button>
+              <Button variant="outline">{isArabic ? 'فتح صفحة POS' : 'Open POS Page'}</Button>
             </Link>
           </CardContent>
         </Card>

@@ -12,7 +12,7 @@ export default function NotificationsPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const { isLoggedIn, logout } = useAuthStore()
-  const { language } = useLanguage()
+  const { language, t } = useLanguage()
   const isArabic = language === 'ar'
 
   useEffect(() => {
@@ -37,7 +37,7 @@ export default function NotificationsPage() {
       <Navbar onMenuOpen={() => setSidebarOpen(true)} isLoggedIn={isLoggedIn} onLogout={handleLogout} />
 
       <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
-        <h1 className="mb-8 text-3xl font-bold">{isArabic ? 'الإشعارات' : 'Notifications'}</h1>
+        <h1 className="mb-8 text-3xl font-bold">{t('notifications')}</h1>
         <div className="space-y-4">
           {notifications.length === 0 ? (
             <Card>

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { BellRing, Clock3, Download, LayoutDashboard, ShoppingCart, Utensils } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DownloadModal } from '@/components/download-modal'
 import { Navbar } from '@/components/navbar'
@@ -38,6 +39,24 @@ export default function Home() {
     window.setTimeout(() => setCartMessage(''), 2200)
   }
 
+  const features = [
+    {
+      icon: Clock3,
+      title: isArabic ? 'توصيل سريع' : 'Fast Delivery',
+      desc: isArabic ? `يصلك طلبك خلال حوالي ${settings.deliveryTime} دقيقة.` : `Your order arrives in about ${settings.deliveryTime} minutes.`,
+    },
+    {
+      icon: LayoutDashboard,
+      title: isArabic ? 'قائمة مباشرة' : 'Live Menu Control',
+      desc: isArabic ? 'كل منتج يظهر هنا تتم إدارته من لوحة التحكم.' : 'Every product shown here is managed from the dashboard.',
+    },
+    {
+      icon: BellRing,
+      title: isArabic ? 'عروض وتنبيهات' : 'Offers and Alerts',
+      desc: isArabic ? 'الإشعارات والعروض تظهر للعملاء فور إرسالها.' : 'Customers see notifications as soon as they are sent from the dashboard.',
+    },
+  ]
+
   return (
     <main className="flex min-h-screen flex-col">
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} isLoggedIn={isLoggedIn} onLogout={handleLogout} />
@@ -54,7 +73,7 @@ export default function Home() {
               {isArabic ? settings.heroSubtitleAr : settings.heroSubtitleEn}
             </p>
             <div className="flex flex-wrap gap-3">
-              <Link href="/menu"><Button size="lg" className="bg-red-600 hover:bg-red-700">{isArabic ? 'اطلب الآن' : 'Order Now'}</Button></Link>
+              <Link href="/menu"><Button size="lg" className="gap-2 bg-red-600 hover:bg-red-700"><Utensils className="h-5 w-5" />{isArabic ? 'اطلب الآن' : 'Order Now'}</Button></Link>
               <Link href="/about"><Button size="lg" variant="outline">{isArabic ? 'تعرف أكثر' : 'Learn More'}</Button></Link>
             </div>
           </div>
@@ -64,19 +83,20 @@ export default function Home() {
 
       <section className="bg-white py-16 dark:bg-slate-950">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <h2 className="mb-10 text-center text-3xl font-bold">{isArabic ? 'لماذا تختار' : 'Why Choose'} {appName}?</h2>
+          <h2 className="mb-10 text-center text-3xl font-bold">{isArabic ? `لماذا تختار ${appName}؟` : `Why Choose ${appName}?`}</h2>
           <div className="grid gap-8 md:grid-cols-3">
-            {[
-              { icon: '⚡', title: isArabic ? 'توصيل سريع' : 'Fast Delivery', desc: isArabic ? `يصلك طلبك في حوالي ${settings.deliveryTime} دقيقة.` : `Your order arrives in about ${settings.deliveryTime} minutes.` },
-              { icon: '🍽️', title: isArabic ? 'إدارة قائمة مباشرة' : 'Live Menu Control', desc: isArabic ? 'كل منتج يظهر هنا يتم إضافته من لوحة التحكم.' : 'Every product shown here is managed from the dashboard.' },
-              { icon: '🔔', title: isArabic ? 'عروض وتنبيهات' : 'Offers and Alerts', desc: isArabic ? 'الإشعارات تصل للعملاء فور إرسالها من لوحة التحكم.' : 'Customers see notifications as soon as they are sent from the dashboard.' },
-            ].map((feature) => (
-              <div key={feature.title} className="text-center">
-                <div className="mb-4 text-5xl">{feature.icon}</div>
-                <h3 className="mb-2 text-xl font-bold">{feature.title}</h3>
-                <p className="text-slate-600 dark:text-slate-400">{feature.desc}</p>
-              </div>
-            ))}
+            {features.map((feature) => {
+              const Icon = feature.icon
+              return (
+                <div key={feature.title} className="text-center">
+                  <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-md bg-red-50 text-red-600 dark:bg-red-950">
+                    <Icon className="h-7 w-7" aria-hidden="true" />
+                  </div>
+                  <h3 className="mb-2 text-xl font-bold">{feature.title}</h3>
+                  <p className="text-slate-600 dark:text-slate-400">{feature.desc}</p>
+                </div>
+              )
+            })}
           </div>
         </div>
       </section>
@@ -101,7 +121,10 @@ export default function Home() {
                     <div className="p-4">
                       <h3 className="mb-2 text-lg font-bold">{name}</h3>
                       <p className="mb-4 text-xl font-bold text-red-600">{product.price} {currency}</p>
-                      <Button size="sm" className="w-full bg-red-600 hover:bg-red-700" onClick={() => handleAddToCart(product.id)}>{isArabic ? 'أضف إلى السلة' : 'Add to Cart'}</Button>
+                      <Button size="sm" className="w-full gap-2 bg-red-600 hover:bg-red-700" onClick={() => handleAddToCart(product.id)}>
+                        <ShoppingCart className="h-4 w-4" />
+                        {isArabic ? 'أضف إلى السلة' : 'Add to Cart'}
+                      </Button>
                     </div>
                   </div>
                 )
@@ -113,9 +136,11 @@ export default function Home() {
 
       <section className="bg-gradient-to-r from-red-600 to-orange-600 py-16 text-white">
         <div className="mx-auto max-w-7xl px-4 text-center sm:px-6 lg:px-8">
-          <h2 className="mb-4 text-4xl font-bold">{isArabic ? 'نزّل التطبيق الآن' : 'Download App Now'}</h2>
+          <h2 className="mb-4 text-4xl font-bold">{isArabic ? 'نزل التطبيق الآن' : 'Download App Now'}</h2>
           <p className="mb-6 text-xl opacity-90">{isArabic ? 'احصل على إشعارات العروض وتتبع طلباتك بسهولة.' : 'Get offer notifications and track your orders easily.'}</p>
-          <Button onClick={() => setDownloadModalOpen(true)} className="bg-white px-8 text-lg font-bold text-red-600 hover:bg-gray-100">{isArabic ? 'تنزيل التطبيق' : 'Download App'}</Button>
+          <Button onClick={() => setDownloadModalOpen(true)} className="gap-2 bg-white px-8 text-lg font-bold text-red-600 hover:bg-gray-100">
+            <Download className="h-5 w-5" />{isArabic ? 'تنزيل التطبيق' : 'Download App'}
+          </Button>
         </div>
       </section>
 

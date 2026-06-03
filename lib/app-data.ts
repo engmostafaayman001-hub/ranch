@@ -44,15 +44,15 @@ export const defaultCategories: MenuCategory[] = []
 export const defaultProducts: MenuProduct[] = []
 
 export const defaultSettings: AppSettings = {
-  restaurantNameAr: 'Ø±Ø§Ù†Ø´',
+  restaurantNameAr: 'رانش',
   restaurantNameEn: 'Ranch',
   email: 'info@ranch.app',
   phone: '01000000000',
-  addressAr: 'Ø§Ù„Ù‚Ø§Ù‡Ø±Ø©ØŒ Ù…ØµØ±',
+  addressAr: 'القاهرة، مصر',
   addressEn: 'Cairo, Egypt',
-  heroTitleAr: 'Ø§Ø·Ù„Ø¨ ÙˆØ¬Ø¨ØªÙƒ Ø§Ù„Ù…ÙØ¶Ù„Ø© Ù…Ù† Ø±Ø§Ù†Ø´',
+  heroTitleAr: 'اطلب وجبتك المفضلة من رانش',
   heroTitleEn: 'Order your favorite meal from Ranch',
-  heroSubtitleAr: 'ÙˆØ¬Ø¨Ø§Øª Ø·Ø§Ø²Ø¬Ø©ØŒ ØªÙˆØµÙŠÙ„ Ø³Ø±ÙŠØ¹ØŒ ÙˆØªØªØ¨Ø¹ Ù…Ø¨Ø§Ø´Ø± Ù…Ù† Ù„Ø­Ø¸Ø© Ø§Ù„Ø·Ù„Ø¨ Ø­ØªÙ‰ Ø§Ù„Ø§Ø³ØªÙ„Ø§Ù….',
+  heroSubtitleAr: 'وجبات طازجة، توصيل سريع، وتتبع مباشر من لحظة الطلب حتى الاستلام.',
   heroSubtitleEn: 'Fresh meals, fast delivery, and live tracking from order to doorstep.',
   heroImage: '/favicon.png',
   deliveryFee: 29.99,

@@ -30,7 +30,7 @@ const pages: Record<PageKind, Record<'ar' | 'en', LocalizedSimplePage>> = {
         },
         {
           title: 'لماذا تختارنا؟',
-          list: ['مكونات طازجة', 'توصيل سريع', 'أسعار منافسة', 'تتبع فوري للطلب', 'خدمة عملاء ودودة'],
+          list: ['مكونات طازجة', 'توصيل سريع', 'أسعار مناسبة', 'تتبع فوري للطلب', 'خدمة عملاء ودودة'],
         },
       ],
     },
@@ -55,14 +55,14 @@ const pages: Record<PageKind, Record<'ar' | 'en', LocalizedSimplePage>> = {
     ar: {
       title: 'اتصل بنا',
       sections: [
-        { title: 'معلومات التواصل', body: ['الهاتف: +1 234 567 8900', 'البريد الإلكتروني: info@ranch.com', 'العنوان: 123 شارع رئيسي، المدينة'] },
-        { title: 'أوقات العمل', body: ['الاثنين - الجمعة: 10 صباحًا - 11 مساءً', 'السبت - الأحد: 10 صباحًا - 12 منتصف الليل'] },
+        { title: 'معلومات التواصل', body: ['الهاتف: 01000000000', 'البريد الإلكتروني: info@ranch.com', 'العنوان: القاهرة، مصر'] },
+        { title: 'أوقات العمل', body: ['الاثنين إلى الجمعة: 10 صباحًا - 11 مساءً', 'السبت والأحد: 10 صباحًا - 12 منتصف الليل'] },
       ],
     },
     en: {
       title: 'Contact Us',
       sections: [
-        { title: 'Contact Information', body: ['Phone: +1 234 567 8900', 'Email: info@ranch.com', 'Address: 123 Main Street, City'] },
+        { title: 'Contact Information', body: ['Phone: 01000000000', 'Email: info@ranch.com', 'Address: Cairo, Egypt'] },
         { title: 'Working Hours', body: ['Monday - Friday: 10 AM - 11 PM', 'Saturday - Sunday: 10 AM - 12 AM'] },
       ],
     },
@@ -71,9 +71,9 @@ const pages: Record<PageKind, Record<'ar' | 'en', LocalizedSimplePage>> = {
     ar: {
       title: 'الأسئلة الشائعة',
       sections: [
-        { title: 'كم وقت التوصيل؟', body: ['وقت التوصيل القياسي هو 30 دقيقة أو أقل من وقت تأكيد الطلب.'] },
+        { title: 'كم وقت التوصيل؟', body: ['وقت التوصيل القياسي 30 دقيقة أو أقل بعد تأكيد الطلب.'] },
         { title: 'ما طرق الدفع المتاحة؟', body: ['نقبل الدفع عند الاستلام وVodafone Cash وInstaPay.'] },
-        { title: 'كيف أتتبع طلبي؟', body: ['يمكنك تتبع الطلب في الوقت الفعلي من صفحة الطلبات.'] },
+        { title: 'كيف أتتبع طلبي؟', body: ['يمكنك تتبع طلبك في الوقت الفعلي من صفحة الطلبات أو صفحة تتبع الطلب.'] },
       ],
     },
     en: {
@@ -81,7 +81,7 @@ const pages: Record<PageKind, Record<'ar' | 'en', LocalizedSimplePage>> = {
       sections: [
         { title: 'How long does delivery take?', body: ['Standard delivery takes 30 minutes or less after order confirmation.'] },
         { title: 'What payment methods are available?', body: ['We accept cash on delivery, Vodafone Cash, and InstaPay.'] },
-        { title: 'How can I track my order?', body: ['You can track your order in real time from the orders page.'] },
+        { title: 'How can I track my order?', body: ['You can track your order in real time from the orders or tracking page.'] },
       ],
     },
   },
@@ -107,8 +107,8 @@ const pages: Record<PageKind, Record<'ar' | 'en', LocalizedSimplePage>> = {
     ar: {
       title: 'الشروط والأحكام',
       sections: [
-        { title: '1. الشروط', body: ['باستخدام رانش، فإنك توافق على شروط الاستخدام وسياسات الطلب والدفع والتوصيل.'] },
-        { title: '2. الاستخدام', body: ['يجب استخدام التطبيق لأغراض شخصية ومشروعة فقط، مع تقديم بيانات طلب صحيحة.'] },
+        { title: '1. الشروط', body: ['باستخدام رانش، فإنك توافق على سياسات الطلب والدفع والتوصيل والاستخدام.'] },
+        { title: '2. الاستخدام', body: ['يجب استخدام التطبيق للطلبات الشخصية والمشروعة فقط، مع تقديم بيانات طلب صحيحة.'] },
         { title: '3. تواصل معنا', body: ['لأي سؤال حول الشروط تواصل معنا على info@ranch.com.'] },
       ],
     },
@@ -126,8 +126,8 @@ const pages: Record<PageKind, Record<'ar' | 'en', LocalizedSimplePage>> = {
       title: 'سياسة الاسترجاع',
       sections: [
         { title: '1. شروط الاسترجاع', list: ['تقديم الطلب خلال 48 ساعة', 'وجود سبب واضح', 'توفير رقم الطلب وصور المشكلة إن وجدت'] },
-        { title: '2. المعالجة', body: ['تتم مراجعة طلبات الاسترجاع ومعالجتها خلال 5-7 أيام عمل.'] },
-        { title: '3. تواصل معنا', body: ['للاستفسارات: refunds@ranch.com أو +1 234 567 8900.'] },
+        { title: '2. المعالجة', body: ['تتم مراجعة طلبات الاسترجاع ومعالجتها خلال 5 إلى 7 أيام عمل.'] },
+        { title: '3. تواصل معنا', body: ['للاستفسارات: refunds@ranch.com أو 01000000000.'] },
       ],
     },
     en: {
@@ -135,7 +135,7 @@ const pages: Record<PageKind, Record<'ar' | 'en', LocalizedSimplePage>> = {
       sections: [
         { title: '1. Refund Conditions', list: ['Submit within 48 hours', 'Provide a clear reason', 'Include order number and photos when available'] },
         { title: '2. Processing', body: ['Refund requests are reviewed and processed within 5-7 business days.'] },
-        { title: '3. Contact Us', body: ['For refund questions: refunds@ranch.com or +1 234 567 8900.'] },
+        { title: '3. Contact Us', body: ['For refund questions: refunds@ranch.com or 01000000000.'] },
       ],
     },
   },
@@ -147,12 +147,12 @@ export function SimplePage({ kind }: { kind: PageKind }) {
 
   return (
     <main className="min-h-screen bg-white dark:bg-slate-950">
-      <nav className="sticky top-0 z-50 w-full bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
+      <nav className="sticky top-0 z-50 w-full border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex h-16 items-center justify-between">
             <Link href="/" className="flex items-center gap-3">
               <Logo size="md" />
-              <span className="font-bold text-xl text-red-600">{appName}</span>
+              <span className="text-xl font-bold text-red-600">{appName}</span>
             </Link>
             <Link href="/">
               <Button variant="ghost">{t('backHome')}</Button>
@@ -161,8 +161,8 @@ export function SimplePage({ kind }: { kind: PageKind }) {
         </div>
       </nav>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <h1 className="text-4xl font-bold mb-8">{page.title}</h1>
+      <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">
+        <h1 className="mb-8 text-4xl font-bold">{page.title}</h1>
         <div className="space-y-6">
           {page.sections.map((section) => (
             <Card key={section.title}>

@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Navbar } from '@/components/navbar'
 import { Sidebar } from '@/components/sidebar'
-import { CURRENCY } from '@/lib/constants'
+import { CURRENCY, CURRENCY_EN } from '@/lib/constants'
 import { useLanguage } from '@/components/language-provider'
 import { useAuthStore } from '@/lib/store'
 import { TrackedOrder, getTrackedOrdersForEmail, statusLabels, syncTrackedOrdersForEmail } from '@/lib/order-tracking'
@@ -22,6 +22,7 @@ export default function TrackPage() {
   const { isLoggedIn, logout, user } = useAuthStore()
   const { language } = useLanguage()
   const isArabic = language === 'ar'
+  const currency = isArabic ? CURRENCY : CURRENCY_EN
 
   useEffect(() => {
     let active = true
@@ -94,7 +95,7 @@ export default function TrackPage() {
                       </div>
                       <div className="text-right">
                         <p className="font-semibold text-red-600">{statusLabels[order.status][language]}</p>
-                        <p className="text-sm text-slate-500">{Number(order.total || 0).toFixed(2)} {CURRENCY}</p>
+                        <p className="text-sm text-slate-500">{Number(order.total || 0).toFixed(2)} {currency}</p>
                       </div>
                     </CardContent>
                   </Card>

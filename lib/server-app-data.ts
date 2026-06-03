@@ -28,11 +28,33 @@ function canUseSupabaseRuntimeTables() {
 }
 
 function normalizeSharedData(data: Partial<SharedAppData> | null | undefined): SharedAppData {
+  const repaired = repairMojibake(data) as Partial<SharedAppData> | null | undefined
   return {
-    categories: Array.isArray(data?.categories) ? data.categories : [],
-    products: Array.isArray(data?.products) ? data.products : [],
-    settings: { ...defaultSettings, ...(data?.settings || {}) },
+    categories: Array.isArray(repaired?.categories) ? repaired.categories : [],
+    products: Array.isArray(repaired?.products) ? repaired.products : [],
+    settings: { ...defaultSettings, ...(repaired?.settings || {}) },
   }
+}
+
+function repairMojibake(value: unknown): unknown {
+  if (typeof value === 'string') {
+    if (!/[ØÙÃÂâðï�]/.test(value)) return value
+    try {
+      return Buffer.from(value, 'latin1').toString('utf8')
+    } catch {
+      return value
+    }
+  }
+
+  if (Array.isArray(value)) return value.map(repairMojibake)
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, repairMojibake(item)])
+    )
+  }
+
+  return value
 }
 
 async function ensureDataFile() {

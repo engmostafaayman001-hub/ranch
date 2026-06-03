@@ -11,24 +11,28 @@ export const ORDER_STATUSES = {
 }
 
 export const ORDER_STATUS_LABELS = {
+  placed: 'تم إنشاء الطلب',
   pending: 'قيد الانتظار',
   confirmed: 'مؤكد',
   preparing: 'جاري التحضير',
   ready_for_delivery: 'جاهز للتوصيل',
   out_for_delivery: 'في الطريق',
   delivered: 'تم التوصيل',
+  received: 'تم الاستلام',
   cancelled: 'ملغى',
   rejected: 'مرفوض',
   refunded: 'مسترد',
 }
 
 export const ORDER_STATUS_LABELS_EN = {
+  placed: 'Placed',
   pending: 'Pending',
   confirmed: 'Confirmed',
   preparing: 'Preparing',
   ready_for_delivery: 'Ready for Delivery',
   out_for_delivery: 'Out for Delivery',
   delivered: 'Delivered',
+  received: 'Received',
   cancelled: 'Cancelled',
   rejected: 'Rejected',
   refunded: 'Refunded',
@@ -52,8 +56,8 @@ export const PAYMENT_METHOD_LABELS_EN = {
   instapay: 'InstaPay',
 }
 
-export const VODAFONE_CASH_NUMBER = '0123456789'
-export const INSTAPAY_NUMBER = '0119876543'
+export const VODAFONE_CASH_NUMBER = process.env.NEXT_PUBLIC_VODAFONE_CASH_NUMBER || '01000000000'
+export const INSTAPAY_NUMBER = process.env.NEXT_PUBLIC_INSTAPAY_NUMBER || '01000000000'
 
 export const SUPER_ADMIN_EMAIL = process.env.NEXT_PUBLIC_SUPER_ADMIN_EMAIL || 'ca.markode@gmail.com'
 export const DASHBOARD_ACCESS_EMAILS = Array.from(

@@ -1,150 +1,129 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { Button } from '@/components/ui/button'
+import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { AppCustomer } from '@/lib/customers'
+import { useLanguage } from '@/components/language-provider'
+import { CURRENCY, CURRENCY_EN } from '@/lib/constants'
 import { TrackedOrder } from '@/lib/order-tracking'
 
-type CustomerRow = AppCustomer & {
-  ordersCount: number
-  totalSpent: number
+type Customer = {
+  id?: string
+  name?: string
+  email?: string
+  phone?: string
+  address?: string
+  orders?: number
+  totalSpent?: number
+  lastOrderAt?: string
 }
 
 export default function DashboardCustomersPage() {
-  const [customers, setCustomers] = useState<AppCustomer[]>([])
-  const [orders, setOrders] = useState<TrackedOrder[]>([])
+  const { language } = useLanguage()
+  const isArabic = language === 'ar'
+  const currency = isArabic ? CURRENCY : CURRENCY_EN
+  const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
 
-  const loadCustomers = async () => {
-    setLoading(true)
-    try {
-      const [customersResponse, ordersResponse] = await Promise.all([
-        fetch('/api/customers', { cache: 'no-store' }),
-        fetch('/api/pos/orders', { cache: 'no-store' }),
-      ])
-      const customersData = await customersResponse.json().catch(() => ({}))
-      const ordersData = await ordersResponse.json().catch(() => ({}))
-      setCustomers(Array.isArray(customersData.customers) ? customersData.customers : [])
-      setOrders(Array.isArray(ordersData.orders) ? ordersData.orders : [])
-    } finally {
-      setLoading(false)
-    }
-  }
-
   useEffect(() => {
-    const timer = window.setTimeout(() => loadCustomers().catch(() => setLoading(false)), 0)
-    const interval = window.setInterval(() => loadCustomers().catch(() => setLoading(false)), 15000)
-    return () => {
-      window.clearTimeout(timer)
-      window.clearInterval(interval)
-    }
-  }, [])
+    let active = true
+    async function loadCustomers() {
+      try {
+        const [customersResponse, ordersResponse] = await Promise.all([
+          fetch('/api/customers', { cache: 'no-store' }),
+          fetch('/api/pos/orders', { cache: 'no-store' }),
+        ])
+        const customersData = await customersResponse.json().catch(() => ({}))
+        const ordersData = await ordersResponse.json().catch(() => ({}))
+        const baseCustomers = Array.isArray(customersData.customers) ? customersData.customers as Customer[] : []
+        const orders = Array.isArray(ordersData.orders) ? ordersData.orders as TrackedOrder[] : []
+        const byEmail = new Map<string, Customer>()
 
-  const rows = useMemo<CustomerRow[]>(() => {
-    const map = new Map<string, CustomerRow>()
+        for (const customer of baseCustomers) {
+          const key = customer.email?.toLowerCase()
+          if (key) byEmail.set(key, { ...customer, orders: 0, totalSpent: 0 })
+        }
 
-    for (const customer of customers) {
-      const key = customer.email?.toLowerCase() || customer.phone || customer.id
-      map.set(key, { ...customer, ordersCount: 0, totalSpent: 0 })
-    }
+        for (const order of orders) {
+          const key = order.customerEmail?.toLowerCase()
+          if (!key) continue
+          const existing = byEmail.get(key) || {
+            id: key,
+            name: order.customer,
+            email: order.customerEmail,
+            phone: order.phone,
+            address: order.address,
+            orders: 0,
+            totalSpent: 0,
+          }
+          byEmail.set(key, {
+            ...existing,
+            name: existing.name || order.customer,
+            phone: existing.phone || order.phone,
+            address: existing.address || order.address,
+            orders: (existing.orders || 0) + 1,
+            totalSpent: (existing.totalSpent || 0) + Number(order.total || 0),
+            lastOrderAt: !existing.lastOrderAt || new Date(order.createdAt) > new Date(existing.lastOrderAt) ? order.createdAt : existing.lastOrderAt,
+          })
+        }
 
-    for (const order of orders) {
-      const key = order.customerEmail?.toLowerCase() || order.phone || order.customer.toLowerCase()
-      const existing = map.get(key)
-      if (existing) {
-        existing.ordersCount += 1
-        existing.totalSpent += Number(order.total || 0)
-        existing.phone = existing.phone || order.phone
-        existing.address = existing.address || order.address
-        existing.name = existing.name || order.customer
-      } else {
-        map.set(key, {
-          id: `order-${order.id}`,
-          name: order.customer,
-          email: '-',
-          phone: order.phone,
-          address: order.address,
-          createdAt: order.createdAt,
-          updatedAt: order.createdAt,
-          ordersCount: 1,
-          totalSpent: Number(order.total || 0),
-        })
+        if (active) setCustomers(Array.from(byEmail.values()).sort((a, b) => new Date(b.lastOrderAt || 0).getTime() - new Date(a.lastOrderAt || 0).getTime()))
+      } catch {
+        if (active) setCustomers([])
+      } finally {
+        if (active) setLoading(false)
       }
     }
 
-    return Array.from(map.values()).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-  }, [customers, orders])
+    const timer = window.setTimeout(loadCustomers, 0)
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [])
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-3xl font-bold">إدارة العملاء</h2>
-          <p className="mt-2 text-slate-500 dark:text-slate-400">
-            تعرض العملاء المسجلين وأي عميل ظهر في الطلبات، مع عدد الطلبات وإجمالي الإنفاق.
-          </p>
-        </div>
-        <Button variant="outline" onClick={() => loadCustomers()} disabled={loading}>
-          {loading ? 'جاري التحديث...' : 'تحديث'}
-        </Button>
+      <div>
+        <h2 className="text-3xl font-bold">{isArabic ? 'إدارة العملاء' : 'Customers'}</h2>
+        <p className="mt-2 text-slate-500 dark:text-slate-400">
+          {isArabic ? 'عرض العملاء المسجلين والعملاء الذين ظهروا في الطلبات.' : 'View registered customers and customers collected from orders.'}
+        </p>
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>كل العملاء</CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle>{isArabic ? 'قائمة العملاء' : 'Customer List'}</CardTitle></CardHeader>
         <CardContent>
           {loading ? (
-            <div className="py-12 text-center text-slate-500">جاري تحميل العملاء...</div>
-          ) : rows.length === 0 ? (
-            <div className="py-12 text-center text-slate-500">لا توجد بيانات عملاء بعد.</div>
+            <div className="py-12 text-center text-slate-500">{isArabic ? 'جاري تحميل العملاء...' : 'Loading customers...'}</div>
+          ) : customers.length === 0 ? (
+            <div className="py-12 text-center text-slate-500">{isArabic ? 'لا يوجد عملاء بعد.' : 'No customers yet.'}</div>
           ) : (
-            <>
-              <div className="space-y-3 md:hidden">
-                {rows.map((customer) => (
-                  <div key={customer.id} className="rounded-lg border p-4">
-                    <p className="font-bold">{customer.name || '-'}</p>
-                    <p className="text-sm text-slate-500">{customer.email}</p>
-                    <p className="text-sm text-slate-500">{customer.phone || '-'}</p>
-                    <p className="mt-2 text-sm">{customer.address || '-'}</p>
-                    <div className="mt-3 flex justify-between text-sm font-semibold">
-                      <span>{customer.ordersCount} طلب</span>
-                      <span>{customer.totalSpent.toFixed(2)} ج.م</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="hidden overflow-x-auto md:block">
-                <table className="w-full min-w-[860px] text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-right dark:border-slate-800">
-                      <th className="py-3 font-semibold">الاسم</th>
-                      <th className="py-3 font-semibold">الإيميل</th>
-                      <th className="py-3 font-semibold">رقم الهاتف</th>
-                      <th className="py-3 font-semibold">العنوان</th>
-                      <th className="py-3 font-semibold">الطلبات</th>
-                      <th className="py-3 font-semibold">الإجمالي</th>
-                      <th className="py-3 font-semibold">آخر تحديث</th>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left dark:border-slate-800">
+                    <th className="py-3 font-semibold">{isArabic ? 'الاسم' : 'Name'}</th>
+                    <th className="py-3 font-semibold">{isArabic ? 'البريد' : 'Email'}</th>
+                    <th className="py-3 font-semibold">{isArabic ? 'الهاتف' : 'Phone'}</th>
+                    <th className="py-3 font-semibold">{isArabic ? 'الطلبات' : 'Orders'}</th>
+                    <th className="py-3 font-semibold">{isArabic ? 'الإجمالي' : 'Total'}</th>
+                    <th className="py-3 font-semibold">{isArabic ? 'آخر طلب' : 'Last Order'}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {customers.map((customer, index) => (
+                    <tr key={customer.id || customer.email || index} className="border-b last:border-0 dark:border-slate-800">
+                      <td className="py-3">{customer.name || '-'}</td>
+                      <td className="py-3">{customer.email || '-'}</td>
+                      <td className="py-3">{customer.phone || '-'}</td>
+                      <td className="py-3">{customer.orders || 0}</td>
+                      <td className="py-3">{Number(customer.totalSpent || 0).toFixed(2)} {currency}</td>
+                      <td className="py-3">{customer.lastOrderAt ? new Date(customer.lastOrderAt).toLocaleDateString(isArabic ? 'ar-EG' : 'en-US') : '-'}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((customer) => (
-                      <tr key={customer.id} className="border-b border-slate-100 dark:border-slate-900">
-                        <td className="py-3 font-medium">{customer.name || '-'}</td>
-                        <td className="py-3">{customer.email}</td>
-                        <td className="py-3">{customer.phone || '-'}</td>
-                        <td className="py-3">{customer.address || '-'}</td>
-                        <td className="py-3">{customer.ordersCount}</td>
-                        <td className="py-3">{customer.totalSpent.toFixed(2)} ج.م</td>
-                        <td className="py-3 text-slate-500">{new Date(customer.updatedAt).toLocaleString('ar-EG')}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </CardContent>
       </Card>

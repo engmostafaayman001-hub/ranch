@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { Bell } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AppNotification, getReadNotificationIds } from '@/lib/notifications'
 import { useLanguage } from '@/components/language-provider'
 
 export function NotificationBell() {
-  const { language } = useLanguage()
+  const { t } = useLanguage()
   const [unreadCount, setUnreadCount] = useState(0)
 
   useEffect(() => {
@@ -36,8 +37,8 @@ export function NotificationBell() {
 
   return (
     <Link href="/notifications">
-      <Button variant="ghost" size="icon" title={language === 'ar' ? 'الإشعارات' : 'Notifications'} className="relative">
-        🔔
+      <Button variant="ghost" size="icon" title={t('notifications')} className="relative">
+        <Bell className="h-5 w-5" aria-hidden="true" />
         {unreadCount > 0 && (
           <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-xs font-bold text-white">
             {unreadCount}

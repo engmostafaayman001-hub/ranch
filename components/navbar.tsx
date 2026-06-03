@@ -2,12 +2,14 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
+import { LayoutDashboard, LogIn, LogOut, Menu, Moon, ShoppingCart, Sun, UserPlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/logo'
 import { useTheme } from '@/components/theme-provider'
 import { useLanguage } from '@/components/language-provider'
 import { useAuthStore } from '@/lib/store'
 import { NotificationBell } from '@/components/notification-bell'
+import { ROUTES } from '@/lib/constants'
 
 interface NavbarProps {
   onMenuOpen: () => void
@@ -48,21 +50,25 @@ export function Navbar({ onMenuOpen, isLoggedIn, onLogout }: NavbarProps) {
         <div className="flex h-16 items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="icon" onClick={onMenuOpen} title={language === 'ar' ? 'فتح القائمة' : 'Open menu'}>
-              ☰
+              <Menu className="h-5 w-5" aria-hidden="true" />
             </Button>
-            <Link href="/" className="flex items-center gap-3">
+            <Link href={ROUTES.HOME} className="flex items-center gap-3">
               <Logo size="md" />
               <span className="hidden text-xl font-bold text-red-600 sm:inline">{appName}</span>
             </Link>
           </div>
 
           <div className="hidden items-center gap-1 lg:flex">
-            <Link href="/menu"><Button variant="ghost">{t('menu')}</Button></Link>
-            <Link href="/cart"><Button variant="ghost">السلة</Button></Link>
-            <Link href="/track"><Button variant="ghost">{t('trackOrder')}</Button></Link>
-            <Link href="/my-orders"><Button variant="ghost">{language === 'ar' ? 'طلباتي' : 'My Orders'}</Button></Link>
-            {isLoggedIn && <Link href="/profile"><Button variant="ghost">{t('profile')}</Button></Link>}
-            {isLoggedIn && canOpenDashboard && <Link href="/dashboard"><Button variant="ghost">{language === 'ar' ? 'لوحة التحكم' : 'Dashboard'}</Button></Link>}
+            <Link href={ROUTES.MENU}><Button variant="ghost">{t('menu')}</Button></Link>
+            <Link href={ROUTES.CART}><Button variant="ghost" className="gap-2"><ShoppingCart className="h-4 w-4" />{t('cart')}</Button></Link>
+            <Link href={ROUTES.TRACK_ORDER}><Button variant="ghost">{t('trackOrder')}</Button></Link>
+            <Link href="/my-orders"><Button variant="ghost">{t('myOrders')}</Button></Link>
+            {isLoggedIn && <Link href={ROUTES.PROFILE}><Button variant="ghost">{t('profile')}</Button></Link>}
+            {isLoggedIn && canOpenDashboard && (
+              <Link href={ROUTES.DASHBOARD}>
+                <Button variant="ghost" className="gap-2"><LayoutDashboard className="h-4 w-4" />{t('dashboard')}</Button>
+              </Link>
+            )}
           </div>
 
           <div className="flex items-center gap-1">
@@ -71,16 +77,16 @@ export function Navbar({ onMenuOpen, isLoggedIn, onLogout }: NavbarProps) {
               {language === 'ar' ? 'EN' : 'AR'}
             </Button>
             <Button variant="ghost" size="icon" onClick={toggleTheme} title={theme === 'light' ? t('darkMode') : t('lightMode')}>
-              {theme === 'light' ? '☾' : '☀'}
+              {theme === 'light' ? <Moon className="h-5 w-5" aria-hidden="true" /> : <Sun className="h-5 w-5" aria-hidden="true" />}
             </Button>
             {isLoggedIn ? (
-              <Button onClick={onLogout} variant="destructive" size="sm" className="hidden sm:inline-flex">
-                {t('logout')}
+              <Button onClick={onLogout} variant="destructive" size="sm" className="hidden gap-2 sm:inline-flex">
+                <LogOut className="h-4 w-4" />{t('logout')}
               </Button>
             ) : (
               <div className="hidden gap-2 sm:flex">
-                <Link href="/login"><Button size="sm" className="bg-red-600 hover:bg-red-700">{t('login')}</Button></Link>
-                <Link href="/register"><Button size="sm" variant="outline">{t('register')}</Button></Link>
+                <Link href={ROUTES.LOGIN}><Button size="sm" className="gap-2 bg-red-600 hover:bg-red-700"><LogIn className="h-4 w-4" />{t('login')}</Button></Link>
+                <Link href={ROUTES.REGISTER}><Button size="sm" variant="outline" className="gap-2"><UserPlus className="h-4 w-4" />{t('register')}</Button></Link>
               </div>
             )}
           </div>

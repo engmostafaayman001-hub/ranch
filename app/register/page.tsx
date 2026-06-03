@@ -2,8 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -33,7 +32,7 @@ export default function RegisterPage() {
     setError(null)
 
     if (password !== confirmPassword) {
-      setError(isArabic ? 'كلمات المرور غير متطابقة' : 'Passwords do not match')
+      setError(isArabic ? 'كلمتا المرور غير متطابقتين' : 'Passwords do not match')
       return
     }
     if (password.length < 6) {
@@ -90,7 +89,7 @@ export default function RegisterPage() {
             <p className="text-slate-600 dark:text-slate-400">{isArabic ? 'إنشاء حسابك' : 'Create your account'}</p>
           </div>
 
-          {error && <div className="rounded border border-red-400 bg-red-100 px-4 py-3 text-sm text-red-700 dark:border-red-700 dark:bg-red-900 dark:text-red-200">⚠ {error}</div>}
+          {error && <div className="rounded border border-red-400 bg-red-100 px-4 py-3 text-sm text-red-700 dark:border-red-700 dark:bg-red-900 dark:text-red-200">{error}</div>}
 
           <form onSubmit={handleEmailRegister} className="space-y-4">
             <div>
@@ -103,11 +102,11 @@ export default function RegisterPage() {
             </div>
             <div>
               <Label htmlFor="password">{t('password')}</Label>
-              <Input id="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required placeholder="••••••••" className="mt-1" disabled={loading} />
+              <Input id="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required placeholder="********" className="mt-1" disabled={loading} />
             </div>
             <div>
               <Label htmlFor="confirm-password">{t('confirmPassword')}</Label>
-              <Input id="confirm-password" type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required placeholder="••••••••" className="mt-1" disabled={loading} />
+              <Input id="confirm-password" type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required placeholder="********" className="mt-1" disabled={loading} />
             </div>
             <Button type="submit" disabled={loading} className="w-full bg-red-600 text-white hover:bg-red-700">
               {loading ? (isArabic ? 'جاري إنشاء الحساب...' : 'Creating account...') : t('createAccount')}
