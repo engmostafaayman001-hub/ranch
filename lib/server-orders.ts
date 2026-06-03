@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
+import { OrderPayment, TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
 
 const DATA_DIR = process.env.VERCEL ? '/tmp/ranch-data' : join(process.cwd(), 'data')
 const ORDERS_FILE = join(DATA_DIR, 'orders.json')
@@ -37,15 +37,35 @@ export async function upsertServerOrder(order: TrackedOrder) {
   return order
 }
 
-export async function updateServerOrderStatus(orderId: string, status: TrackingStatus) {
+export async function deleteServerOrder(orderId: string) {
+  const orders = await readServerOrders()
+  const updated = orders.filter((order) => order.id.toLowerCase() !== orderId.toLowerCase())
+  await writeServerOrders(updated)
+  return updated.length !== orders.length
+}
+
+export async function updateServerOrderStatus(
+  orderId: string,
+  status: TrackingStatus,
+  updates?: {
+    driver?: TrackedOrder['driver']
+    payment?: Partial<OrderPayment>
+  }
+) {
   const orders = await readServerOrders()
   const now = new Date().toISOString()
   const updated = orders.map((order) => {
     if (order.id.toLowerCase() !== orderId.toLowerCase()) return order
 
+    const payment = updates?.payment
+      ? { ...(order.payment || { method: 'cash', status: 'pending' as const }), ...updates.payment }
+      : order.payment
+
     return {
       ...order,
       status,
+      driver: updates?.driver || order.driver,
+      payment,
       history: order.history.some((event) => event.status === status)
         ? order.history
         : [...order.history, { status, at: now }],

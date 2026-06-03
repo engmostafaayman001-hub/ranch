@@ -73,6 +73,7 @@ export const APP_NAME_AR = process.env.NEXT_PUBLIC_APP_NAME_AR || 'رانش'
 export const APP_NAME_EN = process.env.NEXT_PUBLIC_APP_NAME_EN || 'Ranch'
 export const APP_NAME = APP_NAME_AR
 
+export const SITE_TAGLINE_AR = 'طلب طعام سريع وتتبع لحظي'
 export const SITE_DESCRIPTION_AR =
   'رانش تجربة طلب طعام عصرية تجمع الوجبات الطازجة، العروض الحصرية، الدفع المرن، وتتبع الطلب لحظة بلحظة من التحضير حتى الاستلام.'
 export const SITE_DESCRIPTION_EN =

@@ -39,6 +39,14 @@ export interface TeamMember {
   status: 'active' | 'inactive'
 }
 
+export interface DeliveryDriver {
+  id: string
+  name: string
+  phone: string
+  area: string
+  status: 'active' | 'inactive'
+}
+
 export interface AppSettings {
   restaurantNameAr: string
   restaurantNameEn: string
@@ -62,6 +70,7 @@ interface AppStore {
   products: MenuProduct[]
   cart: CartItem[]
   team: TeamMember[]
+  drivers: DeliveryDriver[]
   settings: AppSettings
   addCategory: (category: Omit<MenuCategory, 'id'>) => void
   updateCategory: (id: string, updates: Partial<MenuCategory>) => void
@@ -77,6 +86,9 @@ interface AppStore {
   addTeamMember: (member: Omit<TeamMember, 'id'>) => void
   updateTeamMember: (id: string, updates: Partial<TeamMember>) => void
   deleteTeamMember: (id: string) => void
+  addDriver: (driver: Omit<DeliveryDriver, 'id'>) => void
+  updateDriver: (id: string, updates: Partial<DeliveryDriver>) => void
+  deleteDriver: (id: string) => void
   updateSettings: (updates: Partial<AppSettings>) => void
 }
 
@@ -111,6 +123,7 @@ export const useAppStore = create<AppStore>()(
       products: defaultProducts,
       cart: [],
       team: [],
+      drivers: [],
       settings: defaultSettings,
       addCategory: (category) =>
         set((state) => ({ categories: [...state.categories, { ...category, id: createId('category') }] })),
@@ -153,6 +166,10 @@ export const useAppStore = create<AppStore>()(
       updateTeamMember: (id, updates) =>
         set((state) => ({ team: state.team.map((member) => (member.id === id ? { ...member, ...updates } : member)) })),
       deleteTeamMember: (id) => set((state) => ({ team: state.team.filter((member) => member.id !== id) })),
+      addDriver: (driver) => set((state) => ({ drivers: [...state.drivers, { ...driver, id: createId('driver') }] })),
+      updateDriver: (id, updates) =>
+        set((state) => ({ drivers: state.drivers.map((driver) => (driver.id === id ? { ...driver, ...updates } : driver)) })),
+      deleteDriver: (id) => set((state) => ({ drivers: state.drivers.filter((driver) => driver.id !== id) })),
       updateSettings: (updates) => set((state) => ({ settings: { ...state.settings, ...updates } })),
     }),
     {
@@ -167,6 +184,7 @@ export const useAppStore = create<AppStore>()(
           categories: state?.categories?.filter((category) => !['burgers', 'pizza', 'chicken', 'sandwiches'].includes(category.id)) || [],
           products: state?.products?.filter((product) => !sampleIds.has(product.id)) || [],
           cart: state?.cart?.filter((item) => !sampleIds.has(item.productId)) || [],
+          drivers: state?.drivers || [],
         }
       },
     }

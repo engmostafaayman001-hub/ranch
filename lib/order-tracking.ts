@@ -6,6 +6,7 @@ export type TrackingStatus =
   | 'out_for_delivery'
   | 'delivered'
   | 'received'
+  | 'cancelled'
 
 export interface TrackingEvent {
   status: TrackingStatus
@@ -17,6 +18,7 @@ export type PaymentStatus =
   | 'receipt_uploaded'
   | 'paid'
   | 'pending'
+  | 'rejected'
 
 export interface OrderPayment {
   method: string
@@ -55,6 +57,7 @@ export const trackingSteps: { status: TrackingStatus; ar: string; en: string }[]
   { status: 'out_for_delivery', ar: 'في الطريق', en: 'Out for Delivery' },
   { status: 'delivered', ar: 'تم التسليم', en: 'Delivered' },
   { status: 'received', ar: 'تم الاستلام', en: 'Received' },
+  { status: 'cancelled', ar: 'تم إلغاء الطلب', en: 'Cancelled' },
 ]
 
 export const statusLabels = Object.fromEntries(
@@ -87,6 +90,48 @@ export function getTrackedOrders(): TrackedOrder[] {
 
 export function saveTrackedOrders(orders: TrackedOrder[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(orders))
+}
+
+function latestOrderTime(order: TrackedOrder) {
+  const historyTime = order.history
+    .map((event) => new Date(event.at).getTime())
+    .filter((time) => !Number.isNaN(time))
+    .sort((a, b) => b - a)[0]
+  return historyTime || new Date(order.createdAt).getTime() || 0
+}
+
+export function syncTrackedOrdersFromServer(serverOrders: TrackedOrder[]) {
+  if (typeof window === 'undefined') return serverOrders
+
+  const localOrders = getTrackedOrders()
+  const byId = new Map<string, TrackedOrder>()
+
+  for (const order of localOrders) {
+    byId.set(order.id.toLowerCase(), order)
+  }
+
+  for (const order of serverOrders) {
+    const key = order.id.toLowerCase()
+    const local = byId.get(key)
+    byId.set(key, !local || latestOrderTime(order) >= latestOrderTime(local) ? order : local)
+  }
+
+  const merged = Array.from(byId.values()).sort((a, b) => latestOrderTime(b) - latestOrderTime(a))
+  saveTrackedOrders(merged)
+  return merged
+}
+
+export function upsertTrackedOrder(order: TrackedOrder) {
+  const orders = getTrackedOrders()
+  const updated = [order, ...orders.filter((item) => item.id.toLowerCase() !== order.id.toLowerCase())]
+  saveTrackedOrders(updated)
+  return order
+}
+
+export function deleteTrackedOrder(orderId: string) {
+  const updated = getTrackedOrders().filter((order) => order.id.toLowerCase() !== orderId.toLowerCase())
+  saveTrackedOrders(updated)
+  return updated
 }
 
 export function updateTrackedOrderStatus(orderId: string, status: TrackingStatus) {

@@ -11,25 +11,50 @@ import { Sidebar } from '@/components/sidebar'
 import { CURRENCY, PAYMENT_METHOD_LABELS, ROUTES } from '@/lib/constants'
 import { useLanguage } from '@/components/language-provider'
 import { useAuthStore } from '@/lib/store'
-import { findTrackedOrder, getStatusIndex, statusLabels, TrackedOrder, trackingSteps } from '@/lib/order-tracking'
+import { findTrackedOrder, getStatusIndex, statusLabels, syncTrackedOrdersFromServer, TrackedOrder, trackingSteps, upsertTrackedOrder } from '@/lib/order-tracking'
 
 export default function TrackOrderPage() {
   const params = useParams()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [order, setOrder] = useState<TrackedOrder | null>(null)
+  const [loading, setLoading] = useState(true)
   const { isLoggedIn, logout } = useAuthStore()
   const { language } = useLanguage()
   const isArabic = language === 'ar'
   const orderId = String(params.orderId || '')
 
   useEffect(() => {
-    fetch('/api/pos/orders')
-      .then((response) => response.json())
-      .then((data) => {
+    let active = true
+
+    async function loadOrder() {
+      try {
+        const response = await fetch('/api/pos/orders', { cache: 'no-store' })
+        const data = await response.json().catch(() => ({}))
         const apiOrders = Array.isArray(data.orders) ? data.orders as TrackedOrder[] : []
-        setOrder(apiOrders.find((item) => item.id.toLowerCase() === orderId.toLowerCase()) || findTrackedOrder(orderId) || null)
-      })
-      .catch(() => setOrder(findTrackedOrder(orderId) || null))
+        const apiOrder = apiOrders.find((item) => item.id.toLowerCase() === orderId.toLowerCase())
+
+        if (apiOrders.length > 0) {
+          syncTrackedOrdersFromServer(apiOrders)
+          if (active) setOrder(apiOrder || null)
+        } else if (active) {
+          setOrder(findTrackedOrder(orderId) || null)
+        }
+
+        if (apiOrder) upsertTrackedOrder(apiOrder)
+      } catch {
+        if (active) setOrder(findTrackedOrder(orderId) || null)
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+
+    const timer = window.setTimeout(loadOrder, 0)
+    const interval = window.setInterval(loadOrder, 10000)
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+      window.clearInterval(interval)
+    }
   }, [orderId])
 
   const handleLogout = () => {
@@ -48,10 +73,12 @@ export default function TrackOrderPage() {
           <Link href={ROUTES.ORDERS}><Button variant="outline">{isArabic ? 'العودة للطلبات' : 'Back to Orders'}</Button></Link>
         </div>
 
-        {!order ? (
+        {loading ? (
+          <Card><CardContent className="py-10 text-center text-slate-500">{isArabic ? 'جاري تحميل حالة الطلب...' : 'Loading order status...'}</CardContent></Card>
+        ) : !order ? (
           <Card>
             <CardContent className="pt-6 text-center">
-              <p className="mb-4 text-slate-600 dark:text-slate-400">{isArabic ? 'لم يتم العثور على هذا الطلب.' : 'This order could not be found.'}</p>
+              <p className="mb-4 text-slate-600 dark:text-slate-400">{isArabic ? 'لم يتم العثور على هذا الطلب أو تم حذفه من لوحة التحكم.' : 'This order could not be found or was deleted from the dashboard.'}</p>
               <Link href="/track"><Button className="bg-red-600 hover:bg-red-700">{isArabic ? 'البحث عن طلب آخر' : 'Search Another Order'}</Button></Link>
             </CardContent>
           </Card>
@@ -63,7 +90,7 @@ export default function TrackOrderPage() {
                 <div className="grid gap-4 sm:grid-cols-3">
                   <Info label={isArabic ? 'الحالة' : 'Status'} value={statusLabels[order.status][language]} />
                   <Info label={isArabic ? 'التوصيل المتوقع' : 'Estimated Delivery'} value={order.estimatedDelivery} accent="text-green-600" />
-                  <Info label={isArabic ? 'الإجمالي' : 'Total'} value={`${order.total.toFixed(2)} ${CURRENCY}`} accent="text-red-600" />
+                  <Info label={isArabic ? 'الإجمالي' : 'Total'} value={`${Number(order.total || 0).toFixed(2)} ${CURRENCY}`} accent="text-red-600" />
                 </div>
               </CardContent>
             </Card>
@@ -76,11 +103,6 @@ export default function TrackOrderPage() {
                   {order.payment?.method ? PAYMENT_METHOD_LABELS[order.payment.method as keyof typeof PAYMENT_METHOD_LABELS] || order.payment.method : '-'}
                 </p>
                 {order.payment?.receiptName && <p className="text-sm text-slate-600 dark:text-slate-400">{isArabic ? 'الإيصال' : 'Receipt'}: {order.payment.receiptName}</p>}
-                {order.payment?.status === 'cash_on_delivery' && (
-                  <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-200">
-                    {isArabic ? 'سيتم الدفع عند الاستلام.' : 'Payment will be collected on delivery.'}
-                  </p>
-                )}
               </CardContent>
             </Card>
 
@@ -89,7 +111,9 @@ export default function TrackOrderPage() {
               <CardContent>
                 <div className="space-y-5">
                   {trackingSteps.map((step, index) => {
-                    const completed = getStatusIndex(step.status) <= getStatusIndex(order.status)
+                    const completed = order.status === 'cancelled'
+                      ? step.status === 'cancelled'
+                      : getStatusIndex(step.status) <= getStatusIndex(order.status) && step.status !== 'cancelled'
                     const event = order.history.find((item) => item.status === step.status)
                     const active = step.status === order.status
                     return (
@@ -114,9 +138,14 @@ export default function TrackOrderPage() {
             <Card>
               <CardHeader><CardTitle>{isArabic ? 'معلومات السائق' : 'Driver Information'}</CardTitle></CardHeader>
               <CardContent className="space-y-3">
-                <p className="font-bold">{order.driver.name}</p>
-                <p className="text-sm text-slate-600 dark:text-slate-400">Rating: {order.driver.rating || '-'}</p>
-                <p className="text-sm text-slate-600 dark:text-slate-400">{order.driver.phone}</p>
+                {order.driver.name === 'Pending assignment' || order.driver.phone === '-' ? (
+                  <p className="text-slate-500">{isArabic ? 'لم يتم تعيين السائق بعد.' : 'Driver has not been assigned yet.'}</p>
+                ) : (
+                  <>
+                    <p className="font-bold">{order.driver.name}</p>
+                    <p className="text-sm text-slate-600 dark:text-slate-400">{isArabic ? 'رقم التواصل' : 'Contact'}: {order.driver.phone}</p>
+                  </>
+                )}
               </CardContent>
             </Card>
           </>
@@ -131,6 +160,7 @@ function paymentLabel(order: TrackedOrder, isArabic: boolean) {
   if (order.payment.status === 'cash_on_delivery') return isArabic ? 'الدفع عند الاستلام' : 'Cash on delivery'
   if (order.payment.status === 'receipt_uploaded') return isArabic ? 'تم رفع الإيصال وبانتظار المراجعة' : 'Receipt uploaded and awaiting review'
   if (order.payment.status === 'paid') return isArabic ? 'تم الدفع' : 'Paid'
+  if (order.payment.status === 'rejected') return isArabic ? 'تم رفض الإيصال' : 'Receipt rejected'
   return isArabic ? 'قيد الانتظار' : 'Pending'
 }
 

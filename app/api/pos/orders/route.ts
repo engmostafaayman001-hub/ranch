@@ -1,12 +1,12 @@
 import { NextRequest } from 'next/server'
-import { readServerOrders, updateServerOrderStatus, upsertServerOrder } from '@/lib/server-orders'
+import { deleteServerOrder, readServerOrders, updateServerOrderStatus, upsertServerOrder } from '@/lib/server-orders'
 import { PaymentStatus, TrackingStatus, trackingSteps, TrackedOrder } from '@/lib/order-tracking'
 
 export const runtime = 'nodejs'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key, X-POS-API-Key',
 }
 
@@ -15,6 +15,7 @@ function json(data: unknown, init?: ResponseInit) {
     ...init,
     headers: {
       ...corsHeaders,
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
       ...init?.headers,
     },
   })
@@ -25,7 +26,7 @@ function isTrackingStatus(status: string): status is TrackingStatus {
 }
 
 function isPaymentStatus(status: string): status is PaymentStatus {
-  return ['cash_on_delivery', 'receipt_uploaded', 'paid', 'pending'].includes(status)
+  return ['cash_on_delivery', 'receipt_uploaded', 'paid', 'pending', 'rejected'].includes(status)
 }
 
 function getConfiguredApiKeys() {
@@ -65,6 +66,9 @@ function normalizeTrackingStatus(value: unknown): TrackingStatus {
     completed: 'delivered',
     done: 'received',
     picked_up: 'received',
+    cancelled: 'cancelled',
+    canceled: 'cancelled',
+    rejected: 'cancelled',
   }
   const normalized = aliases[raw] || raw
   return isTrackingStatus(normalized) ? normalized : 'placed'
@@ -157,7 +161,20 @@ export async function PATCH(request: NextRequest) {
       return json({ error: 'Invalid order id or status' }, { status: 400 })
     }
 
-    const order = await updateServerOrderStatus(id, status)
+    const payment = body.payment && typeof body.payment === 'object' ? body.payment : {}
+    const driver = body.driver && typeof body.driver === 'object'
+      ? {
+          name: String(body.driver.name || 'Pending assignment'),
+          phone: String(body.driver.phone || '-'),
+          rating: Number(body.driver.rating || 0),
+        }
+      : undefined
+    const paymentStatus = body.paymentStatus || payment.status
+
+    const order = await updateServerOrderStatus(id, status, {
+      driver,
+      payment: paymentStatus ? { status: normalizePaymentStatus(paymentStatus, String(payment.method || 'cash')) } : undefined,
+    })
 
     if (!order) {
       return json({ error: 'Order not found' }, { status: 404 })
@@ -167,5 +184,30 @@ export async function PATCH(request: NextRequest) {
   } catch (error) {
     console.error('Failed to update POS order:', error)
     return json({ error: 'Could not update order', message: error instanceof Error ? error.message : 'Unknown error' }, { status: 500 })
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    if (!validateOptionalApiKey(request)) {
+      return json({ error: 'Invalid POS API key' }, { status: 401 })
+    }
+
+    const body = await request.json().catch(() => ({}))
+    const id = String(body.id || body.orderId || body.posOrderId || '')
+
+    if (!id) {
+      return json({ error: 'Order id is required' }, { status: 400 })
+    }
+
+    const deleted = await deleteServerOrder(id)
+    if (!deleted) {
+      return json({ error: 'Order not found' }, { status: 404 })
+    }
+
+    return json({ deleted: true, id })
+  } catch (error) {
+    console.error('Failed to delete POS order:', error)
+    return json({ error: 'Could not delete order', message: error instanceof Error ? error.message : 'Unknown error' }, { status: 500 })
   }
 }

@@ -12,7 +12,7 @@ import { Sidebar } from '@/components/sidebar'
 import { CURRENCY } from '@/lib/constants'
 import { useLanguage } from '@/components/language-provider'
 import { useAuthStore } from '@/lib/store'
-import { TrackedOrder, getTrackedOrders, statusLabels } from '@/lib/order-tracking'
+import { TrackedOrder, getTrackedOrders, statusLabels, syncTrackedOrdersFromServer } from '@/lib/order-tracking'
 
 export default function TrackPage() {
   const router = useRouter()
@@ -24,13 +24,27 @@ export default function TrackPage() {
   const isArabic = language === 'ar'
 
   useEffect(() => {
-    fetch('/api/pos/orders')
-      .then((response) => response.json())
-      .then((data) => {
-        const orders = Array.isArray(data.orders) ? data.orders : []
-        setRecentOrders(orders.length > 0 ? orders : getTrackedOrders())
-      })
-      .catch(() => setRecentOrders(getTrackedOrders()))
+    let active = true
+
+    async function loadRecentOrders() {
+      try {
+        const response = await fetch('/api/pos/orders', { cache: 'no-store' })
+        const data = await response.json().catch(() => ({}))
+        const orders = Array.isArray(data.orders) ? data.orders as TrackedOrder[] : []
+        const nextOrders = orders.length > 0 ? syncTrackedOrdersFromServer(orders) : getTrackedOrders()
+        if (active) setRecentOrders(nextOrders)
+      } catch {
+        if (active) setRecentOrders(getTrackedOrders())
+      }
+    }
+
+    const timer = window.setTimeout(loadRecentOrders, 0)
+    const interval = window.setInterval(loadRecentOrders, 10000)
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+      window.clearInterval(interval)
+    }
   }, [])
 
   const handleSubmit = (event: React.FormEvent) => {
@@ -78,7 +92,7 @@ export default function TrackPage() {
                       </div>
                       <div className="text-right">
                         <p className="font-semibold text-red-600">{statusLabels[order.status][language]}</p>
-                        <p className="text-sm text-slate-500">{order.total.toFixed(2)} {CURRENCY}</p>
+                        <p className="text-sm text-slate-500">{Number(order.total || 0).toFixed(2)} {CURRENCY}</p>
                       </div>
                     </CardContent>
                   </Card>

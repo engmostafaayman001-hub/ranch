@@ -127,8 +127,9 @@ export default function CheckoutPage() {
         body: JSON.stringify(payload),
       })
 
+      const orderData = await response.json().catch(() => null)
       if (!response.ok) {
-        const errorData = await response.json().catch(() => null)
+        const errorData = orderData
         const message = errorData?.message || errorData?.error || 'Order API failed'
         throw new Error(message)
       }
@@ -144,7 +145,7 @@ export default function CheckoutPage() {
         }),
       }).catch(() => {})
 
-      createTrackedOrder(payload)
+      createTrackedOrder(orderData?.order || payload)
       clearCart()
       router.push(ROUTES.ORDERS)
     } catch (err) {
