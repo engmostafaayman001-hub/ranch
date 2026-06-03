@@ -12,6 +12,20 @@ export interface TrackingEvent {
   at: string
 }
 
+export type PaymentStatus =
+  | 'cash_on_delivery'
+  | 'receipt_uploaded'
+  | 'paid'
+  | 'pending'
+
+export interface OrderPayment {
+  method: string
+  status: PaymentStatus
+  receiptName?: string
+  receiptDataUrl?: string
+  receiptUploadedAt?: string
+}
+
 export interface TrackedOrder {
   id: string
   customer: string
@@ -27,6 +41,7 @@ export interface TrackedOrder {
     phone: string
     rating: number
   }
+  payment?: OrderPayment
   history: TrackingEvent[]
 }
 

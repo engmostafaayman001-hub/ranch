@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Navbar } from '@/components/navbar'
 import { Sidebar } from '@/components/sidebar'
-import { CURRENCY, ROUTES } from '@/lib/constants'
+import { CURRENCY, PAYMENT_METHOD_LABELS, ROUTES } from '@/lib/constants'
 import { useLanguage } from '@/components/language-provider'
 import { useAuthStore } from '@/lib/store'
 import { findTrackedOrder, getStatusIndex, statusLabels, TrackedOrder, trackingSteps } from '@/lib/order-tracking'
@@ -69,7 +69,23 @@ export default function TrackOrderPage() {
             </Card>
 
             <Card className="mb-8">
-              <CardHeader><CardTitle>{isArabic ? 'خط سير الطلب' : 'Order Timeline'}</CardTitle></CardHeader>
+              <CardHeader><CardTitle>{isArabic ? 'الدفع' : 'Payment'}</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <p className="font-semibold">{paymentLabel(order, isArabic)}</p>
+                <p className="text-sm text-slate-500">
+                  {order.payment?.method ? PAYMENT_METHOD_LABELS[order.payment.method as keyof typeof PAYMENT_METHOD_LABELS] || order.payment.method : '-'}
+                </p>
+                {order.payment?.receiptName && <p className="text-sm text-slate-600 dark:text-slate-400">{isArabic ? 'الإيصال' : 'Receipt'}: {order.payment.receiptName}</p>}
+                {order.payment?.status === 'cash_on_delivery' && (
+                  <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-200">
+                    {isArabic ? 'سيتم الدفع عند الاستلام.' : 'Payment will be collected on delivery.'}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="mb-8">
+              <CardHeader><CardTitle>{isArabic ? 'خط سير الطلب حتى الاستلام' : 'Order Timeline Until Receipt'}</CardTitle></CardHeader>
               <CardContent>
                 <div className="space-y-5">
                   {trackingSteps.map((step, index) => {
@@ -108,6 +124,14 @@ export default function TrackOrderPage() {
       </div>
     </main>
   )
+}
+
+function paymentLabel(order: TrackedOrder, isArabic: boolean) {
+  if (!order.payment) return isArabic ? 'حالة الدفع غير محددة' : 'Payment status is not set'
+  if (order.payment.status === 'cash_on_delivery') return isArabic ? 'الدفع عند الاستلام' : 'Cash on delivery'
+  if (order.payment.status === 'receipt_uploaded') return isArabic ? 'تم رفع الإيصال وبانتظار المراجعة' : 'Receipt uploaded and awaiting review'
+  if (order.payment.status === 'paid') return isArabic ? 'تم الدفع' : 'Paid'
+  return isArabic ? 'قيد الانتظار' : 'Pending'
 }
 
 function Info({ label, value, accent = '' }: { label: string; value: string; accent?: string }) {

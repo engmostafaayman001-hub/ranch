@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { AppNotification } from '@/lib/notifications'
 
-const DATA_DIR = join(process.cwd(), 'data')
+const DATA_DIR = process.env.VERCEL ? '/tmp/ranch-data' : join(process.cwd(), 'data')
 const NOTIFICATIONS_FILE = join(DATA_DIR, 'notifications.json')
 
 async function ensureDataFile() {

@@ -39,13 +39,16 @@ export default function DashboardNotificationsPage() {
         body: JSON.stringify(form),
       })
 
-      if (!response.ok) throw new Error('Notification failed')
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.message || errorData.error || 'Notification failed')
+      }
 
       setForm({ title: '', message: '', code: '' })
-      setStatus('تم إرسال الإشعار إلى جميع العملاء المسجلين.')
+      setStatus('تم إرسال الإشعار إلى العملاء بنجاح.')
       await loadNotifications()
-    } catch {
-      setStatus('تعذر إرسال الإشعار. حاول مرة أخرى.')
+    } catch (error) {
+      setStatus(error instanceof Error ? `تعذر إرسال الإشعار: ${error.message}` : 'تعذر إرسال الإشعار. حاول مرة أخرى.')
     } finally {
       setSending(false)
     }
@@ -55,7 +58,9 @@ export default function DashboardNotificationsPage() {
     <div className="space-y-6">
       <div>
         <h2 className="text-3xl font-bold">الإشعارات والعروض</h2>
-        <p className="mt-2 text-slate-500 dark:text-slate-400">أرسل عرضًا أو كود خصم ليظهر فورًا للعملاء في جرس الإشعارات وصفحة الإشعارات.</p>
+        <p className="mt-2 text-slate-500 dark:text-slate-400">
+          أرسل عرضًا أو كود خصم ليظهر للعملاء في جرس الإشعارات وصفحة الإشعارات.
+        </p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_420px]">

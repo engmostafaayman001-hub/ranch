@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { readServerOrders, updateServerOrderStatus, upsertServerOrder } from '@/lib/server-orders'
-import { TrackingStatus, trackingSteps, TrackedOrder } from '@/lib/order-tracking'
+import { PaymentStatus, TrackingStatus, trackingSteps, TrackedOrder } from '@/lib/order-tracking'
 
 export const runtime = 'nodejs'
 
@@ -22,6 +22,10 @@ function json(data: unknown, init?: ResponseInit) {
 
 function isTrackingStatus(status: string): status is TrackingStatus {
   return trackingSteps.some((step) => step.status === status)
+}
+
+function isPaymentStatus(status: string): status is PaymentStatus {
+  return ['cash_on_delivery', 'receipt_uploaded', 'paid', 'pending'].includes(status)
 }
 
 export async function OPTIONS() {
@@ -53,6 +57,13 @@ export async function POST(request: NextRequest) {
       name: String(body.driver?.name || 'Pending assignment'),
       phone: String(body.driver?.phone || '-'),
       rating: Number(body.driver?.rating || 0),
+    },
+    payment: {
+      method: String(body.payment?.method || body.paymentMethod || 'cash'),
+      status: isPaymentStatus(String(body.payment?.status || 'pending')) ? body.payment.status : 'pending',
+      receiptName: body.payment?.receiptName ? String(body.payment.receiptName) : undefined,
+      receiptDataUrl: body.payment?.receiptDataUrl ? String(body.payment.receiptDataUrl) : undefined,
+      receiptUploadedAt: body.payment?.receiptUploadedAt ? String(body.payment.receiptUploadedAt) : undefined,
     },
     history: Array.isArray(body.history) && body.history.length > 0
       ? body.history

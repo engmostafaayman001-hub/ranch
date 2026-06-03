@@ -5,13 +5,14 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { FileInput } from '@/components/ui/file-input'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Logo } from '@/components/logo'
 import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN, PAYMENT_METHOD_LABELS, PAYMENT_METHOD_LABELS_EN, PAYMENT_METHODS, ROUTES } from '@/lib/constants'
 import { useAppStore } from '@/lib/app-store'
-import { createTrackedOrder, TrackingStatus } from '@/lib/order-tracking'
+import { createTrackedOrder, PaymentStatus, TrackingStatus } from '@/lib/order-tracking'
 
 export default function CheckoutPage() {
   const router = useRouter()
@@ -27,25 +28,48 @@ export default function CheckoutPage() {
     city: '',
     paymentMethod: 'cash',
   })
+  const [receipt, setReceipt] = useState<{ name: string; dataUrl: string } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const cartItems = useMemo(() => {
-    return cart
-      .map((item) => {
-        const product = products.find((entry) => entry.id === item.productId)
-        return product ? { ...item, product } : null
-      })
-      .filter(Boolean)
-  }, [cart, products])
+  const cartItems = useMemo(() => cart.map((item) => {
+    const product = products.find((entry) => entry.id === item.productId)
+    return product ? { ...item, product } : null
+  }).filter(Boolean), [cart, products])
 
   const subtotal = cartItems.reduce((sum, item) => sum + item!.product.price * item!.quantity, 0)
   const tax = subtotal * settings.taxRate
   const deliveryFee = subtotal > 0 ? settings.deliveryFee : 0
   const total = subtotal + tax + deliveryFee
+  const requiresReceipt = formData.paymentMethod !== PAYMENT_METHODS.CASH
 
   const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setFormData({ ...formData, [event.target.name]: event.target.value })
+    const { name, value } = event.target
+    setFormData({ ...formData, [name]: value })
+    if (name === 'paymentMethod' && value === PAYMENT_METHODS.CASH) {
+      setReceipt(null)
+    }
+  }
+
+  const handleReceiptUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
+      setError(isArabic ? 'ارفع صورة أو ملف PDF للإيصال.' : 'Upload an image or PDF receipt.')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError(isArabic ? 'حجم الإيصال يجب أن يكون أقل من 5 MB.' : 'Receipt must be less than 5 MB.')
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      setReceipt({ name: file.name, dataUrl: String(reader.result) })
+      setError(null)
+    }
+    reader.onerror = () => setError(isArabic ? 'تعذر رفع الإيصال.' : 'Could not upload receipt.')
+    reader.readAsDataURL(file)
   }
 
   const handleSubmit = async (event: FormEvent) => {
@@ -57,10 +81,16 @@ export default function CheckoutPage() {
       return
     }
 
+    if (requiresReceipt && !receipt) {
+      setError(isArabic ? 'يجب رفع إيصال الدفع قبل تقديم الطلب.' : 'Payment receipt is required before placing the order.')
+      return
+    }
+
     setLoading(true)
     try {
       const now = new Date()
       const orderId = `ORD${String(now.getTime()).slice(-6)}`
+      const paymentStatus: PaymentStatus = formData.paymentMethod === PAYMENT_METHODS.CASH ? 'cash_on_delivery' : 'receipt_uploaded'
       const payload = {
         id: orderId,
         customer: formData.fullName,
@@ -76,6 +106,13 @@ export default function CheckoutPage() {
           phone: '-',
           rating: 0,
         },
+        payment: {
+          method: formData.paymentMethod,
+          status: paymentStatus,
+          receiptName: receipt?.name,
+          receiptDataUrl: receipt?.dataUrl,
+          receiptUploadedAt: receipt ? now.toISOString() : undefined,
+        },
         lines: cartItems.map((item) => ({
           productId: item!.product.id,
           name: isArabic ? item!.product.nameAr : item!.product.nameEn,
@@ -90,9 +127,7 @@ export default function CheckoutPage() {
         body: JSON.stringify(payload),
       })
 
-      if (!response.ok) {
-        throw new Error('Order API failed')
-      }
+      if (!response.ok) throw new Error('Order API failed')
 
       await fetch('/api/customers', {
         method: 'POST',
@@ -124,9 +159,7 @@ export default function CheckoutPage() {
               <Logo size="md" />
               <span className="text-xl font-bold text-red-600">{appName}</span>
             </Link>
-            <Link href={ROUTES.CART}>
-              <Button variant="ghost">{isArabic ? 'العودة للسلة' : 'Back to Cart'}</Button>
-            </Link>
+            <Link href={ROUTES.CART}><Button variant="ghost">{isArabic ? 'العودة للسلة' : 'Back to Cart'}</Button></Link>
           </div>
         </div>
       </nav>
@@ -167,13 +200,32 @@ export default function CheckoutPage() {
             </Card>
 
             <Card>
-              <CardHeader><CardTitle>{isArabic ? 'طريقة الدفع' : 'Payment Method'}</CardTitle></CardHeader>
-              <CardContent>
-                <select name="paymentMethod" value={formData.paymentMethod} onChange={handleChange} className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950">
-                  {Object.entries(PAYMENT_METHODS).map(([, value]) => (
-                    <option key={value} value={value}>{(isArabic ? PAYMENT_METHOD_LABELS : PAYMENT_METHOD_LABELS_EN)[value as keyof typeof PAYMENT_METHOD_LABELS]}</option>
-                  ))}
-                </select>
+              <CardHeader><CardTitle>{isArabic ? 'الدفع والإيصال' : 'Payment and Receipt'}</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label htmlFor="paymentMethod">{isArabic ? 'طريقة الدفع' : 'Payment Method'}</Label>
+                  <select id="paymentMethod" name="paymentMethod" value={formData.paymentMethod} onChange={handleChange} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950">
+                    {Object.entries(PAYMENT_METHODS).map(([, value]) => (
+                      <option key={value} value={value}>{(isArabic ? PAYMENT_METHOD_LABELS : PAYMENT_METHOD_LABELS_EN)[value as keyof typeof PAYMENT_METHOD_LABELS]}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {requiresReceipt ? (
+                  <div>
+                    <Label htmlFor="receipt">{isArabic ? 'رفع إيصال الدفع' : 'Upload Payment Receipt'}</Label>
+                    <FileInput id="receipt" accept="image/*,.pdf" onChange={handleReceiptUpload} required className="mt-1" />
+                    {receipt && (
+                      <p className="mt-2 rounded-md bg-green-50 px-3 py-2 text-sm text-green-700 dark:bg-green-950 dark:text-green-200">
+                        {isArabic ? `تم رفع الإيصال: ${receipt.name}` : `Receipt uploaded: ${receipt.name}`}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-200">
+                    {isArabic ? 'سيتم تحصيل الدفع عند الاستلام.' : 'Payment will be collected on delivery.'}
+                  </p>
+                )}
               </CardContent>
             </Card>
 
@@ -190,7 +242,7 @@ export default function CheckoutPage() {
               ) : (
                 cartItems.map((item) => (
                   <div key={item!.product.id} className="flex justify-between gap-3 text-sm">
-                    <span>{isArabic ? item!.product.nameAr : item!.product.nameEn} × {item!.quantity}</span>
+                    <span>{isArabic ? item!.product.nameAr : item!.product.nameEn} x {item!.quantity}</span>
                     <span>{(item!.product.price * item!.quantity).toFixed(2)} {currency}</span>
                   </div>
                 ))
