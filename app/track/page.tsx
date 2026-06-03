@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -9,12 +9,24 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Logo } from '@/components/logo'
 import { useLanguage } from '@/components/language-provider'
+import { TrackedOrder, getTrackedOrders, statusLabels } from '@/lib/order-tracking'
 
 export default function TrackPage() {
   const router = useRouter()
   const { language, appName } = useLanguage()
   const isArabic = language === 'ar'
   const [orderId, setOrderId] = useState('')
+  const [recentOrders, setRecentOrders] = useState<TrackedOrder[]>([])
+
+  useEffect(() => {
+    fetch('/api/pos/orders')
+      .then((response) => response.json())
+      .then((data) => {
+        const orders = Array.isArray(data.orders) ? data.orders : []
+        setRecentOrders(orders.length > 0 ? orders : getTrackedOrders())
+      })
+      .catch(() => setRecentOrders(getTrackedOrders()))
+  }, [])
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault()
@@ -39,7 +51,7 @@ export default function TrackPage() {
         </div>
       </nav>
 
-      <div className="mx-auto max-w-xl px-4 py-12 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:px-8">
         <Card>
           <CardHeader>
             <CardTitle>{isArabic ? 'تتبع طلبك' : 'Track Your Order'}</CardTitle>
@@ -62,6 +74,36 @@ export default function TrackPage() {
             </form>
           </CardContent>
         </Card>
+
+        <div className="mt-8">
+          <h2 className="mb-4 text-2xl font-bold">{isArabic ? 'أحدث الطلبات' : 'Recent Orders'}</h2>
+          <div className="space-y-3">
+            {recentOrders.length === 0 ? (
+              <Card>
+                <CardContent className="py-8 text-center text-slate-500">
+                  {isArabic ? 'لا توجد طلبات حديثة بعد.' : 'No recent orders yet.'}
+                </CardContent>
+              </Card>
+            ) : (
+              recentOrders.slice(0, 6).map((order) => (
+                <Link key={order.id} href={`/track/${order.id}`} className="block">
+                  <Card className="hover:shadow-md transition-shadow">
+                    <CardContent className="flex items-center justify-between gap-4 py-4">
+                      <div>
+                        <p className="font-bold">{order.id}</p>
+                        <p className="text-sm text-slate-500">{order.customer}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold text-red-600">{statusLabels[order.status][language]}</p>
+                        <p className="text-sm text-slate-500">{order.total.toFixed(2)} ج.م</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </Link>
+              ))
+            )}
+          </div>
+        </div>
       </div>
     </main>
   )

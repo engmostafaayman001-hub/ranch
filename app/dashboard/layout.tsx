@@ -16,6 +16,7 @@ export default function DashboardLayout({
     { href: ROUTES.DASHBOARD_TEAM, label: 'الفريق', icon: '🧑‍🍳' },
     { href: ROUTES.DASHBOARD_DELIVERY, label: 'التوصيل', icon: '🛵' },
     { href: ROUTES.DASHBOARD_PAYMENTS, label: 'المدفوعات', icon: '💳' },
+    { href: ROUTES.DASHBOARD_NOTIFICATIONS, label: 'العروض والإشعارات', icon: '🔔' },
     { href: ROUTES.DASHBOARD_POS, label: 'نقطة البيع', icon: '🧾' },
     { href: ROUTES.DASHBOARD_REPORTS, label: 'التقارير', icon: '📈' },
     { href: ROUTES.DASHBOARD_SETTINGS, label: 'الإعدادات', icon: '⚙' },

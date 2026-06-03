@@ -10,6 +10,7 @@ const protectedDashboardRoutes = [
   '/dashboard/products',
   '/dashboard/reports',
   '/dashboard/payments',
+  '/dashboard/notifications',
   '/dashboard/delivery',
   '/dashboard/settings',
   '/dashboard/pos',

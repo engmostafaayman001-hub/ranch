@@ -82,6 +82,11 @@ export function Sidebar({ isOpen, onClose, isLoggedIn, onLogout }: SidebarProps)
                     📦 {t('orders')}
                   </Button>
                 </Link>
+                <Link href="/notifications" onClick={onClose}>
+                  <Button variant="ghost" className="w-full justify-start">
+                    🔔 {language === 'ar' ? 'الإشعارات' : 'Notifications'}
+                  </Button>
+                </Link>
                 {canOpenDashboard && (
                   <Link href={ROUTES.DASHBOARD} onClick={onClose}>
                     <Button variant="ghost" className="w-full justify-start">

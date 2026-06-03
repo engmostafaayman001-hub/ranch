@@ -6,6 +6,7 @@ import { useTheme } from '@/components/theme-provider'
 import { useLanguage } from '@/components/language-provider'
 import { useAuthStore } from '@/lib/store'
 import { canAccessDashboardByEmail } from '@/lib/access'
+import { NotificationBell } from '@/components/notification-bell'
 
 interface NavbarProps {
   onMenuOpen: () => void
@@ -31,6 +32,9 @@ export function Navbar({ onMenuOpen, isLoggedIn, onLogout }: NavbarProps) {
 
           {/* Right side - Actions */}
           <div className="flex items-center space-x-2">
+            {/* Language Toggle */}
+            {isLoggedIn && <NotificationBell />}
+
             {/* Language Toggle */}
             <Button
               variant="ghost"
@@ -67,6 +71,9 @@ export function Navbar({ onMenuOpen, isLoggedIn, onLogout }: NavbarProps) {
                 <>
                   <Link href="/profile">
                     <Button variant="ghost">👤 {t('profile')}</Button>
+                  </Link>
+                  <Link href="/my-orders">
+                    <Button variant="ghost">{language === 'ar' ? 'طلباتي' : 'My Orders'}</Button>
                   </Link>
                   {canOpenDashboard && (
                     <Link href="/dashboard">

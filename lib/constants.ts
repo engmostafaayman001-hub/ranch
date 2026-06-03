@@ -101,6 +101,7 @@ export const ROUTES = {
   DASHBOARD_PRODUCTS: '/dashboard/products',
   DASHBOARD_REPORTS: '/dashboard/reports',
   DASHBOARD_PAYMENTS: '/dashboard/payments',
+  DASHBOARD_NOTIFICATIONS: '/dashboard/notifications',
   DASHBOARD_DELIVERY: '/dashboard/delivery',
   DASHBOARD_SETTINGS: '/dashboard/settings',
   DASHBOARD_POS: '/dashboard/pos',
