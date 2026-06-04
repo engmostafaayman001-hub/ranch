@@ -23,6 +23,7 @@ export default function DashboardTeamPage() {
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
   const [form, setForm] = useState({ name: '', email: '', role: 'support', status: 'active' as 'active' | 'inactive' })
 
   const loadTeam = async () => {
@@ -43,6 +44,18 @@ export default function DashboardTeamPage() {
     return () => window.clearTimeout(timer)
   }, [])
 
+  const closeForm = () => {
+    setEditingId(null)
+    setForm({ name: '', email: '', role: 'support', status: 'active' })
+    setFormOpen(false)
+  }
+
+  const openNewMember = () => {
+    setEditingId(null)
+    setForm({ name: '', email: '', role: 'support', status: 'active' })
+    setFormOpen(true)
+  }
+
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setLoading(true)
@@ -56,8 +69,7 @@ export default function DashboardTeamPage() {
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.message || data.error || 'Could not save member')
       setMessage(editingId ? (isArabic ? 'تم حفظ تعديل العضو.' : 'Member updated.') : (isArabic ? 'تمت إضافة العضو وتفعيل صلاحياته.' : 'Member added and permissions enabled.'))
-      setEditingId(null)
-      setForm({ name: '', email: '', role: 'support', status: 'active' })
+      closeForm()
       loadTeam()
     } catch (error) {
       setMessage(error instanceof Error ? error.message : (isArabic ? 'تعذر حفظ العضو.' : 'Could not save member.'))
@@ -69,6 +81,7 @@ export default function DashboardTeamPage() {
   const edit = (member: TeamMember) => {
     setEditingId(member.id)
     setForm({ name: member.name, email: member.email, role: member.role, status: member.status })
+    setFormOpen(true)
   }
 
   const updateStatus = async (member: TeamMember) => {
@@ -117,34 +130,40 @@ export default function DashboardTeamPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-3xl font-bold">{isArabic ? 'إدارة الفريق' : 'Team Management'}</h2>
-          <p className="mt-2 text-slate-500 dark:text-slate-400">{isArabic ? 'أضف أعضاء للوحة التحكم وحدد الدور والحالة لكل عضو.' : 'Add dashboard members and set each member role and status.'}</p>
+          <p className="mt-2 text-slate-500 dark:text-slate-400">{isArabic ? 'أدر أعضاء لوحة التحكم والصلاحيات من قائمة واضحة.' : 'Manage dashboard members and permissions from a clear list.'}</p>
         </div>
-        <Button variant="outline" onClick={loadTeam} disabled={loading}>{loading ? (isArabic ? 'جاري التحديث...' : 'Refreshing...') : (isArabic ? 'تحديث' : 'Refresh')}</Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={loadTeam} disabled={loading}>{loading ? (isArabic ? 'جاري التحديث...' : 'Refreshing...') : (isArabic ? 'تحديث' : 'Refresh')}</Button>
+          <Button onClick={openNewMember} className="bg-red-600 hover:bg-red-700">{isArabic ? 'إضافة عضو' : 'Add Member'}</Button>
+        </div>
       </div>
       {message && <p className="rounded-md bg-slate-100 p-3 text-sm dark:bg-slate-900">{message}</p>}
 
-      <Card>
-        <CardHeader><CardTitle>{editingId ? (isArabic ? 'تعديل عضو' : 'Edit Member') : (isArabic ? 'إضافة عضو' : 'Add Member')}</CardTitle></CardHeader>
-        <CardContent>
-          <form onSubmit={submit} className="grid gap-4 md:grid-cols-4">
-            <Field id="member-name" label={isArabic ? 'الاسم' : 'Name'} value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
-            <Field id="member-email" label={isArabic ? 'البريد الإلكتروني' : 'Email'} value={form.email} onChange={(value) => setForm({ ...form, email: value })} type="email" />
-            <div>
-              <Label htmlFor="role">{isArabic ? 'الدور' : 'Role'}</Label>
-              <select id="role" value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })} className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 dark:border-slate-800 dark:bg-slate-950">
-                <option value="admin">{isArabic ? 'مدير' : 'Admin'}</option>
-                <option value="manager">{isArabic ? 'مشرف' : 'Manager'}</option>
-                <option value="cashier">{isArabic ? 'كاشير' : 'Cashier'}</option>
-                <option value="delivery">{isArabic ? 'مندوب توصيل' : 'Delivery'}</option>
-                <option value="support">{isArabic ? 'دعم العملاء' : 'Support'}</option>
-              </select>
-            </div>
-            <div className="flex items-end">
-              <Button type="submit" disabled={loading} className="w-full bg-red-600 hover:bg-red-700">{editingId ? (isArabic ? 'حفظ' : 'Save') : (isArabic ? 'إضافة' : 'Add')}</Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+      {formOpen && (
+        <Card>
+          <CardHeader><CardTitle>{editingId ? (isArabic ? 'تعديل عضو' : 'Edit Member') : (isArabic ? 'إضافة عضو' : 'Add Member')}</CardTitle></CardHeader>
+          <CardContent>
+            <form onSubmit={submit} className="grid gap-4 md:grid-cols-4">
+              <Field id="member-name" label={isArabic ? 'الاسم' : 'Name'} value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
+              <Field id="member-email" label={isArabic ? 'البريد الإلكتروني' : 'Email'} value={form.email} onChange={(value) => setForm({ ...form, email: value })} type="email" />
+              <div>
+                <Label htmlFor="role">{isArabic ? 'الدور' : 'Role'}</Label>
+                <select id="role" value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })} className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 dark:border-slate-800 dark:bg-slate-950">
+                  <option value="admin">{isArabic ? 'مدير' : 'Admin'}</option>
+                  <option value="manager">{isArabic ? 'مشرف' : 'Manager'}</option>
+                  <option value="cashier">{isArabic ? 'كاشير' : 'Cashier'}</option>
+                  <option value="delivery">{isArabic ? 'مندوب توصيل' : 'Delivery'}</option>
+                  <option value="support">{isArabic ? 'دعم العملاء' : 'Support'}</option>
+                </select>
+              </div>
+              <div className="flex items-end gap-2">
+                <Button type="submit" disabled={loading} className="flex-1 bg-red-600 hover:bg-red-700">{editingId ? (isArabic ? 'حفظ' : 'Save') : (isArabic ? 'إضافة' : 'Add')}</Button>
+                <Button type="button" variant="outline" onClick={closeForm}>{isArabic ? 'إلغاء' : 'Cancel'}</Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader><CardTitle>{isArabic ? 'أعضاء الفريق' : 'Team Members'}</CardTitle></CardHeader>

@@ -41,6 +41,7 @@ export function canRoleOpenDashboardRoute(role: string | null | undefined, pathn
   const route = Object.keys(DASHBOARD_ROUTE_ROLES)
     .filter((href) => pathname === href || pathname.startsWith(`${href}/`))
     .sort((a, b) => b.length - a.length)[0]
-  const roles = route ? DASHBOARD_ROUTE_ROLES[route] : DASHBOARD_ROLES
+  if (!route) return false
+  const roles = DASHBOARD_ROUTE_ROLES[route]
   return roles.includes(role)
 }

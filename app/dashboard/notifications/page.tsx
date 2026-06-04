@@ -10,22 +10,25 @@ import { Textarea } from '@/components/ui/textarea'
 import { useLanguage } from '@/components/language-provider'
 import { AppNotification } from '@/lib/notifications'
 
+const emptyForm = {
+  title: '',
+  message: '',
+  code: '',
+  discountType: 'percent',
+  discountValue: '10',
+  minSubtotal: '',
+  expiresAt: '',
+  active: true,
+}
+
 export default function DashboardNotificationsPage() {
   const { language } = useLanguage()
   const isArabic = language === 'ar'
   const [sending, setSending] = useState(false)
   const [status, setStatus] = useState('')
+  const [formOpen, setFormOpen] = useState(false)
   const [notifications, setNotifications] = useState<AppNotification[]>([])
-  const [form, setForm] = useState({
-    title: '',
-    message: '',
-    code: '',
-    discountType: 'percent',
-    discountValue: '10',
-    minSubtotal: '',
-    expiresAt: '',
-    active: true,
-  })
+  const [form, setForm] = useState(emptyForm)
 
   const loadNotifications = async () => {
     const response = await fetch('/api/notifications', { cache: 'no-store' })
@@ -39,6 +42,11 @@ export default function DashboardNotificationsPage() {
     }, 0)
     return () => window.clearTimeout(timer)
   }, [])
+
+  const closeForm = () => {
+    setForm(emptyForm)
+    setFormOpen(false)
+  }
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -57,7 +65,7 @@ export default function DashboardNotificationsPage() {
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.message || data.error || 'Could not send notification')
       setStatus(isArabic ? 'تم حفظ العرض وإرسال الإشعار للعملاء. كود الخصم أصبح فعالا.' : 'Offer saved and notification sent. The discount code is now active.')
-      setForm({ title: '', message: '', code: '', discountType: 'percent', discountValue: '10', minSubtotal: '', expiresAt: '', active: true })
+      closeForm()
       await loadNotifications()
     } catch (error) {
       setStatus(error instanceof Error ? error.message : (isArabic ? 'تعذر إرسال الإشعار.' : 'Could not send notification.'))
@@ -73,44 +81,57 @@ export default function DashboardNotificationsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-3xl font-bold">{isArabic ? 'الإشعارات والعروض' : 'Notifications & Offers'}</h2>
-        <p className="mt-2 text-slate-500 dark:text-slate-400">{isArabic ? 'أرسل عرضا أو كود خصم ليظهر للعملاء ويصبح صالحا للاستخدام.' : 'Send an offer or discount code that customers can use.'}</p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-3xl font-bold">{isArabic ? 'الإشعارات والعروض' : 'Notifications & Offers'}</h2>
+          <p className="mt-2 text-slate-500 dark:text-slate-400">
+            {isArabic ? 'اعرض العروض المحفوظة وافتح نموذج إرسال عرض جديد عند الحاجة.' : 'View saved offers and open the send form only when needed.'}
+          </p>
+        </div>
+        <Button onClick={() => setFormOpen(true)} className="bg-red-600 hover:bg-red-700">
+          {isArabic ? 'إرسال عرض جديد' : 'Send New Offer'}
+        </Button>
       </div>
       {status && <p className="rounded-md bg-slate-100 p-3 text-sm dark:bg-slate-900">{status}</p>}
-      <Card>
-        <CardHeader><CardTitle>{isArabic ? 'إرسال إشعار جديد' : 'Send New Notification'}</CardTitle></CardHeader>
-        <CardContent>
-          <form onSubmit={submit} className="space-y-4">
-            <div>
-              <Label htmlFor="title">{isArabic ? 'العنوان' : 'Title'}</Label>
-              <Input id="title" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder={isArabic ? 'عرض خاص اليوم' : 'Special offer today'} required />
-            </div>
-            <div>
-              <Label htmlFor="message">{isArabic ? 'نص الإشعار' : 'Message'}</Label>
-              <Textarea id="message" value={form.message} onChange={(event) => setForm({ ...form, message: event.target.value })} placeholder={isArabic ? 'استخدم الكود واحصل على خصم على طلبك القادم' : 'Use the code and get a discount on your next order'} required />
-            </div>
-            <div className="grid gap-4 md:grid-cols-4">
-              <Field id="code" label={isArabic ? 'كود الخصم' : 'Discount Code'} value={form.code} onChange={(value) => setForm({ ...form, code: value.toUpperCase().replace(/\s+/g, '') })} />
+
+      {formOpen && (
+        <Card>
+          <CardHeader><CardTitle>{isArabic ? 'إرسال إشعار جديد' : 'Send New Notification'}</CardTitle></CardHeader>
+          <CardContent>
+            <form onSubmit={submit} className="space-y-4">
               <div>
-                <Label htmlFor="discountType">{isArabic ? 'نوع الخصم' : 'Discount Type'}</Label>
-                <select id="discountType" value={form.discountType} onChange={(event) => setForm({ ...form, discountType: event.target.value })} className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 dark:border-slate-800 dark:bg-slate-950">
-                  <option value="percent">{isArabic ? 'نسبة' : 'Percent'}</option>
-                  <option value="fixed">{isArabic ? 'قيمة ثابتة' : 'Fixed'}</option>
-                </select>
+                <Label htmlFor="title">{isArabic ? 'العنوان' : 'Title'}</Label>
+                <Input id="title" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder={isArabic ? 'عرض خاص اليوم' : 'Special offer today'} required />
               </div>
-              <Field id="discountValue" label={isArabic ? 'قيمة الخصم' : 'Discount Value'} value={form.discountValue} onChange={(value) => setForm({ ...form, discountValue: value })} type="number" />
-              <Field id="minSubtotal" label={isArabic ? 'حد أدنى للطلب' : 'Minimum Order'} value={form.minSubtotal} onChange={(value) => setForm({ ...form, minSubtotal: value })} type="number" />
-            </div>
-            <Field id="expiresAt" label={isArabic ? 'تاريخ الانتهاء' : 'Expiry Date'} value={form.expiresAt} onChange={(value) => setForm({ ...form, expiresAt: value })} type="date" />
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={form.active} onChange={(event) => setForm({ ...form, active: event.target.checked })} />
-              {isArabic ? 'الكود فعال' : 'Code is active'}
-            </label>
-            <Button type="submit" disabled={sending} className="bg-red-600 hover:bg-red-700">{sending ? (isArabic ? 'جاري الإرسال...' : 'Sending...') : (isArabic ? 'إرسال للجميع' : 'Send to Customers')}</Button>
-          </form>
-        </CardContent>
-      </Card>
+              <div>
+                <Label htmlFor="message">{isArabic ? 'نص الإشعار' : 'Message'}</Label>
+                <Textarea id="message" value={form.message} onChange={(event) => setForm({ ...form, message: event.target.value })} placeholder={isArabic ? 'استخدم الكود واحصل على خصم على طلبك القادم' : 'Use the code and get a discount on your next order'} required />
+              </div>
+              <div className="grid gap-4 md:grid-cols-4">
+                <Field id="code" label={isArabic ? 'كود الخصم' : 'Discount Code'} value={form.code} onChange={(value) => setForm({ ...form, code: value.toUpperCase().replace(/\s+/g, '') })} />
+                <div>
+                  <Label htmlFor="discountType">{isArabic ? 'نوع الخصم' : 'Discount Type'}</Label>
+                  <select id="discountType" value={form.discountType} onChange={(event) => setForm({ ...form, discountType: event.target.value })} className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 dark:border-slate-800 dark:bg-slate-950">
+                    <option value="percent">{isArabic ? 'نسبة' : 'Percent'}</option>
+                    <option value="fixed">{isArabic ? 'قيمة ثابتة' : 'Fixed'}</option>
+                  </select>
+                </div>
+                <Field id="discountValue" label={isArabic ? 'قيمة الخصم' : 'Discount Value'} value={form.discountValue} onChange={(value) => setForm({ ...form, discountValue: value })} type="number" />
+                <Field id="minSubtotal" label={isArabic ? 'حد أدنى للطلب' : 'Minimum Order'} value={form.minSubtotal} onChange={(value) => setForm({ ...form, minSubtotal: value })} type="number" />
+              </div>
+              <Field id="expiresAt" label={isArabic ? 'تاريخ الانتهاء' : 'Expiry Date'} value={form.expiresAt} onChange={(value) => setForm({ ...form, expiresAt: value })} type="date" />
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={form.active} onChange={(event) => setForm({ ...form, active: event.target.checked })} />
+                {isArabic ? 'الكود فعال' : 'Code is active'}
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <Button type="submit" disabled={sending} className="bg-red-600 hover:bg-red-700">{sending ? (isArabic ? 'جاري الإرسال...' : 'Sending...') : (isArabic ? 'إرسال للجميع' : 'Send to Customers')}</Button>
+                <Button type="button" variant="outline" onClick={closeForm}>{isArabic ? 'إلغاء' : 'Cancel'}</Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader><CardTitle>{isArabic ? 'العروض المحفوظة' : 'Saved Offers'}</CardTitle></CardHeader>

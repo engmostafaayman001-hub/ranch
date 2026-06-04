@@ -1,14 +1,24 @@
 import { NextRequest } from 'next/server'
 import { canAccessDashboardByEmail, normalizeEmail } from '@/lib/access'
+import { DASHBOARD_ROLES } from '@/lib/dashboard-permissions'
 import { createSupabaseAdminClient, createSupabaseServerClient } from '@/lib/supabase'
-
-const DASHBOARD_ROLES = ['super_admin', 'admin', 'manager', 'cashier', 'delivery', 'support']
 
 export type DashboardAccess = {
   allowed: boolean
   userId: string | null
   email: string | null
   role: string | null
+}
+
+type TeamRoleRow = {
+  user_id: string
+  role: string | null
+  status: string | null
+}
+
+type AppUserRow = {
+  id: string
+  email?: string | null
 }
 
 export function getRequestUserEmail(request: NextRequest) {
@@ -35,6 +45,11 @@ async function getSupabaseSessionUser(request: NextRequest) {
   }
 }
 
+function roleAccess(userId: string | null, email: string, role: string | null): DashboardAccess | null {
+  if (!role || !(DASHBOARD_ROLES as readonly string[]).includes(role)) return null
+  return { allowed: true, userId, email, role }
+}
+
 export async function getRequestDashboardAccess(request: NextRequest): Promise<DashboardAccess> {
   const sessionUser = await getSupabaseSessionUser(request)
   const cookieEmail = getRequestUserEmail(request)
@@ -46,44 +61,39 @@ export async function getRequestDashboardAccess(request: NextRequest): Promise<D
 
   try {
     const supabase = createSupabaseAdminClient()
-    const appUser = sessionUser?.id
-      ? { id: sessionUser.id }
-      : (
-          await supabase
-            .from('users')
-            .select('id')
-            .eq('email', email)
-            .maybeSingle()
-        ).data
+    const userIds = new Set<string>()
+    if (sessionUser?.id) userIds.add(sessionUser.id)
 
-    if (!appUser?.id) {
-      if (canAccessDashboardByEmail(email)) {
-        return { allowed: true, userId: sessionUser?.id || null, email, role: 'super_admin' }
+    const { data: usersByEmail } = await supabase
+      .from('users')
+      .select('id,email')
+      .eq('email', email)
+
+    if (Array.isArray(usersByEmail)) {
+      for (const user of usersByEmail as AppUserRow[]) {
+        if (user.id) userIds.add(String(user.id))
       }
-      return { allowed: false, userId: null, email, role: null }
     }
 
-    const { data: teamMember } = await supabase
-      .from('team_members')
-      .select('role,status')
-      .eq('user_id', appUser.id)
-      .eq('status', 'active')
-      .maybeSingle()
+    if (userIds.size > 0) {
+      const { data: teamRows } = await supabase
+        .from('team_members')
+        .select('user_id,role,status')
+        .in('user_id', Array.from(userIds))
 
-    const role = teamMember?.role ? String(teamMember.role) : null
-    if (role && DASHBOARD_ROLES.includes(role)) {
-      return {
-        allowed: true,
-        userId: appUser.id,
-        email,
-        role,
+      const rows = Array.isArray(teamRows) ? (teamRows as TeamRoleRow[]) : []
+      const activeRow = rows.find((row) => row.status === 'active' && roleAccess(String(row.user_id), email, row.role))
+      const activeAccess = activeRow ? roleAccess(String(activeRow.user_id), email, activeRow.role) : null
+      if (activeAccess) return activeAccess
+
+      if (rows.length > 0) {
+        return { allowed: false, userId: sessionUser?.id || Array.from(userIds)[0] || null, email, role: null }
       }
     }
   } catch {
-    if (canAccessDashboardByEmail(email)) {
-      return { allowed: true, userId: sessionUser?.id || null, email, role: 'super_admin' }
+    if (!canAccessDashboardByEmail(email)) {
+      return { allowed: false, userId: sessionUser?.id || null, email, role: null }
     }
-    return { allowed: false, userId: sessionUser?.id || null, email, role: null }
   }
 
   if (canAccessDashboardByEmail(email)) {

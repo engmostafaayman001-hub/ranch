@@ -10,6 +10,15 @@ import { useLanguage } from '@/components/language-provider'
 import { ROUTES } from '@/lib/constants'
 import { dashboardLinks } from '@/lib/dashboard-routes'
 
+const roleLabels: Record<string, { ar: string; en: string }> = {
+  super_admin: { ar: 'مالك النظام', en: 'Super Admin' },
+  admin: { ar: 'مدير', en: 'Admin' },
+  manager: { ar: 'مشرف', en: 'Manager' },
+  cashier: { ar: 'كاشير', en: 'Cashier' },
+  delivery: { ar: 'مندوب توصيل', en: 'Delivery' },
+  support: { ar: 'دعم العملاء', en: 'Support' },
+}
+
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { language, t } = useLanguage()
@@ -24,12 +33,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         <div className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 px-4 py-4 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95 sm:px-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setSidebarOpen(true)}
-                title={isArabic ? 'فتح قائمة لوحة التحكم' : 'Open dashboard menu'}
-              >
+              <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)} title={isArabic ? 'فتح قائمة لوحة التحكم' : 'Open dashboard menu'}>
                 <Menu className="h-5 w-5" aria-hidden="true" />
               </Button>
               <h1 className="text-2xl font-bold">{t('dashboard')}</h1>
@@ -68,7 +72,7 @@ function DashboardAside({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
       fetch('/api/auth/dashboard-access', { cache: 'no-store' })
         .then((response) => response.json())
         .then((data) => {
-          if (active) setRole(data.role || null)
+          if (active) setRole(typeof data.role === 'string' ? data.role : null)
         })
         .catch(() => {
           if (active) setRole(null)
@@ -85,6 +89,7 @@ function DashboardAside({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
     typeof role === 'undefined'
       ? []
       : dashboardLinks.filter((link) => role && (link.roles as readonly string[]).includes(role))
+  const roleLabel = role ? roleLabels[role] : null
 
   return (
     <aside
@@ -97,7 +102,11 @@ function DashboardAside({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
           <Logo size="md" />
           <div>
             <h2 className="text-xl font-bold">{isArabic ? 'لوحة التحكم' : 'Dashboard'}</h2>
-            <p className="text-xs text-slate-400">{isArabic ? 'الصفحات حسب صلاحية الدور' : 'Pages by role permissions'}</p>
+            <p className="text-xs text-slate-400">
+              {typeof role === 'undefined'
+                ? isArabic ? 'جاري تحميل الصلاحيات' : 'Loading permissions'
+                : roleLabel ? (isArabic ? roleLabel.ar : roleLabel.en) : isArabic ? 'بدون صلاحية' : 'No permission'}
+            </p>
           </div>
         </div>
         <Button variant="ghost" size="icon" className="text-white lg:hidden" onClick={onClose}>

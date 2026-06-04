@@ -37,6 +37,7 @@ export default function DashboardProductsPage() {
   const { categories, products, setCatalog } = useAppStore()
   const [productForm, setProductForm] = useState(emptyProduct)
   const [editingProductId, setEditingProductId] = useState<string | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
   const [uploadStatus, setUploadStatus] = useState('')
   const [saveStatus, setSaveStatus] = useState('')
   const [saving, setSaving] = useState(false)
@@ -46,16 +47,6 @@ export default function DashboardProductsPage() {
     categories.find((category) => category.id === id)?.[isArabic ? 'nameAr' : 'nameEn'] ||
     (isArabic ? 'بدون قسم' : 'No category')
 
-  const text = {
-    title: isArabic ? 'إدارة المنتجات' : 'Products',
-    subtitle: isArabic
-      ? 'أي منتج تضيفه أو تعدله هنا يتم حفظه على السيرفر ويظهر لكل المستخدمين.'
-      : 'Products added or edited here are saved on the server and shown to all users.',
-    productForm: editingProductId ? (isArabic ? 'تعديل منتج' : 'Edit Product') : (isArabic ? 'إضافة منتج' : 'Add Product'),
-    saveOk: isArabic ? 'تم حفظ المنتجات وظهورها لجميع المستخدمين.' : 'Products saved and published to all users.',
-    saveLocal: isArabic ? 'تم حفظ التغيير محليا فقط.' : 'Changes were saved locally only.',
-  }
-
   const publishCatalog = async (nextCategories: MenuCategory[], nextProducts: MenuProduct[]) => {
     setCatalog({ categories: nextCategories, products: nextProducts })
     setSaving(true)
@@ -64,19 +55,27 @@ export default function DashboardProductsPage() {
     try {
       const data = await saveSharedCatalog(nextCategories, nextProducts)
       setCatalog({ categories: data.categories || nextCategories, products: data.products || nextProducts })
-      setSaveStatus(text.saveOk)
+      setSaveStatus(isArabic ? 'تم حفظ المنتجات وظهورها لجميع المستخدمين.' : 'Products saved and published to all users.')
     } catch (error) {
-      setSaveStatus(error instanceof Error ? error.message : text.saveLocal)
+      setSaveStatus(error instanceof Error ? error.message : isArabic ? 'تم حفظ التغيير محليا فقط.' : 'Changes were saved locally only.')
     } finally {
       setSaving(false)
       window.setTimeout(() => setSaveStatus(''), 3000)
     }
   }
 
-  const resetProduct = () => {
+  const openNewProduct = () => {
     setEditingProductId(null)
     setProductForm({ ...emptyProduct, categoryId: activeCategories[0]?.id || '' })
     setUploadStatus('')
+    setFormOpen(true)
+  }
+
+  const closeForm = () => {
+    setEditingProductId(null)
+    setProductForm({ ...emptyProduct, categoryId: activeCategories[0]?.id || '' })
+    setUploadStatus('')
+    setFormOpen(false)
   }
 
   const submitProduct = (event: FormEvent) => {
@@ -96,7 +95,7 @@ export default function DashboardProductsPage() {
     } else {
       publishCatalog(categories, [...products, { ...payload, id: createId('product'), rating: 0, reviews: 0 }])
     }
-    resetProduct()
+    closeForm()
   }
 
   const editProduct = (product: MenuProduct) => {
@@ -114,6 +113,7 @@ export default function DashboardProductsPage() {
       bestSeller: product.bestSeller,
     })
     setUploadStatus('')
+    setFormOpen(true)
   }
 
   const deleteProduct = (id: string) => {
@@ -146,13 +146,20 @@ export default function DashboardProductsPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-3xl font-bold">{text.title}</h2>
-          <p className="mt-2 text-slate-500 dark:text-slate-400">{text.subtitle}</p>
+          <h2 className="text-3xl font-bold">{isArabic ? 'إدارة المنتجات' : 'Products'}</h2>
+          <p className="mt-2 text-slate-500 dark:text-slate-400">
+            {isArabic ? 'اعرض المنتجات أولا، وافتح نموذج الإضافة عند الحاجة فقط.' : 'View products first, and open the add form only when needed.'}
+          </p>
           {saveStatus && <p className="mt-2 text-sm font-medium text-green-600">{saveStatus}</p>}
         </div>
-        <Link href={ROUTES.DASHBOARD_CATEGORIES}>
-          <Button variant="outline">{isArabic ? 'إدارة الأقسام' : 'Manage Categories'}</Button>
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link href={ROUTES.DASHBOARD_CATEGORIES}>
+            <Button variant="outline">{isArabic ? 'إدارة الأقسام' : 'Manage Categories'}</Button>
+          </Link>
+          <Button onClick={openNewProduct} disabled={activeCategories.length === 0} className="bg-red-600 hover:bg-red-700">
+            {isArabic ? 'إضافة منتج' : 'Add Product'}
+          </Button>
+        </div>
       </div>
 
       {activeCategories.length === 0 && (
@@ -170,100 +177,58 @@ export default function DashboardProductsPage() {
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{text.productForm}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={submitProduct} className="grid gap-4 lg:grid-cols-2">
-            <Field
-              id="name-ar"
-              label={isArabic ? 'اسم المنتج بالعربية' : 'Product name in Arabic'}
-              value={productForm.nameAr}
-              onChange={(value) => setProductForm({ ...productForm, nameAr: value })}
-            />
-            <Field
-              id="name-en"
-              label={isArabic ? 'اسم المنتج بالإنجليزية' : 'Product name in English'}
-              value={productForm.nameEn}
-              onChange={(value) => setProductForm({ ...productForm, nameEn: value })}
-            />
-            <div>
-              <Label htmlFor="description-ar">{isArabic ? 'الوصف بالعربية' : 'Description in Arabic'}</Label>
-              <Textarea id="description-ar" value={productForm.descriptionAr} onChange={(event) => setProductForm({ ...productForm, descriptionAr: event.target.value })} />
-            </div>
-            <div>
-              <Label htmlFor="description-en">{isArabic ? 'الوصف بالإنجليزية' : 'Description in English'}</Label>
-              <Textarea id="description-en" value={productForm.descriptionEn} onChange={(event) => setProductForm({ ...productForm, descriptionEn: event.target.value })} />
-            </div>
-            <div>
-              <Label htmlFor="category">{isArabic ? 'القسم' : 'Category'}</Label>
-              <select
-                id="category"
-                value={productForm.categoryId}
-                onChange={(event) => setProductForm({ ...productForm, categoryId: event.target.value })}
-                className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950"
-              >
-                <option value="" disabled>
-                  {isArabic ? 'اختر قسما' : 'Choose a category'}
-                </option>
-                {activeCategories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {isArabic ? category.nameAr : category.nameEn}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <Field
-              id="price"
-              label={isArabic ? 'السعر' : 'Price'}
-              value={String(productForm.price)}
-              onChange={(value) => setProductForm({ ...productForm, price: Number(value) })}
-              type="number"
-            />
-            <Field
-              id="time"
-              label={isArabic ? 'الدقائق' : 'Minutes'}
-              value={String(productForm.preparationTime)}
-              onChange={(value) => setProductForm({ ...productForm, preparationTime: Number(value) })}
-              type="number"
-            />
-            <div>
-              <Label htmlFor="image-upload">{isArabic ? 'رفع صورة المنتج' : 'Upload Product Image'}</Label>
-              <FileInput id="image-upload" accept="image/*" onChange={handleImageUpload} className="mt-1" />
-              <p className="mt-2 text-xs text-slate-500">
-                {isArabic ? 'يمكن رفع أي مقاس، وسيتم ضبط الصورة تلقائيا لتظهر كاملة.' : 'Upload any size; the image will be adjusted automatically to show fully.'}
-              </p>
-              {uploadStatus && <p className="mt-2 text-sm text-slate-500">{uploadStatus}</p>}
-            </div>
-            <Field
-              id="image"
-              label={isArabic ? 'مسار الصورة أو الرمز' : 'Image path or emoji'}
-              value={productForm.image}
-              onChange={(value) => setProductForm({ ...productForm, image: value })}
-            />
-            <ProductImagePreview value={productForm.image} />
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={productForm.available} onChange={(event) => setProductForm({ ...productForm, available: event.target.checked })} />
-              {isArabic ? 'متوفر للبيع' : 'Available for sale'}
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={productForm.bestSeller} onChange={(event) => setProductForm({ ...productForm, bestSeller: event.target.checked })} />
-              {isArabic ? 'يظهر في الأكثر مبيعا' : 'Show as best seller'}
-            </label>
-            <div className="flex gap-2 lg:col-span-2">
-              <Button type="submit" disabled={saving || activeCategories.length === 0} className="bg-red-600 hover:bg-red-700">
-                {editingProductId ? (isArabic ? 'حفظ المنتج' : 'Save Product') : (isArabic ? 'إضافة منتج' : 'Add Product')}
-              </Button>
-              {editingProductId && (
-                <Button type="button" variant="outline" onClick={resetProduct}>
-                  {isArabic ? 'إلغاء' : 'Cancel'}
+      {formOpen && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{editingProductId ? (isArabic ? 'تعديل منتج' : 'Edit Product') : (isArabic ? 'إضافة منتج' : 'Add Product')}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={submitProduct} className="grid gap-4 lg:grid-cols-2">
+              <Field id="name-ar" label={isArabic ? 'اسم المنتج بالعربية' : 'Product name in Arabic'} value={productForm.nameAr} onChange={(value) => setProductForm({ ...productForm, nameAr: value })} />
+              <Field id="name-en" label={isArabic ? 'اسم المنتج بالإنجليزية' : 'Product name in English'} value={productForm.nameEn} onChange={(value) => setProductForm({ ...productForm, nameEn: value })} />
+              <div>
+                <Label htmlFor="description-ar">{isArabic ? 'الوصف بالعربية' : 'Description in Arabic'}</Label>
+                <Textarea id="description-ar" value={productForm.descriptionAr} onChange={(event) => setProductForm({ ...productForm, descriptionAr: event.target.value })} />
+              </div>
+              <div>
+                <Label htmlFor="description-en">{isArabic ? 'الوصف بالإنجليزية' : 'Description in English'}</Label>
+                <Textarea id="description-en" value={productForm.descriptionEn} onChange={(event) => setProductForm({ ...productForm, descriptionEn: event.target.value })} />
+              </div>
+              <div>
+                <Label htmlFor="category">{isArabic ? 'القسم' : 'Category'}</Label>
+                <select id="category" value={productForm.categoryId} onChange={(event) => setProductForm({ ...productForm, categoryId: event.target.value })} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950">
+                  <option value="" disabled>{isArabic ? 'اختر قسما' : 'Choose a category'}</option>
+                  {activeCategories.map((category) => <option key={category.id} value={category.id}>{isArabic ? category.nameAr : category.nameEn}</option>)}
+                </select>
+              </div>
+              <Field id="price" label={isArabic ? 'السعر' : 'Price'} value={String(productForm.price)} onChange={(value) => setProductForm({ ...productForm, price: Number(value) })} type="number" />
+              <Field id="time" label={isArabic ? 'الدقائق' : 'Minutes'} value={String(productForm.preparationTime)} onChange={(value) => setProductForm({ ...productForm, preparationTime: Number(value) })} type="number" />
+              <div>
+                <Label htmlFor="image-upload">{isArabic ? 'رفع صورة المنتج' : 'Upload Product Image'}</Label>
+                <FileInput id="image-upload" accept="image/*" onChange={handleImageUpload} className="mt-1" />
+                <p className="mt-2 text-xs text-slate-500">{isArabic ? 'يمكن رفع أي مقاس، وسيتم ضبط الصورة تلقائيا لتظهر كاملة.' : 'Upload any size; the image will be adjusted automatically to show fully.'}</p>
+                {uploadStatus && <p className="mt-2 text-sm text-slate-500">{uploadStatus}</p>}
+              </div>
+              <Field id="image" label={isArabic ? 'مسار الصورة أو الرمز' : 'Image path or emoji'} value={productForm.image} onChange={(value) => setProductForm({ ...productForm, image: value })} />
+              <ProductImagePreview value={productForm.image} />
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={productForm.available} onChange={(event) => setProductForm({ ...productForm, available: event.target.checked })} />
+                {isArabic ? 'متوفر للبيع' : 'Available for sale'}
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={productForm.bestSeller} onChange={(event) => setProductForm({ ...productForm, bestSeller: event.target.checked })} />
+                {isArabic ? 'يظهر في الأكثر مبيعا' : 'Show as best seller'}
+              </label>
+              <div className="flex gap-2 lg:col-span-2">
+                <Button type="submit" disabled={saving || activeCategories.length === 0} className="bg-red-600 hover:bg-red-700">
+                  {editingProductId ? (isArabic ? 'حفظ المنتج' : 'Save Product') : (isArabic ? 'إضافة منتج' : 'Add Product')}
                 </Button>
-              )}
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+                <Button type="button" variant="outline" onClick={closeForm}>{isArabic ? 'إلغاء' : 'Cancel'}</Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -277,26 +242,16 @@ export default function DashboardProductsPage() {
               <div key={product.id} className="flex flex-col gap-3 rounded-md border border-slate-200 p-3 dark:border-slate-800 md:flex-row md:items-center md:justify-between">
                 <div>
                   <p className="font-semibold">{isArabic ? product.nameAr : product.nameEn}</p>
-                  <p className="text-sm text-slate-500">
-                    {categoryName(product.categoryId)} - {product.price}
-                  </p>
+                  <p className="text-sm text-slate-500">{categoryName(product.categoryId)} - {product.price}</p>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <Badge className={product.available ? 'bg-green-600' : 'bg-slate-500'}>
-                      {product.available ? (isArabic ? 'متوفر' : 'Available') : (isArabic ? 'غير متوفر' : 'Unavailable')}
-                    </Badge>
+                    <Badge className={product.available ? 'bg-green-600' : 'bg-slate-500'}>{product.available ? (isArabic ? 'متوفر' : 'Available') : (isArabic ? 'غير متوفر' : 'Unavailable')}</Badge>
                     {product.bestSeller && <Badge className="bg-red-600">{isArabic ? 'الأكثر مبيعا' : 'Best Seller'}</Badge>}
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" disabled={saving} onClick={() => toggleProductAvailability(product.id)}>
-                    {product.available ? (isArabic ? 'إخفاء' : 'Hide') : (isArabic ? 'إظهار' : 'Show')}
-                  </Button>
-                  <Button size="sm" variant="outline" disabled={saving} onClick={() => editProduct(product)}>
-                    {isArabic ? 'تعديل' : 'Edit'}
-                  </Button>
-                  <Button size="sm" variant="destructive" disabled={saving} onClick={() => deleteProduct(product.id)}>
-                    {isArabic ? 'حذف' : 'Delete'}
-                  </Button>
+                  <Button size="sm" variant="outline" disabled={saving} onClick={() => toggleProductAvailability(product.id)}>{product.available ? (isArabic ? 'إخفاء' : 'Hide') : (isArabic ? 'إظهار' : 'Show')}</Button>
+                  <Button size="sm" variant="outline" disabled={saving} onClick={() => editProduct(product)}>{isArabic ? 'تعديل' : 'Edit'}</Button>
+                  <Button size="sm" variant="destructive" disabled={saving} onClick={() => deleteProduct(product.id)}>{isArabic ? 'حذف' : 'Delete'}</Button>
                 </div>
               </div>
             ))
@@ -319,12 +274,12 @@ function Field({ id, label, value, onChange, type = 'text' }: { id: string; labe
 function ProductImagePreview({ value }: { value: string }) {
   return (
     <div className="lg:col-span-2">
-      <div className="flex h-56 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-50 p-3 text-7xl dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex h-56 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-50 p-3 text-3xl font-semibold text-slate-400 dark:border-slate-800 dark:bg-slate-900">
         {isDisplayableImage(value) ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={value} alt="Product preview" className="h-full w-full object-contain" />
         ) : (
-          <span>{value || '🍽️'}</span>
+          <span>{value || 'IMG'}</span>
         )}
       </div>
     </div>
