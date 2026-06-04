@@ -8,6 +8,7 @@ import { Logo } from '@/components/logo'
 import { useTheme } from '@/components/theme-provider'
 import { useLanguage } from '@/components/language-provider'
 import { useAuthStore } from '@/lib/store'
+import { useAppStore } from '@/lib/app-store'
 import { NotificationBell } from '@/components/notification-bell'
 import { ROUTES } from '@/lib/constants'
 
@@ -21,6 +22,7 @@ export function Navbar({ onMenuOpen, isLoggedIn, onLogout }: NavbarProps) {
   const { theme, toggleTheme } = useTheme()
   const { language, appName, toggleLanguage, t } = useLanguage()
   const user = useAuthStore((state) => state.user)
+  const cartCount = useAppStore((state) => state.cart.reduce((sum, item) => sum + item.quantity, 0))
   const [canOpenDashboard, setCanOpenDashboard] = useState(false)
 
   useEffect(() => {
@@ -74,6 +76,16 @@ export function Navbar({ onMenuOpen, isLoggedIn, onLogout }: NavbarProps) {
 
           <div className="flex items-center gap-1">
             <NotificationBell />
+            <Link href={ROUTES.CART}>
+              <Button variant="ghost" size="icon" title={t('cart')} className="relative">
+                <ShoppingCart className="h-5 w-5" aria-hidden="true" />
+                {cartCount > 0 && (
+                  <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-xs font-bold text-white">
+                    {cartCount}
+                  </span>
+                )}
+              </Button>
+            </Link>
             <Button variant="ghost" size="icon" onClick={toggleLanguage} title={language === 'ar' ? 'English' : 'العربية'} className="font-semibold">
               {language === 'ar' ? 'EN' : 'AR'}
             </Button>

@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from './lib/supabase'
 import { canAccessDashboardByEmail } from './lib/access'
 import { getRequestDashboardAccess } from './lib/server-access'
-import { canRoleOpenDashboardRoute, DASHBOARD_ROLES } from './lib/dashboard-permissions'
+import { canRoleOpenDashboardRoute, DASHBOARD_ROLES, getDefaultDashboardRouteForRole } from './lib/dashboard-permissions'
 
 const authRoutes = ['/login', '/register']
 
@@ -56,6 +56,11 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL('/unauthorized', request.url))
       }
 
+      const defaultRoute = getDefaultDashboardRouteForRole(access.role)
+      if (pathname === '/dashboard' && defaultRoute !== '/dashboard') {
+        return NextResponse.redirect(new URL(defaultRoute, request.url))
+      }
+
       return response
     }
 
@@ -82,6 +87,11 @@ export async function middleware(request: NextRequest) {
 
     if (!canRoleOpenDashboardRoute(teamMember.role, pathname)) {
       return NextResponse.redirect(new URL('/unauthorized', request.url))
+    }
+
+    const defaultRoute = getDefaultDashboardRouteForRole(teamMember.role)
+    if (pathname === '/dashboard' && defaultRoute !== '/dashboard') {
+      return NextResponse.redirect(new URL(defaultRoute, request.url))
     }
   }
 

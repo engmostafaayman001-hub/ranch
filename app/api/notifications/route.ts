@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { normalizeDiscountCode } from '@/lib/discounts'
 import { createServerNotification, readServerNotifications } from '@/lib/server-notifications'
 
 export const runtime = 'nodejs'
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const title = String(body.title || '').trim()
     const message = String(body.message || '').trim()
-    const code = String(body.code || '').trim().toUpperCase()
+    const code = normalizeDiscountCode(String(body.code || ''))
     const discountType = body.discountType === 'fixed' ? 'fixed' : 'percent'
     const discountValue = Number(body.discountValue || 0)
     const minSubtotal = Number(body.minSubtotal || 0)

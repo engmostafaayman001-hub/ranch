@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { ArrowLeftToLine, Home, Menu, ReceiptText, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/logo'
@@ -29,10 +30,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               <h1 className="text-2xl font-bold">{t('dashboard')}</h1>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Link href={ROUTES.TRACK_ORDER} prefetch={false}>
+              <Link href={ROUTES.TRACK_ORDER}>
                 <Button variant="outline" className="gap-2"><ReceiptText className="h-4 w-4" />{isArabic ? 'تتبع العميل' : 'Customer Tracking'}</Button>
               </Link>
-              <Link href={ROUTES.HOME} prefetch={false}>
+              <Link href={ROUTES.HOME}>
                 <Button className="gap-2"><Home className="h-4 w-4" />{isArabic ? 'فتح التطبيق' : 'Open App'}</Button>
               </Link>
             </div>
@@ -46,25 +47,31 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
 function DashboardAside({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const { language } = useLanguage()
+  const pathname = usePathname()
   const isArabic = language === 'ar'
-  const [role, setRole] = useState<string | null>(null)
+  const [role, setRole] = useState<string | null | undefined>(undefined)
 
   useEffect(() => {
     let active = true
-    fetch('/api/auth/dashboard-access', { cache: 'no-store' })
-      .then((response) => response.json())
-      .then((data) => {
-        if (active) setRole(data.role || null)
-      })
-      .catch(() => {
-        if (active) setRole(null)
-      })
+    const timer = window.setTimeout(() => {
+      fetch('/api/auth/dashboard-access', { cache: 'no-store' })
+        .then((response) => response.json())
+        .then((data) => {
+          if (active) setRole(data.role || null)
+        })
+        .catch(() => {
+          if (active) setRole(null)
+        })
+    }, 0)
     return () => {
       active = false
+      window.clearTimeout(timer)
     }
   }, [])
 
-  const visibleLinks = dashboardLinks.filter((link) => !role || (link.roles as readonly string[]).includes(role))
+  const visibleLinks = typeof role === 'undefined'
+    ? []
+    : dashboardLinks.filter((link) => role && (link.roles as readonly string[]).includes(role))
 
   return (
     <aside
@@ -86,11 +93,20 @@ function DashboardAside({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
       </div>
 
       <nav className="flex-1 space-y-2 overflow-y-auto">
-        {visibleLinks.map((link) => {
+        {typeof role === 'undefined' ? (
+          <div className="space-y-2">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <div key={index} className="h-10 animate-pulse rounded-md bg-slate-800" />
+            ))}
+          </div>
+        ) : visibleLinks.length === 0 ? (
+          <p className="rounded-md bg-slate-900 p-3 text-sm text-slate-300">{isArabic ? 'لا توجد صفحات متاحة لهذا الدور.' : 'No pages available for this role.'}</p>
+        ) : visibleLinks.map((link) => {
           const Icon = link.icon
+          const active = pathname === link.href || pathname.startsWith(`${link.href}/`)
           return (
-            <Link key={link.href} href={link.href} prefetch={false} onClick={onClose}>
-              <Button variant="ghost" className={`w-full gap-3 text-white hover:bg-slate-800 ${isArabic ? 'justify-end' : 'justify-start'}`}>
+            <Link key={link.href} href={link.href} onClick={onClose}>
+              <Button variant="ghost" className={`w-full gap-3 text-white hover:bg-slate-800 ${active ? 'bg-slate-800' : ''} ${isArabic ? 'justify-end' : 'justify-start'}`}>
                 <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
                 {isArabic ? link.labelAr : link.labelEn}
               </Button>
@@ -99,7 +115,7 @@ function DashboardAside({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
         })}
       </nav>
 
-      <Link href={ROUTES.HOME} prefetch={false}>
+      <Link href={ROUTES.HOME}>
         <Button variant="outline" className="w-full gap-2">
           <ArrowLeftToLine className="h-4 w-4" aria-hidden="true" />
           {isArabic ? 'العودة للتطبيق' : 'Back to App'}

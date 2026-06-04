@@ -14,7 +14,7 @@ import { useSharedAppData } from '@/lib/use-shared-app-data'
 import { isDisplayableImage } from '@/lib/client-images'
 
 export default function Home() {
-  useSharedAppData()
+  const { loading: sharedLoading } = useSharedAppData()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [cartMessage, setCartMessage] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
@@ -26,7 +26,7 @@ export default function Home() {
   const currency = isArabic ? CURRENCY : CURRENCY_EN
   const activeCategories = categories.filter((category) => category.active)
   const availableProducts = products.filter((product) => product.available)
-  const offerImages = (settings.offerImages?.length ? settings.offerImages : [settings.heroImage]).filter(Boolean)
+  const offerImages = (settings.offerImages || []).filter(Boolean)
 
   useEffect(() => {
     if (offerImages.length <= 1) return
@@ -95,7 +95,9 @@ export default function Home() {
 
         <SectionHeader title={isArabic ? 'الأقسام' : 'Categories'} href={ROUTES.MENU} isArabic={isArabic} />
         <div className="flex gap-2 overflow-x-auto pb-1">
-          {activeCategories.length === 0 ? (
+          {sharedLoading && activeCategories.length === 0 ? (
+            <CategorySkeleton />
+          ) : activeCategories.length === 0 ? (
             <p className="rounded-md border border-dashed border-slate-300 bg-white px-4 py-3 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900">
               {isArabic ? 'لا توجد أقسام بعد.' : 'No categories yet.'}
             </p>
@@ -114,6 +116,7 @@ export default function Home() {
           title={isArabic ? 'الأكثر مبيعا' : 'Best Sellers'}
           emptyText={isArabic ? 'لا توجد منتجات أكثر مبيعا بعد.' : 'No best sellers yet.'}
           products={bestSellers.length ? bestSellers : searchedProducts.slice(0, 4)}
+          loading={sharedLoading && products.length === 0}
           currency={currency}
           isArabic={isArabic}
           favoriteProductIds={favoriteProductIds}
@@ -125,6 +128,7 @@ export default function Home() {
           title={isArabic ? 'منتجات من القائمة' : 'Menu Picks'}
           emptyText={isArabic ? 'لا توجد منتجات منشورة بعد.' : 'No published products yet.'}
           products={randomProducts}
+          loading={sharedLoading && products.length === 0}
           currency={currency}
           isArabic={isArabic}
           favoriteProductIds={favoriteProductIds}
@@ -193,11 +197,14 @@ function ProductSection(props: {
   favoriteProductIds: string[]
   onAddToCart: (id: string) => void
   onToggleFavorite: (id: string) => void
+  loading?: boolean
 }) {
   return (
     <section>
       <SectionHeader title={props.title} href={ROUTES.MENU} isArabic={props.isArabic} />
-      {props.products.length === 0 ? (
+      {props.loading ? (
+        <ProductGridSkeleton />
+      ) : props.products.length === 0 ? (
         <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500 dark:border-slate-800 dark:bg-slate-900">{props.emptyText}</div>
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
@@ -207,6 +214,33 @@ function ProductSection(props: {
         </div>
       )}
     </section>
+  )
+}
+
+function CategorySkeleton() {
+  return (
+    <>
+      {Array.from({ length: 4 }).map((_, index) => (
+        <span key={index} className="h-10 w-24 shrink-0 animate-pulse rounded-md bg-slate-200 dark:bg-slate-800" />
+      ))}
+    </>
+  )
+}
+
+function ProductGridSkeleton() {
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+      {Array.from({ length: 6 }).map((_, index) => (
+        <div key={index} className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div className="aspect-square animate-pulse bg-slate-200 dark:bg-slate-800" />
+          <div className="space-y-2 p-2.5">
+            <div className="h-4 animate-pulse rounded bg-slate-200 dark:bg-slate-800" />
+            <div className="h-4 w-2/3 animate-pulse rounded bg-slate-200 dark:bg-slate-800" />
+            <div className="h-8 animate-pulse rounded bg-slate-200 dark:bg-slate-800" />
+          </div>
+        </div>
+      ))}
+    </div>
   )
 }
 

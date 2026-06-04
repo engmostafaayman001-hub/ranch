@@ -23,6 +23,14 @@ export function normalizeDiscountCode(code: string) {
   return code.trim().toUpperCase().replace(/\s+/g, '')
 }
 
+function getExpiryTime(expiresAt?: string) {
+  if (!expiresAt) return 0
+  if (/^\d{4}-\d{2}-\d{2}$/.test(expiresAt)) {
+    return new Date(`${expiresAt}T23:59:59.999`).getTime()
+  }
+  return new Date(expiresAt).getTime()
+}
+
 export function getNotificationDiscount(notification: AppNotification) {
   if (!notification.code) return null
   const discountType: DiscountType = notification.discountType === 'fixed' ? 'fixed' : 'percent'
@@ -63,7 +71,7 @@ export function validateNotificationDiscount(
     return { valid: false, code: normalizedCode, reason: 'Discount code is not active' }
   }
 
-  if (discount.expiresAt && new Date(discount.expiresAt).getTime() < Date.now()) {
+  if (discount.expiresAt && getExpiryTime(discount.expiresAt) < Date.now()) {
     return { valid: false, code: normalizedCode, reason: 'Discount code has expired' }
   }
 

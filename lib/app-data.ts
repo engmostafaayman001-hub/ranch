@@ -40,6 +40,10 @@ export interface AppSettings {
   taxRate: number
   deliveryTime: number
   defaultLanguage: 'ar' | 'en'
+  printerMethod: 'browser' | 'usb' | 'bluetooth' | 'network'
+  printerName: string
+  printerIp: string
+  printerPaperWidth: '58mm' | '80mm'
 }
 
 export const defaultCategories: MenuCategory[] = []
@@ -65,4 +69,8 @@ export const defaultSettings: AppSettings = {
   taxRate: 0.1,
   deliveryTime: 30,
   defaultLanguage: 'ar',
+  printerMethod: 'browser',
+  printerName: '',
+  printerIp: '',
+  printerPaperWidth: '80mm',
 }

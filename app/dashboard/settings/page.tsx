@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useLanguage } from '@/components/language-provider'
 import { useAppStore } from '@/lib/app-store'
 import { imageFileToOptimizedDataUrl, isAcceptedImageFile } from '@/lib/client-images'
+import { printPrinterTest } from '@/lib/order-print'
 import { saveSharedSettings, useSharedAppData } from '@/lib/use-shared-app-data'
 
 export default function DashboardSettingsPage() {
@@ -17,13 +18,13 @@ export default function DashboardSettingsPage() {
   const { language, setLanguage } = useLanguage()
   const { settings, updateSettings } = useAppStore()
   const [saveStatus, setSaveStatus] = useState('')
-  const [imageStatus, setImageStatus] = useState('')
   const [offerImageStatus, setOfferImageStatus] = useState('')
+  const [printerStatus, setPrinterStatus] = useState('')
   const isArabic = language === 'ar'
 
   const text = {
     title: isArabic ? 'الإعدادات' : 'Settings',
-    subtitle: isArabic ? 'تحكم في بيانات التطبيق، اللغة، وصورة الصفحة الرئيسية.' : 'Manage app details, language, and the homepage hero image.',
+    subtitle: isArabic ? 'تحكم في بيانات التطبيق، اللغة، وصور العروض المتحركة.' : 'Manage app details, language, and the rotating offer images.',
     save: isArabic ? 'حفظ التغييرات' : 'Save Changes',
     saved: isArabic ? 'تم حفظ التغييرات وظهورها للجميع.' : 'Changes saved and published to everyone.',
     failed: isArabic ? 'تعذر حفظ التغييرات.' : 'Could not save changes.',
@@ -32,24 +33,7 @@ export default function DashboardSettingsPage() {
     restaurantInfo: isArabic ? 'بيانات المطعم' : 'Restaurant Information',
     hero: isArabic ? 'بداية الصفحة الرئيسية' : 'Homepage Hero',
     orderDelivery: isArabic ? 'إعدادات الطلب والتوصيل' : 'Order and Delivery Settings',
-  }
-
-  const handleHeroFile = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
-    if (!isAcceptedImageFile(file)) {
-      setImageStatus(isArabic ? 'اختر ملف صورة فقط.' : 'Choose an image file only.')
-      return
-    }
-
-    setImageStatus(isArabic ? 'جاري تجهيز الصورة...' : 'Preparing image...')
-    try {
-      const dataUrl = await imageFileToOptimizedDataUrl(file, { maxSize: 1800, quality: 0.88 })
-      updateSettings({ heroImage: dataUrl })
-      setImageStatus(isArabic ? `تم رفع الصورة وضبط مقاسها: ${file.name}` : `Image uploaded and resized: ${file.name}`)
-    } catch {
-      setImageStatus(isArabic ? 'تعذر رفع الصورة. حاول مرة أخرى.' : 'Could not upload the image. Try again.')
-    }
+    printer: isArabic ? 'إعدادات الطابعة' : 'Printer Settings',
   }
 
   const handleOfferFiles = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -84,6 +68,18 @@ export default function DashboardSettingsPage() {
       setSaveStatus(error instanceof Error ? error.message : text.failed)
     }
     window.setTimeout(() => setSaveStatus(''), 3000)
+  }
+
+  const testPrinter = () => {
+    const opened = printPrinterTest({
+      isArabic,
+      printerMethod: printerMethodLabel(settings.printerMethod, isArabic),
+      paperWidth: settings.printerPaperWidth || '80mm',
+      printerName: settings.printerName || settings.printerIp,
+    })
+    setPrinterStatus(opened
+      ? (isArabic ? 'تم فتح فاتورة اختبار. اختر الطابعة المناسبة من نافذة الطباعة للتأكد من الاتصال.' : 'Test receipt opened. Choose the target printer in the print dialog to confirm connection.')
+      : (isArabic ? 'المتصفح منع نافذة الطباعة. اسمح بالنوافذ المنبثقة ثم حاول مرة أخرى.' : 'The browser blocked the print window. Allow popups and try again.'))
   }
 
   return (
@@ -139,14 +135,6 @@ export default function DashboardSettingsPage() {
               <Textarea id="hero-subtitle-en" value={settings.heroSubtitleEn} onChange={(event) => updateSettings({ heroSubtitleEn: event.target.value })} />
             </div>
             <div>
-              <Label htmlFor="hero-image">{isArabic ? 'صورة الصفحة الرئيسية' : 'Hero Image'}</Label>
-              <FileInput id="hero-image" accept="image/*" onChange={handleHeroFile} className="mt-1" />
-              <p className="mt-2 text-xs text-slate-500">{isArabic ? 'ارفع أي مقاس صورة، وسيتم ضبطها تلقائيا لتظهر كاملة.' : 'Upload any image size; it will be adjusted automatically to show fully.'}</p>
-              {imageStatus && <p className="mt-2 text-sm text-slate-500">{imageStatus}</p>}
-            </div>
-            <Field id="hero-image-text" label={isArabic ? 'الصورة الحالية أو الرابط' : 'Current image or emoji'} value={settings.heroImage} onChange={(value) => updateSettings({ heroImage: value })} />
-            <HeroPreview value={settings.heroImage} />
-            <div>
               <Label htmlFor="offer-images">{isArabic ? 'صور العروض المتحركة' : 'Offer Slider Images'}</Label>
               <FileInput id="offer-images" accept="image/*" multiple onChange={handleOfferFiles} className="mt-1" />
               <p className="mt-2 text-xs text-slate-500">{isArabic ? 'يمكنك رفع أكثر من صورة، وستظهر تلقائيا في بداية الصفحة الرئيسية.' : 'Upload multiple images; they will rotate automatically on the homepage.'}</p>
@@ -163,6 +151,53 @@ export default function DashboardSettingsPage() {
           <Field id="delivery-fee" label={isArabic ? 'رسوم التوصيل' : 'Delivery Fee'} value={String(settings.deliveryFee)} onChange={(value) => updateSettings({ deliveryFee: Number(value) })} type="number" />
           <Field id="tax-rate" label={isArabic ? 'الضريبة %' : 'Tax %'} value={String(settings.taxRate * 100)} onChange={(value) => updateSettings({ taxRate: Number(value) / 100 })} type="number" />
           <Field id="delivery-time" label={isArabic ? 'وقت التوصيل بالدقائق' : 'Delivery Time in Minutes'} value={String(settings.deliveryTime)} onChange={(value) => updateSettings({ deliveryTime: Number(value) })} type="number" />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>{text.printer}</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <Label htmlFor="printer-method">{isArabic ? 'طريقة الربط' : 'Connection method'}</Label>
+              <select
+                id="printer-method"
+                value={settings.printerMethod || 'browser'}
+                onChange={(event) => updateSettings({ printerMethod: event.target.value as typeof settings.printerMethod })}
+                className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950"
+              >
+                <option value="browser">{isArabic ? 'طباعة المتصفح' : 'Browser print'}</option>
+                <option value="usb">{isArabic ? 'USB' : 'USB'}</option>
+                <option value="bluetooth">{isArabic ? 'Bluetooth' : 'Bluetooth'}</option>
+                <option value="network">{isArabic ? 'شبكة / IP' : 'Network / IP'}</option>
+              </select>
+            </div>
+            <div>
+              <Label htmlFor="paper-width">{isArabic ? 'مقاس الورق' : 'Paper width'}</Label>
+              <select
+                id="paper-width"
+                value={settings.printerPaperWidth || '80mm'}
+                onChange={(event) => updateSettings({ printerPaperWidth: event.target.value as typeof settings.printerPaperWidth })}
+                className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950"
+              >
+                <option value="80mm">80mm</option>
+                <option value="58mm">58mm</option>
+              </select>
+            </div>
+            <Field id="printer-name" label={isArabic ? 'اسم الطابعة أو ملاحظة الربط' : 'Printer name or connection note'} value={settings.printerName || ''} onChange={(value) => updateSettings({ printerName: value })} />
+            <Field id="printer-ip" label={isArabic ? 'IP الطابعة الشبكية' : 'Network printer IP'} value={settings.printerIp || ''} onChange={(value) => updateSettings({ printerIp: value })} />
+          </div>
+          <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+            {isArabic
+              ? 'الطباعة تتم من نافذة المتصفح. لطابعات USB أو Bluetooth أو الشبكة، عرّف الطابعة على الجهاز ثم اخترها من نافذة الطباعة.'
+              : 'Printing uses the browser print dialog. For USB, Bluetooth, or network printers, pair/install the printer on the device, then choose it from the print dialog.'}
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="button" variant="outline" onClick={testPrinter}>
+              {isArabic ? 'تأكيد اتصال الطابعة' : 'Test Printer Connection'}
+            </Button>
+            {printerStatus && <p className="text-sm text-slate-500">{printerStatus}</p>}
+          </div>
         </CardContent>
       </Card>
 
@@ -195,6 +230,16 @@ function OfferImagesPreview({ images, onRemove, isArabic }: { images: string[]; 
   )
 }
 
+function printerMethodLabel(method: string | undefined, isArabic: boolean) {
+  const labels: Record<string, { ar: string; en: string }> = {
+    browser: { ar: 'طباعة المتصفح', en: 'Browser print' },
+    usb: { ar: 'USB', en: 'USB' },
+    bluetooth: { ar: 'Bluetooth', en: 'Bluetooth' },
+    network: { ar: 'شبكة / IP', en: 'Network / IP' },
+  }
+  return labels[method || 'browser']?.[isArabic ? 'ar' : 'en'] || method || labels.browser[isArabic ? 'ar' : 'en']
+}
+
 function Field({ id, label, value, onChange, type = 'text' }: { id: string; label: string; value: string; onChange: (value: string) => void; type?: string }) {
   return (
     <div>
@@ -203,18 +248,3 @@ function Field({ id, label, value, onChange, type = 'text' }: { id: string; labe
     </div>
   )
 }
-
-function HeroPreview({ value }: { value: string }) {
-  const isImage = value.startsWith('data:image') || value.startsWith('http') || value.startsWith('/')
-  return (
-    <div className="overflow-hidden rounded-md border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900">
-      {isImage ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={value} alt="Hero preview" className="h-48 w-full object-contain p-3" />
-      ) : (
-        <div className="flex h-48 items-center justify-center text-7xl">{value || '🍽️'}</div>
-      )}
-    </div>
-  )
-}
-

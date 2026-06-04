@@ -14,7 +14,7 @@ import { useSharedAppData } from '@/lib/use-shared-app-data'
 import { isDisplayableImage } from '@/lib/client-images'
 
 export default function MenuPage() {
-  useSharedAppData()
+  const { loading: sharedLoading } = useSharedAppData()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState(() => {
     if (typeof window === 'undefined') return 'all'
@@ -87,7 +87,9 @@ export default function MenuPage() {
           ))}
         </div>
 
-        {filteredProducts.length === 0 ? (
+        {sharedLoading && products.length === 0 ? (
+          <ProductGridSkeleton />
+        ) : filteredProducts.length === 0 ? (
           <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500 dark:border-slate-800 dark:bg-slate-900">
             {isArabic ? 'لا توجد منتجات مطابقة.' : 'No products found.'}
           </div>
@@ -109,6 +111,23 @@ export default function MenuPage() {
         )}
       </section>
     </main>
+  )
+}
+
+function ProductGridSkeleton() {
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+      {Array.from({ length: 8 }).map((_, index) => (
+        <div key={index} className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div className="aspect-square animate-pulse bg-slate-200 dark:bg-slate-800" />
+          <div className="space-y-2 p-2.5">
+            <div className="h-4 animate-pulse rounded bg-slate-200 dark:bg-slate-800" />
+            <div className="h-4 w-2/3 animate-pulse rounded bg-slate-200 dark:bg-slate-800" />
+            <div className="h-8 animate-pulse rounded bg-slate-200 dark:bg-slate-800" />
+          </div>
+        </div>
+      ))}
+    </div>
   )
 }
 

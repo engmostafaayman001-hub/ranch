@@ -18,6 +18,23 @@ export const DASHBOARD_ROUTE_ROLES: Record<string, readonly string[]> = {
   [ROUTES.DASHBOARD_SETTINGS]: ['super_admin', 'admin'],
 }
 
+export function getDefaultDashboardRouteForRole(role: string | null | undefined) {
+  switch (role) {
+    case 'cashier':
+      return ROUTES.DASHBOARD_POS
+    case 'delivery':
+      return ROUTES.DASHBOARD_DELIVERY
+    case 'support':
+      return ROUTES.DASHBOARD_CUSTOMERS
+    case 'super_admin':
+    case 'admin':
+    case 'manager':
+      return ROUTES.DASHBOARD
+    default:
+      return '/unauthorized'
+  }
+}
+
 export function canRoleOpenDashboardRoute(role: string | null | undefined, pathname: string) {
   if (!role) return false
   const route = Object.keys(DASHBOARD_ROUTE_ROLES)

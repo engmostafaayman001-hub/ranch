@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { AppSettings, MenuCategory, MenuProduct, useAppStore } from '@/lib/app-store'
 
 type SharedAppData = {
@@ -13,6 +13,7 @@ export function useSharedAppData(options: { poll?: boolean } = {}) {
   const setCatalog = useAppStore((state) => state.setCatalog)
   const setSettings = useAppStore((state) => state.setSettings)
   const poll = options.poll ?? true
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let active = true
@@ -28,6 +29,8 @@ export function useSharedAppData(options: { poll?: boolean } = {}) {
         if (data.settings) setSettings(data.settings)
       } catch {
         // Keep local persisted data if the shared source is unavailable.
+      } finally {
+        if (active) setLoading(false)
       }
     }
 
@@ -39,6 +42,8 @@ export function useSharedAppData(options: { poll?: boolean } = {}) {
       if (interval) window.clearInterval(interval)
     }
   }, [poll, setCatalog, setSettings])
+
+  return { loading }
 }
 
 export async function saveSharedCatalog(categories: MenuCategory[], products: MenuProduct[]) {

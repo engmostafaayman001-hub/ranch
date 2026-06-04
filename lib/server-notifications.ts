@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { AppNotification } from '@/lib/notifications'
+import { normalizeDiscountCode } from '@/lib/discounts'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
 const DATA_DIR = process.env.VERCEL ? '/tmp/ranch-data' : join(process.cwd(), 'data')
@@ -66,7 +67,7 @@ export async function createServerNotification(input: Pick<AppNotification, 'tit
     id: `NTF${Date.now()}`,
     title: input.title,
     message: input.message,
-    code: input.code?.trim().toUpperCase() || undefined,
+    code: input.code ? normalizeDiscountCode(input.code) || undefined : undefined,
     discountType: 'discountType' in input && input.discountType === 'fixed' ? 'fixed' : 'percent',
     discountValue: 'discountValue' in input ? Number(input.discountValue) || undefined : undefined,
     minSubtotal: 'minSubtotal' in input ? Number(input.minSubtotal) || 0 : 0,

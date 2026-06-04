@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { CreditCard, ExternalLink, ReceiptText, XCircle } from 'lucide-react'
+import { CreditCard, ExternalLink, Printer, ReceiptText, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -15,6 +15,7 @@ import {
   PAYMENT_METHOD_LABELS_EN,
 } from '@/lib/constants'
 import { useAppStore } from '@/lib/app-store'
+import { printTrackedOrderReceipt } from '@/lib/order-print'
 import { TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
 
 const statuses: TrackingStatus[] = ['placed', 'confirmed', 'preparing', 'ready_for_delivery', 'out_for_delivery', 'delivered', 'received', 'cancelled']
@@ -24,6 +25,7 @@ export default function DashboardOrdersPage() {
   const isArabic = language === 'ar'
   const currency = isArabic ? CURRENCY : CURRENCY_EN
   const drivers = useAppStore((state) => state.drivers)
+  const settings = useAppStore((state) => state.settings)
   const [orders, setOrders] = useState<TrackedOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
@@ -139,6 +141,17 @@ export default function DashboardOrdersPage() {
     return labels[status || ''] || status || (isArabic ? 'غير محدد' : 'Not specified')
   }
 
+  const printOrder = (order: TrackedOrder) => {
+    const opened = printTrackedOrderReceipt(order, {
+      isArabic,
+      currency,
+      title: isArabic ? 'فاتورة طلب التطبيق' : 'App Order Receipt',
+      printerMethod: printerMethodLabel(settings.printerMethod, isArabic),
+      paperWidth: settings.printerPaperWidth,
+    })
+    if (!opened) setMessage(isArabic ? 'المتصفح منع نافذة الطباعة. اسمح بالنوافذ المنبثقة ثم حاول مرة أخرى.' : 'The browser blocked the print window. Allow popups and try again.')
+  }
+
   const appOrders = orders.filter((order) => order.source !== 'restaurant_pos')
 
   return (
@@ -176,6 +189,10 @@ export default function DashboardOrdersPage() {
                     </div>
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" className="gap-2" onClick={() => printOrder(order)}>
+                      <Printer className="h-4 w-4" />
+                      {isArabic ? 'طباعة' : 'Print'}
+                    </Button>
                     {statuses.map((status) => (
                       <Button key={status} size="sm" variant={order.status === status ? 'default' : 'outline'} onClick={() => updateStatus(order.id, status)}>
                         {label(status)}
@@ -239,4 +256,14 @@ export default function DashboardOrdersPage() {
       </Card>
     </div>
   )
+}
+
+function printerMethodLabel(method: string | undefined, isArabic: boolean) {
+  const labels: Record<string, { ar: string; en: string }> = {
+    browser: { ar: 'طباعة المتصفح', en: 'Browser print' },
+    usb: { ar: 'USB', en: 'USB' },
+    bluetooth: { ar: 'Bluetooth', en: 'Bluetooth' },
+    network: { ar: 'شبكة / IP', en: 'Network / IP' },
+  }
+  return labels[method || 'browser']?.[isArabic ? 'ar' : 'en'] || method || labels.browser[isArabic ? 'ar' : 'en']
 }

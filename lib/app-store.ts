@@ -66,6 +66,10 @@ export interface AppSettings {
   taxRate: number
   deliveryTime: number
   defaultLanguage: 'ar' | 'en'
+  printerMethod: 'browser' | 'usb' | 'bluetooth' | 'network'
+  printerName: string
+  printerIp: string
+  printerPaperWidth: '58mm' | '80mm'
 }
 
 interface AppStore {
@@ -122,8 +126,11 @@ export const defaultSettings: AppSettings = {
   taxRate: 0.1,
   deliveryTime: 30,
   defaultLanguage: 'ar',
+  printerMethod: 'browser',
+  printerName: '',
+  printerIp: '',
+  printerPaperWidth: '80mm',
 }
-
 const createId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
 export const useAppStore = create<AppStore>()(
@@ -141,7 +148,7 @@ export const useAppStore = create<AppStore>()(
           categories: catalog.categories,
           products: catalog.products,
         }),
-      setSettings: (settings) => set({ settings }),
+      setSettings: (settings) => set({ settings: { ...defaultSettings, ...settings } }),
       addCategory: (category) =>
         set((state) => ({ categories: [...state.categories, { ...category, id: createId('category') }] })),
       updateCategory: (id, updates) =>
@@ -198,21 +205,24 @@ export const useAppStore = create<AppStore>()(
     {
       name: 'ranch-app-data',
       storage: createJSONStorage(() => localStorage),
-      version: 3,
+      version: 4,
       migrate: (persistedState) => {
         const state = persistedState as Partial<AppStore> | undefined
         const sampleIds = new Set(['classic-burger', 'cheese-pizza', 'grilled-chicken', 'shawarma-wrap'])
         return {
           ...state,
-          categories: [],
-          products: [],
-          settings: defaultSettings,
+          categories: state?.categories || [],
+          products: state?.products || [],
+          settings: { ...defaultSettings, ...(state?.settings || {}) },
           cart: state?.cart?.filter((item) => !sampleIds.has(item.productId)) || [],
           drivers: state?.drivers || [],
           favoriteProductIds: state?.favoriteProductIds || [],
         }
       },
       partialize: (state) => ({
+        categories: state.categories,
+        products: state.products,
+        settings: state.settings,
         cart: state.cart,
         team: state.team,
         drivers: state.drivers,
