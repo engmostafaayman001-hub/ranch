@@ -30,6 +30,7 @@ export default function CheckoutPage() {
     phone: '',
     address: '',
     city: '',
+    notes: '',
     paymentMethod: PAYMENT_METHODS.CASH,
   })
   const [receipt, setReceipt] = useState<{ name: string; dataUrl: string } | null>(null)
@@ -184,6 +185,7 @@ export default function CheckoutPage() {
         customerEmail: user.email,
         phone: formData.phone,
         address,
+        notes: formData.notes,
         subtotal,
         tax,
         deliveryFee,
@@ -252,8 +254,8 @@ export default function CheckoutPage() {
         </div>
       </nav>
 
-      <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
-        <h1 className="mb-8 text-3xl font-bold">{isArabic ? 'إكمال الطلب' : 'Checkout'}</h1>
+      <div className="mx-auto max-w-5xl px-3 py-4 sm:px-6 sm:py-8 lg:px-8">
+        <h1 className="mb-5 text-2xl font-bold sm:mb-8 sm:text-3xl">{isArabic ? 'إكمال الطلب' : 'Checkout'}</h1>
 
         {!isLoggedIn ? (
           <Card>
@@ -272,8 +274,8 @@ export default function CheckoutPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-8 md:grid-cols-3">
-            <form onSubmit={handleSubmit} className="space-y-6 md:col-span-2">
+          <div className="grid gap-5 lg:grid-cols-[1fr_20rem]">
+            <form onSubmit={handleSubmit} className="space-y-5">
               {error && <div className="rounded border border-red-300 bg-red-50 px-4 py-3 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">{error}</div>}
 
               <Card>
@@ -300,6 +302,17 @@ export default function CheckoutPage() {
                   <div>
                     <Label htmlFor="city">{isArabic ? 'المدينة' : 'City'}</Label>
                     <Input id="city" name="city" value={formData.city} onChange={handleChange} required />
+                  </div>
+                  <div>
+                    <Label htmlFor="notes">{isArabic ? 'ملاحظات الطلب' : 'Order Notes'}</Label>
+                    <textarea
+                      id="notes"
+                      name="notes"
+                      value={formData.notes}
+                      onChange={(event) => setFormData({ ...formData, notes: event.target.value })}
+                      placeholder={isArabic ? 'مثال: بدون بصل، زيادة صوص، اتصل قبل الوصول...' : 'Example: no onions, extra sauce, call before arrival...'}
+                      className="mt-1 min-h-24 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-950 dark:border-slate-800 dark:bg-slate-950 dark:focus:ring-slate-300"
+                    />
                   </div>
                 </CardContent>
               </Card>
@@ -354,12 +367,12 @@ export default function CheckoutPage() {
                 </CardContent>
               </Card>
 
-              <Button type="submit" disabled={loading || cartItems.length === 0} className="w-full bg-red-600 py-6 text-lg hover:bg-red-700">
+              <Button type="submit" disabled={loading || cartItems.length === 0} className="h-12 w-full bg-red-600 text-base hover:bg-red-700 sm:h-14 sm:text-lg">
                 {loading ? (isArabic ? 'جاري تقديم الطلب...' : 'Placing order...') : (isArabic ? 'تقديم الطلب' : 'Place Order')}
               </Button>
             </form>
 
-            <Card className="h-fit">
+            <Card className="h-fit lg:sticky lg:top-24">
               <CardHeader><CardTitle>{isArabic ? 'ملخص الطلب' : 'Order Summary'}</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 {cartItems.length === 0 ? (
@@ -395,3 +408,4 @@ export default function CheckoutPage() {
     </main>
   )
 }
+

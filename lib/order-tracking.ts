@@ -43,6 +43,7 @@ export interface TrackedOrder {
   customerEmail?: string
   phone: string
   address: string
+  notes?: string
   total: number
   items: number
   status: TrackingStatus

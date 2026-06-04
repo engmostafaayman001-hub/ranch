@@ -1,0 +1,139 @@
+'use client'
+
+import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { useLanguage } from '@/components/language-provider'
+import { CURRENCY, CURRENCY_EN } from '@/lib/constants'
+
+type Expense = {
+  id: string
+  name: string
+  amount: number
+  date: string
+  note: string
+  createdAt?: string
+}
+
+export default function DashboardExpensesPage() {
+  const { language } = useLanguage()
+  const isArabic = language === 'ar'
+  const currency = isArabic ? CURRENCY : CURRENCY_EN
+  const [expenses, setExpenses] = useState<Expense[]>([])
+  const [loading, setLoading] = useState(true)
+  const [message, setMessage] = useState('')
+  const [form, setForm] = useState({ name: '', amount: '', date: new Date().toISOString().slice(0, 10), note: '' })
+
+  const loadExpenses = async () => {
+    try {
+      const response = await fetch('/api/expenses', { cache: 'no-store' })
+      const data = await response.json().catch(() => ({}))
+      setExpenses(Array.isArray(data.expenses) ? data.expenses : [])
+    } catch {
+      setExpenses([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    const timer = window.setTimeout(loadExpenses, 0)
+    return () => window.clearTimeout(timer)
+  }, [])
+
+  const total = useMemo(() => expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0), [expenses])
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    const amount = Number(form.amount)
+    if (!form.name.trim() || !Number.isFinite(amount) || amount <= 0) return
+    const response = await fetch('/api/expenses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: form.name.trim(), amount, date: form.date, note: form.note.trim() }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      setMessage(data.message || data.error || (isArabic ? 'تعذر حفظ المصروف.' : 'Could not save expense.'))
+      return
+    }
+    setMessage(isArabic ? 'تم حفظ المصروف.' : 'Expense saved.')
+    setForm({ name: '', amount: '', date: new Date().toISOString().slice(0, 10), note: '' })
+    loadExpenses()
+  }
+
+  const remove = async (id: string) => {
+    const response = await fetch('/api/expenses', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    })
+    if (response.ok) loadExpenses()
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-3xl font-bold">{isArabic ? 'المصروفات' : 'Expenses'}</h2>
+        <p className="mt-2 text-slate-500 dark:text-slate-400">{isArabic ? 'سجل مصروفات المطعم اليومية.' : 'Track daily restaurant expenses.'}</p>
+        {message && <p className="mt-2 text-sm text-green-600">{message}</p>}
+      </div>
+      <div className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
+        <Card>
+          <CardHeader><CardTitle>{isArabic ? 'إضافة اسم المصروف' : 'Add Expense'}</CardTitle></CardHeader>
+          <CardContent>
+            <form onSubmit={submit} className="space-y-4">
+              <Field id="expense-name" label={isArabic ? 'اسم المصروف' : 'Expense name'} value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
+              <Field id="expense-amount" label={isArabic ? 'القيمة' : 'Amount'} value={form.amount} onChange={(value) => setForm({ ...form, amount: value })} type="number" />
+              <Field id="expense-date" label={isArabic ? 'التاريخ' : 'Date'} value={form.date} onChange={(value) => setForm({ ...form, date: value })} type="date" />
+              <Field id="expense-note" label={isArabic ? 'ملاحظة' : 'Note'} value={form.note} onChange={(value) => setForm({ ...form, note: value })} />
+              <Button type="submit" className="w-full bg-red-600 hover:bg-red-700">{isArabic ? 'حفظ المصروف' : 'Save Expense'}</Button>
+            </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between gap-3">
+              <span>{isArabic ? 'سجل المصروفات' : 'Expense Ledger'}</span>
+              <span className="text-base text-red-600">{total.toFixed(2)} {currency}</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <p className="py-8 text-center text-slate-500">{isArabic ? 'جاري التحميل...' : 'Loading...'}</p>
+            ) : expenses.length === 0 ? (
+              <p className="py-8 text-center text-slate-500">{isArabic ? 'لا توجد مصروفات بعد.' : 'No expenses yet.'}</p>
+            ) : (
+              <div className="space-y-3">
+                {expenses.map((expense) => (
+                  <div key={expense.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 dark:border-slate-800">
+                    <div>
+                      <p className="font-semibold">{expense.name}</p>
+                      <p className="text-sm text-slate-500">{expense.date} {expense.note ? `- ${expense.note}` : ''}</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="font-bold">{expense.amount.toFixed(2)} {currency}</span>
+                      <Button size="sm" variant="destructive" onClick={() => remove(expense.id)}>{isArabic ? 'حذف' : 'Delete'}</Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
+function Field({ id, label, value, onChange, type = 'text' }: { id: string; label: string; value: string; onChange: (value: string) => void; type?: string }) {
+  return (
+    <div>
+      <Label htmlFor={id}>{label}</Label>
+      <Input id={id} type={type} value={value} onChange={(event) => onChange(event.target.value)} />
+    </div>
+  )
+}

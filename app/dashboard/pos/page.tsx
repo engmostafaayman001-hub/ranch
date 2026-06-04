@@ -1,78 +1,360 @@
 'use client'
 
-import { FormEvent, useState } from 'react'
+import { FormEvent, useMemo, useState } from 'react'
+import { Minus, Plus, Search, ShoppingCart, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useLanguage } from '@/components/language-provider'
+import { CURRENCY, CURRENCY_EN, PAYMENT_METHODS, PAYMENT_METHOD_LABELS, PAYMENT_METHOD_LABELS_EN } from '@/lib/constants'
+import { MenuProduct, useAppStore } from '@/lib/app-store'
+import { useSharedAppData } from '@/lib/use-shared-app-data'
+import { isDisplayableImage } from '@/lib/client-images'
+
+type PosLine = {
+  productId: string
+  quantity: number
+}
 
 export default function DashboardPosPage() {
+  useSharedAppData()
   const { language } = useLanguage()
   const isArabic = language === 'ar'
+  const currency = isArabic ? CURRENCY : CURRENCY_EN
+  const { products, settings } = useAppStore()
+  const [lines, setLines] = useState<PosLine[]>([])
+  const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
-  const [form, setForm] = useState({ customer: '', phone: '', address: '', total: '0', items: '1' })
+  const [discountCode, setDiscountCode] = useState('')
+  const [discountAmount, setDiscountAmount] = useState(0)
+  const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHODS.CASH)
+  const [customer, setCustomer] = useState({ name: isArabic ? 'عميل مطعم' : 'Restaurant Customer', phone: '', address: isArabic ? 'داخل المطعم' : 'In restaurant', notes: '' })
+
+  const availableProducts = products.filter((product) => product.available)
+  const filteredProducts = availableProducts.filter((product) => {
+    const term = search.trim().toLowerCase()
+    if (!term) return true
+    return `${product.nameAr} ${product.nameEn}`.toLowerCase().includes(term)
+  })
+
+  const cartItems = useMemo(() => lines.map((line) => {
+    const product = products.find((item) => item.id === line.productId)
+    return product ? { ...line, product } : null
+  }).filter(Boolean) as Array<PosLine & { product: MenuProduct }>, [lines, products])
+
+  const subtotal = cartItems.reduce((sum, item) => sum + item.product.price * item.quantity, 0)
+  const tax = subtotal * settings.taxRate
+  const total = Math.max(0, subtotal + tax - discountAmount)
+
+  const addProduct = (productId: string) => {
+    setLines((current) => {
+      const existing = current.find((line) => line.productId === productId)
+      if (existing) return current.map((line) => line.productId === productId ? { ...line, quantity: line.quantity + 1 } : line)
+      return [...current, { productId, quantity: 1 }]
+    })
+  }
+
+  const updateQuantity = (productId: string, quantity: number) => {
+    setLines((current) => quantity <= 0 ? current.filter((line) => line.productId !== productId) : current.map((line) => line.productId === productId ? { ...line, quantity } : line))
+  }
+
+  const applyDiscount = async () => {
+    setMessage('')
+    setDiscountAmount(0)
+    const code = discountCode.trim()
+    if (!code) {
+      setMessage(isArabic ? 'اكتب كود الخصم أولا.' : 'Enter a discount code first.')
+      return
+    }
+    if (subtotal <= 0) {
+      setMessage(isArabic ? 'أضف منتجات قبل تطبيق الخصم.' : 'Add products before applying a discount.')
+      return
+    }
+
+    const response = await fetch('/api/discounts/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, subtotal }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok || !data.valid) {
+      setMessage(data.reason || data.error || (isArabic ? 'كود الخصم غير صالح.' : 'Invalid discount code.'))
+      return
+    }
+    setDiscountAmount(Number(data.discountAmount || 0))
+    setMessage(isArabic ? `تم تطبيق الخصم: ${Number(data.discountAmount || 0).toFixed(2)} ${currency}` : `Discount applied: ${Number(data.discountAmount || 0).toFixed(2)} ${currency}`)
+  }
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
+    if (cartItems.length === 0) {
+      setMessage(isArabic ? 'أضف منتجات قبل إتمام البيع.' : 'Add products before completing the sale.')
+      return
+    }
+
     setLoading(true)
     setMessage('')
     try {
+      const saleSnapshot = {
+        customer: { ...customer },
+        items: cartItems.map((item) => ({
+          name: isArabic ? item.product.nameAr : item.product.nameEn,
+          quantity: item.quantity,
+          price: item.product.price,
+        })),
+        subtotal,
+        tax,
+        discountAmount,
+        total,
+      }
       const response = await fetch('/api/pos/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: `POS${Date.now()}`,
-          customer: form.customer,
-          phone: form.phone,
-          address: form.address,
-          total: Number(form.total),
-          items: Number(form.items),
-          status: 'placed',
-          createdAt: new Date().toISOString(),
-          estimatedDelivery: isArabic ? '30 دقيقة' : '30 min',
-          driver: { name: 'Pending assignment', phone: '-', rating: 0 },
+          source: 'restaurant_pos',
+          customer: { name: customer.name, phone: customer.phone, address: customer.address, notes: customer.notes },
+          phone: customer.phone,
+          address: customer.address,
+          notes: customer.notes,
+          lines: cartItems.map((item) => ({
+            productId: item.product.id,
+            name: isArabic ? item.product.nameAr : item.product.nameEn,
+            quantity: item.quantity,
+            price: item.product.price,
+          })),
+          items: cartItems.reduce((sum, item) => sum + item.quantity, 0),
+          subtotal,
+          tax,
+          discountCode: discountAmount > 0 ? discountCode : undefined,
+          paymentMethod,
+          paymentStatus: paymentMethod === PAYMENT_METHODS.CASH ? 'cash_on_delivery' : 'paid',
+          status: 'received',
+          estimatedDelivery: isArabic ? 'طلب مطعم' : 'Restaurant order',
         }),
       })
       const data = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(data.message || data.error || 'Could not send order')
-      setMessage(isArabic ? `تم إرسال الطلب إلى النظام بنجاح: ${data.order?.id || ''}` : `Order sent successfully: ${data.order?.id || ''}`)
+      if (!response.ok) throw new Error(data.message || data.error || 'Could not create sale')
+      setMessage(isArabic ? `تم البيع وإنشاء الطلب: ${data.order?.id || ''}` : `Sale completed and order created: ${data.order?.id || ''}`)
+      printReceipt(data.order?.id || '', saleSnapshot, isArabic, currency, methodLabels[paymentMethod as keyof typeof PAYMENT_METHOD_LABELS] || paymentMethod)
+      setLines([])
+      setDiscountCode('')
+      setDiscountAmount(0)
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : (isArabic ? 'تعذر إرسال الطلب.' : 'Could not send order.'))
+      setMessage(error instanceof Error ? error.message : (isArabic ? 'تعذر إتمام البيع.' : 'Could not complete sale.'))
     } finally {
       setLoading(false)
     }
   }
 
+  const methodLabels = isArabic ? PAYMENT_METHOD_LABELS : PAYMENT_METHOD_LABELS_EN
+
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
+    <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
       <Card>
-        <CardHeader><CardTitle>{isArabic ? 'إرسال طلب تجريبي إلى النظام' : 'Send Test Order to System'}</CardTitle></CardHeader>
-        <CardContent>
-          <form onSubmit={submit} className="space-y-4">
-            <Field id="customer" label={isArabic ? 'اسم العميل' : 'Customer Name'} value={form.customer} onChange={(value) => setForm({ ...form, customer: value })} />
-            <Field id="phone" label={isArabic ? 'الهاتف' : 'Phone'} value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} />
-            <Field id="address" label={isArabic ? 'العنوان' : 'Address'} value={form.address} onChange={(value) => setForm({ ...form, address: value })} />
-            <Field id="total" label={isArabic ? 'الإجمالي' : 'Total'} value={form.total} onChange={(value) => setForm({ ...form, total: value })} type="number" />
-            <Field id="items" label={isArabic ? 'عدد المنتجات' : 'Item Count'} value={form.items} onChange={(value) => setForm({ ...form, items: value })} type="number" />
-            <Button type="submit" disabled={loading} className="bg-red-600 hover:bg-red-700">{loading ? (isArabic ? 'جاري الإرسال...' : 'Sending...') : (isArabic ? 'إرسال الطلب' : 'Send Order')}</Button>
-            {message && <p className="text-sm text-slate-600 dark:text-slate-400">{message}</p>}
-          </form>
+        <CardHeader>
+          <CardTitle>{isArabic ? 'نقطة بيع المطعم' : 'Restaurant Point of Sale'}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-800 dark:bg-slate-950">
+            <Search className="h-4 w-4 text-slate-500" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isArabic ? 'بحث في المنتجات' : 'Search products'} className="h-10 flex-1 bg-transparent text-sm outline-none" />
+          </div>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-4">
+            {filteredProducts.map((product) => {
+              const name = isArabic ? product.nameAr : product.nameEn
+              return (
+                <button key={product.id} type="button" onClick={() => addProduct(product.id)} className="overflow-hidden rounded-lg border bg-white text-start shadow-sm transition hover:border-red-300 dark:border-slate-800 dark:bg-slate-950">
+                  <div className="flex aspect-square items-center justify-center bg-slate-50 p-2 text-4xl dark:bg-slate-900">
+                    {isDisplayableImage(product.image) ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={product.image} alt={name} className="h-full w-full object-contain" />
+                    ) : <span>{product.image || '🍽️'}</span>}
+                  </div>
+                  <div className="p-2">
+                    <p className="line-clamp-2 min-h-9 text-sm font-semibold">{name}</p>
+                    <p className="text-sm font-bold text-red-600">{product.price.toFixed(2)} {currency}</p>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>{isArabic ? 'إعداد ربط POS الخارجي' : 'External POS Setup'}</CardTitle></CardHeader>
-        <CardContent className="space-y-4 text-sm text-slate-600 dark:text-slate-400">
-          <p>{isArabic ? 'ضع مفاتيح الربط في متغير البيئة RANCH_POS_API_KEYS أو POS_API_KEYS وافصل أكثر من مفتاح بفاصلة.' : 'Put integration keys in RANCH_POS_API_KEYS or POS_API_KEYS, separated by commas.'}</p>
-          <code className="block rounded bg-slate-100 p-3 dark:bg-slate-900">POST /api/pos/orders</code>
-          <code className="block rounded bg-slate-100 p-3 dark:bg-slate-900">PATCH /api/pos/orders</code>
-          <p>{isArabic ? 'يقبل النظام حالات POS الشائعة ويحولها تلقائيًا إلى حالات تتبع مناسبة.' : 'The system accepts common POS statuses and maps them to tracking statuses automatically.'}</p>
+        <CardHeader><CardTitle>{isArabic ? 'فاتورة البيع' : 'Sale Ticket'}</CardTitle></CardHeader>
+        <CardContent>
+          <form onSubmit={submit} className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field id="customer" label={isArabic ? 'اسم العميل' : 'Customer'} value={customer.name} onChange={(value) => setCustomer({ ...customer, name: value })} />
+              <Field id="phone" label={isArabic ? 'الهاتف' : 'Phone'} value={customer.phone} onChange={(value) => setCustomer({ ...customer, phone: value })} />
+            </div>
+            <Field id="address" label={isArabic ? 'المكان' : 'Place'} value={customer.address} onChange={(value) => setCustomer({ ...customer, address: value })} />
+            <div>
+              <Label htmlFor="pos-notes">{isArabic ? 'ملاحظات الفاتورة' : 'Sale Notes'}</Label>
+              <textarea
+                id="pos-notes"
+                value={customer.notes}
+                onChange={(event) => setCustomer({ ...customer, notes: event.target.value })}
+                placeholder={isArabic ? 'ملاحظة للطلب أو للمطبخ...' : 'Order or kitchen note...'}
+                className="mt-1 min-h-20 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-950 dark:border-slate-800 dark:bg-slate-950 dark:focus:ring-slate-300"
+              />
+            </div>
+
+            <div className="space-y-2">
+              {cartItems.length === 0 ? (
+                <p className="rounded-md border border-dashed p-6 text-center text-sm text-slate-500">{isArabic ? 'السلة فارغة.' : 'Ticket is empty.'}</p>
+              ) : cartItems.map((item) => (
+                <div key={item.productId} className="flex items-center justify-between gap-2 rounded-md border p-2 dark:border-slate-800">
+                  <div>
+                    <p className="text-sm font-semibold">{isArabic ? item.product.nameAr : item.product.nameEn}</p>
+                    <p className="text-xs text-slate-500">{item.product.price.toFixed(2)} {currency}</p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button type="button" size="icon" variant="outline" className="h-8 w-8" onClick={() => updateQuantity(item.productId, item.quantity - 1)}><Minus className="h-3 w-3" /></Button>
+                    <span className="w-8 text-center text-sm font-semibold">{item.quantity}</span>
+                    <Button type="button" size="icon" variant="outline" className="h-8 w-8" onClick={() => updateQuantity(item.productId, item.quantity + 1)}><Plus className="h-3 w-3" /></Button>
+                    <Button type="button" size="icon" variant="destructive" className="h-8 w-8" onClick={() => updateQuantity(item.productId, 0)}><Trash2 className="h-3 w-3" /></Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+              <Input value={discountCode} onChange={(event) => setDiscountCode(event.target.value)} placeholder={isArabic ? 'كود الخصم' : 'Discount code'} />
+              <Button type="button" variant="outline" onClick={applyDiscount}>{isArabic ? 'تطبيق' : 'Apply'}</Button>
+            </div>
+
+            <div>
+              <Label htmlFor="payment-method">{isArabic ? 'طريقة الدفع' : 'Payment method'}</Label>
+              <select id="payment-method" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950">
+                {Object.values(PAYMENT_METHODS).map((method) => (
+                  <option key={method} value={method}>{methodLabels[method as keyof typeof PAYMENT_METHOD_LABELS]}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2 rounded-md bg-slate-50 p-3 text-sm dark:bg-slate-900">
+              <Line label={isArabic ? 'المجموع' : 'Subtotal'} value={`${subtotal.toFixed(2)} ${currency}`} />
+              <Line label={isArabic ? 'الضريبة' : 'Tax'} value={`${tax.toFixed(2)} ${currency}`} />
+              <Line label={isArabic ? 'الخصم' : 'Discount'} value={`-${discountAmount.toFixed(2)} ${currency}`} />
+              <Line label={isArabic ? 'الإجمالي' : 'Total'} value={`${total.toFixed(2)} ${currency}`} strong />
+            </div>
+
+            <Button type="submit" disabled={loading} className="w-full gap-2 bg-red-600 hover:bg-red-700">
+              <ShoppingCart className="h-4 w-4" />
+              {loading ? (isArabic ? 'جاري البيع...' : 'Completing sale...') : (isArabic ? 'إتمام البيع' : 'Complete Sale')}
+            </Button>
+            {message && <p className="rounded-md bg-slate-100 p-3 text-sm dark:bg-slate-900">{message}</p>}
+          </form>
         </CardContent>
       </Card>
     </div>
   )
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
+function printReceipt(
+  orderId: string,
+  sale: {
+    customer: { name: string; phone: string; address: string; notes: string }
+    items: { name: string; quantity: number; price: number }[]
+    subtotal: number
+    tax: number
+    discountAmount: number
+    total: number
+  },
+  isArabic: boolean,
+  currency: string,
+  paymentMethod: string
+) {
+  const direction = isArabic ? 'rtl' : 'ltr'
+  const rows = sale.items.map((item) => `
+    <tr>
+      <td>${escapeHtml(item.name)}</td>
+      <td>${item.quantity}</td>
+      <td>${item.price.toFixed(2)} ${currency}</td>
+      <td>${(item.price * item.quantity).toFixed(2)} ${currency}</td>
+    </tr>
+  `).join('')
+  const notes = sale.customer.notes
+    ? `<div class="note"><strong>${isArabic ? 'الملاحظات' : 'Notes'}:</strong> ${escapeHtml(sale.customer.notes)}</div>`
+    : ''
+  const receiptWindow = window.open('', '_blank', 'width=420,height=720')
+  if (!receiptWindow) return
+  receiptWindow.document.write(`
+    <!doctype html>
+    <html dir="${direction}" lang="${isArabic ? 'ar' : 'en'}">
+      <head>
+        <meta charset="utf-8" />
+        <title>${isArabic ? 'فاتورة بيع' : 'Sale Receipt'} ${escapeHtml(orderId)}</title>
+        <style>
+          * { box-sizing: border-box; }
+          body { font-family: Arial, sans-serif; margin: 0; padding: 18px; color: #111827; }
+          .receipt { max-width: 360px; margin: 0 auto; }
+          h1 { margin: 0 0 4px; font-size: 22px; text-align: center; }
+          .muted { color: #64748b; font-size: 12px; text-align: center; margin-bottom: 14px; }
+          .meta, .totals, .note { border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; margin: 10px 0; font-size: 13px; }
+          table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 12px; }
+          th, td { border-bottom: 1px solid #e2e8f0; padding: 7px 4px; text-align: ${isArabic ? 'right' : 'left'}; }
+          .line { display: flex; justify-content: space-between; gap: 12px; margin: 6px 0; }
+          .total { font-weight: 700; font-size: 16px; border-top: 1px solid #e2e8f0; padding-top: 8px; }
+          @media print { body { padding: 0; } .receipt { max-width: none; } }
+        </style>
+      </head>
+      <body>
+        <div class="receipt">
+          <h1>${isArabic ? 'فاتورة بيع' : 'Sale Receipt'}</h1>
+          <div class="muted">${escapeHtml(orderId)} - ${new Date().toLocaleString(isArabic ? 'ar-EG' : 'en-US')}</div>
+          <div class="meta">
+            <div>${isArabic ? 'العميل' : 'Customer'}: ${escapeHtml(sale.customer.name || '-')}</div>
+            <div>${isArabic ? 'الهاتف' : 'Phone'}: ${escapeHtml(sale.customer.phone || '-')}</div>
+            <div>${isArabic ? 'المكان' : 'Place'}: ${escapeHtml(sale.customer.address || '-')}</div>
+            <div>${isArabic ? 'الدفع' : 'Payment'}: ${escapeHtml(paymentMethod)}</div>
+          </div>
+          ${notes}
+          <table>
+            <thead>
+              <tr>
+                <th>${isArabic ? 'الصنف' : 'Item'}</th>
+                <th>${isArabic ? 'كمية' : 'Qty'}</th>
+                <th>${isArabic ? 'سعر' : 'Price'}</th>
+                <th>${isArabic ? 'إجمالي' : 'Total'}</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+          <div class="totals">
+            <div class="line"><span>${isArabic ? 'المجموع' : 'Subtotal'}</span><span>${sale.subtotal.toFixed(2)} ${currency}</span></div>
+            <div class="line"><span>${isArabic ? 'الضريبة' : 'Tax'}</span><span>${sale.tax.toFixed(2)} ${currency}</span></div>
+            <div class="line"><span>${isArabic ? 'الخصم' : 'Discount'}</span><span>-${sale.discountAmount.toFixed(2)} ${currency}</span></div>
+            <div class="line total"><span>${isArabic ? 'الإجمالي' : 'Total'}</span><span>${sale.total.toFixed(2)} ${currency}</span></div>
+          </div>
+        </div>
+        <script>
+          window.onload = () => {
+            window.print();
+            setTimeout(() => window.close(), 500);
+          };
+        </script>
+      </body>
+    </html>
+  `)
+  receiptWindow.document.close()
+}
+
+function Line({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return <div className={`flex justify-between ${strong ? 'text-lg font-bold' : ''}`}><span>{label}</span><span>{value}</span></div>
 }
 
 function Field({ id, label, value, onChange, type = 'text' }: { id: string; label: string; value: string; onChange: (value: string) => void; type?: string }) {
@@ -83,3 +365,4 @@ function Field({ id, label, value, onChange, type = 'text' }: { id: string; labe
     </div>
   )
 }
+

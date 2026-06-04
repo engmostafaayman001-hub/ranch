@@ -1,42 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import {
-  ArrowLeftToLine,
-  BarChart3,
-  BellRing,
-  CreditCard,
-  Home,
-  LayoutDashboard,
-  Menu,
-  Package,
-  ReceiptText,
-  Settings,
-  Store,
-  Truck,
-  Users,
-  UserRoundCog,
-  X,
-} from 'lucide-react'
+import { ArrowLeftToLine, Home, Menu, ReceiptText, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/logo'
 import { useLanguage } from '@/components/language-provider'
 import { ROUTES } from '@/lib/constants'
-
-const links = [
-  { href: ROUTES.DASHBOARD, labelAr: 'نظرة عامة', labelEn: 'Overview', icon: LayoutDashboard },
-  { href: ROUTES.DASHBOARD_ORDERS, labelAr: 'إدارة الطلبات', labelEn: 'Orders', icon: ReceiptText },
-  { href: ROUTES.DASHBOARD_PRODUCTS, labelAr: 'المنتجات', labelEn: 'Products', icon: Package },
-  { href: ROUTES.DASHBOARD_CUSTOMERS, labelAr: 'العملاء', labelEn: 'Customers', icon: Users },
-  { href: ROUTES.DASHBOARD_TEAM, labelAr: 'الفريق', labelEn: 'Team', icon: UserRoundCog },
-  { href: ROUTES.DASHBOARD_DELIVERY, labelAr: 'السائقون والتوصيل', labelEn: 'Delivery', icon: Truck },
-  { href: ROUTES.DASHBOARD_PAYMENTS, labelAr: 'المدفوعات', labelEn: 'Payments', icon: CreditCard },
-  { href: ROUTES.DASHBOARD_NOTIFICATIONS, labelAr: 'العروض والإشعارات', labelEn: 'Offers & Notifications', icon: BellRing },
-  { href: ROUTES.DASHBOARD_POS, labelAr: 'نقطة البيع', labelEn: 'POS', icon: Store },
-  { href: ROUTES.DASHBOARD_REPORTS, labelAr: 'التقارير', labelEn: 'Reports', icon: BarChart3 },
-  { href: ROUTES.DASHBOARD_SETTINGS, labelAr: 'الإعدادات', labelEn: 'Settings', icon: Settings },
-]
+import { dashboardLinks } from '@/lib/dashboard-routes'
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -46,7 +17,6 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950">
       {sidebarOpen && <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />}
-
       <DashboardAside isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       <main className="min-w-0 flex-1">
@@ -77,6 +47,24 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 function DashboardAside({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const { language } = useLanguage()
   const isArabic = language === 'ar'
+  const [role, setRole] = useState<string | null>(null)
+
+  useEffect(() => {
+    let active = true
+    fetch('/api/auth/dashboard-access', { cache: 'no-store' })
+      .then((response) => response.json())
+      .then((data) => {
+        if (active) setRole(data.role || null)
+      })
+      .catch(() => {
+        if (active) setRole(null)
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const visibleLinks = dashboardLinks.filter((link) => !role || (link.roles as readonly string[]).includes(role))
 
   return (
     <aside
@@ -88,8 +76,8 @@ function DashboardAside({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
         <div className="flex items-center gap-3">
           <Logo size="md" />
           <div>
-            <h2 className="text-xl font-bold">{isArabic ? 'لوحة تحكم رانش' : 'Ranch Dashboard'}</h2>
-            <p className="text-xs text-slate-400">{isArabic ? 'إدارة التطبيق كاملة' : 'Full app management'}</p>
+            <h2 className="text-xl font-bold">{isArabic ? 'لوحة التحكم' : 'Dashboard'}</h2>
+            <p className="text-xs text-slate-400">{isArabic ? 'الصفحات حسب صلاحية الدور' : 'Pages by role permissions'}</p>
           </div>
         </div>
         <Button variant="ghost" size="icon" className="text-white lg:hidden" onClick={onClose}>
@@ -98,7 +86,7 @@ function DashboardAside({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
       </div>
 
       <nav className="flex-1 space-y-2 overflow-y-auto">
-        {links.map((link) => {
+        {visibleLinks.map((link) => {
           const Icon = link.icon
           return (
             <Link key={link.href} href={link.href} prefetch={false} onClick={onClose}>

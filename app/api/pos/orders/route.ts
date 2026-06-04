@@ -173,6 +173,7 @@ export async function POST(request: NextRequest) {
       customerEmail,
       phone: String(customer.phone || body.phone || ''),
       address: String(customer.address || body.address || ''),
+      notes: String(customer.notes || body.notes || body.note || '').trim() || undefined,
       total: finalTotal,
       items: Number(body.items || body.itemsCount || body.lines?.length || 0),
       status,

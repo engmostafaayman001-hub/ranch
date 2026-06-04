@@ -93,6 +93,11 @@ export default function TrackOrderPage() {
                   <Info label={isArabic ? 'التوصيل المتوقع' : 'Estimated Delivery'} value={order.estimatedDelivery} accent="text-green-600" />
                   <Info label={isArabic ? 'الإجمالي' : 'Total'} value={`${Number(order.total || 0).toFixed(2)} ${currency}`} accent="text-red-600" />
                 </div>
+                {order.notes && (
+                  <div className="mt-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                    <span className="font-semibold">{isArabic ? 'ملاحظات الطلب' : 'Order Notes'}:</span> {order.notes}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -175,3 +180,4 @@ function Info({ label, value, accent = '' }: { label: string; value: string; acc
     </div>
   )
 }
+

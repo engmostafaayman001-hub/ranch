@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
+import { Minus, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Navbar } from '@/components/navbar'
@@ -11,6 +12,7 @@ import { CURRENCY, CURRENCY_EN, ROUTES } from '@/lib/constants'
 import { useAppStore } from '@/lib/app-store'
 import { useAuthStore } from '@/lib/store'
 import { useSharedAppData } from '@/lib/use-shared-app-data'
+import { isDisplayableImage } from '@/lib/client-images'
 
 export default function CartPage() {
   useSharedAppData()
@@ -41,14 +43,14 @@ export default function CartPage() {
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} isLoggedIn={isLoggedIn} onLogout={handleLogout} />
       <Navbar onMenuOpen={() => setSidebarOpen(true)} isLoggedIn={isLoggedIn} onLogout={handleLogout} />
 
-      <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
-        <h1 className="mb-8 text-3xl font-bold">{isArabic ? 'السلة' : 'Cart'}</h1>
+      <section className="mx-auto max-w-5xl px-3 py-4 sm:px-6 lg:px-8">
+        <h1 className="mb-5 text-2xl font-bold sm:text-3xl">{isArabic ? 'السلة' : 'Cart'}</h1>
 
-        <div className="grid gap-8 md:grid-cols-3">
-          <div className="space-y-4 md:col-span-2">
+        <div className="grid gap-5 lg:grid-cols-[1fr_20rem]">
+          <div className="space-y-3">
             {cartItems.length === 0 ? (
               <Card>
-                <CardContent className="pt-6 text-center">
+                <CardContent className="pt-4 text-center sm:pt-6">
                   <p className="mb-4 text-slate-600 dark:text-slate-400">{isArabic ? 'السلة فارغة' : 'Your cart is empty'}</p>
                   <Link href={ROUTES.MENU}><Button className="bg-red-600 hover:bg-red-700">{isArabic ? 'متابعة التسوق' : 'Continue Shopping'}</Button></Link>
                 </CardContent>
@@ -59,22 +61,22 @@ export default function CartPage() {
                 const name = isArabic ? product.nameAr : product.nameEn
                 return (
                   <Card key={product.id}>
-                    <CardContent className="pt-6">
-                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex items-center gap-4">
-                          <ProductThumb value={product.image} name={name} />
-                          <div>
-                            <h3 className="text-lg font-bold">{name}</h3>
-                            <p className="text-slate-600 dark:text-slate-400">{product.price} {currency}</p>
-                          </div>
+                    <CardContent className="pt-4 sm:pt-6">
+                      <div className="grid grid-cols-[4.5rem_1fr] gap-3 sm:grid-cols-[5rem_1fr_auto] sm:items-center">
+                        <ProductThumb value={product.image} name={name} />
+                        <div className="min-w-0">
+                          <h3 className="line-clamp-2 text-sm font-bold sm:text-base">{name}</h3>
+                          <p className="mt-1 text-sm font-semibold text-red-600">{Number(product.price || 0).toFixed(2)} {currency}</p>
                         </div>
-                        <div className="flex items-center gap-4">
-                          <div className="flex items-center gap-2">
-                            <Button variant="outline" size="sm" onClick={() => updateCartQuantity(product.id, item!.quantity - 1)}>-</Button>
-                            <span className="w-8 text-center">{item!.quantity}</span>
-                            <Button variant="outline" size="sm" onClick={() => updateCartQuantity(product.id, item!.quantity + 1)}>+</Button>
+                        <div className="col-span-2 flex items-center justify-between gap-3 sm:col-span-1 sm:justify-end">
+                          <div className="flex items-center gap-1">
+                            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => updateCartQuantity(product.id, item!.quantity - 1)}><Minus className="h-3.5 w-3.5" /></Button>
+                            <span className="w-8 text-center text-sm font-semibold">{item!.quantity}</span>
+                            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => updateCartQuantity(product.id, item!.quantity + 1)}><Plus className="h-3.5 w-3.5" /></Button>
                           </div>
-                          <Button variant="destructive" size="sm" onClick={() => removeFromCart(product.id)}>{isArabic ? 'حذف' : 'Remove'}</Button>
+                          <Button variant="destructive" size="icon" className="h-8 w-8" onClick={() => removeFromCart(product.id)} title={isArabic ? 'حذف' : 'Remove'}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
                         </div>
                       </div>
                     </CardContent>
@@ -85,11 +87,11 @@ export default function CartPage() {
           </div>
 
           {cartItems.length > 0 && (
-            <Card className="h-fit">
-              <CardContent className="space-y-4 pt-6">
-                <div className="flex justify-between"><span>{isArabic ? 'المجموع الفرعي' : 'Subtotal'}</span><span>{subtotal.toFixed(2)} {currency}</span></div>
-                <div className="flex justify-between"><span>{isArabic ? 'الضريبة' : 'Tax'}</span><span>{tax.toFixed(2)} {currency}</span></div>
-                <div className="flex justify-between"><span>{isArabic ? 'رسوم التوصيل' : 'Delivery Fee'}</span><span>{deliveryFee.toFixed(2)} {currency}</span></div>
+            <Card className="h-fit lg:sticky lg:top-24">
+              <CardContent className="space-y-3 pt-4 text-sm sm:pt-6">
+                <Line label={isArabic ? 'المجموع الفرعي' : 'Subtotal'} value={`${subtotal.toFixed(2)} ${currency}`} />
+                <Line label={isArabic ? 'الضريبة' : 'Tax'} value={`${tax.toFixed(2)} ${currency}`} />
+                <Line label={isArabic ? 'رسوم التوصيل' : 'Delivery Fee'} value={`${deliveryFee.toFixed(2)} ${currency}`} />
                 <div className="flex justify-between border-t border-slate-200 pt-4 text-lg font-bold dark:border-slate-700">
                   <span>{isArabic ? 'الإجمالي' : 'Total'}</span>
                   <span className="text-red-600">{total.toFixed(2)} {currency}</span>
@@ -97,24 +99,32 @@ export default function CartPage() {
               </CardContent>
               <CardFooter>
                 <Link href={ROUTES.CHECKOUT} className="w-full">
-                  <Button className="w-full bg-red-600 hover:bg-red-700">{isArabic ? 'إكمال الطلب' : 'Checkout'}</Button>
+                  <Button className="h-11 w-full bg-red-600 hover:bg-red-700">{isArabic ? 'إكمال الطلب' : 'Checkout'}</Button>
                 </Link>
               </CardFooter>
             </Card>
           )}
         </div>
-      </div>
+      </section>
     </main>
   )
 }
 
-function ProductThumb({ value, name }: { value: string; name: string }) {
-  const isImage = value.startsWith('data:image') || value.startsWith('http') || value.startsWith('/')
+function Line({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md bg-red-50 text-3xl dark:bg-red-950">
-      {isImage ? (
+    <div className="flex justify-between gap-4">
+      <span>{label}</span>
+      <span className="font-semibold">{value}</span>
+    </div>
+  )
+}
+
+function ProductThumb({ value, name }: { value: string; name: string }) {
+  return (
+    <div className="flex aspect-square w-full shrink-0 items-center justify-center overflow-hidden rounded-md bg-red-50 p-1 text-3xl dark:bg-red-950">
+      {isDisplayableImage(value) ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={value} alt={name} className="h-full w-full object-contain p-1" />
+        <img src={value} alt={name} className="h-full w-full object-contain" />
       ) : (
         <span>{value || '🍽️'}</span>
       )}

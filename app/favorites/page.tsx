@@ -45,19 +45,19 @@ export default function FavoritesPage() {
       <Navbar onMenuOpen={() => setSidebarOpen(true)} isLoggedIn={isLoggedIn} onLogout={handleLogout} />
       {message && <CartToast message={message} isArabic={isArabic} />}
 
-      <div className="mx-auto max-w-7xl px-3 py-6 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-7xl px-3 py-4 sm:px-6 lg:px-8">
         <div className="mb-5 flex items-center justify-between gap-3">
-          <div>
+          <div className="min-w-0">
             <h1 className="text-2xl font-bold">{isArabic ? 'المفضلة' : 'Favorites'}</h1>
             <p className="mt-1 text-sm text-slate-500">{isArabic ? 'المنتجات التي حفظتها للرجوع لها بسرعة.' : 'Products you saved for quick access.'}</p>
           </div>
-          <Link href={ROUTES.MENU}>
-            <Button variant="outline" className="gap-2"><ShoppingBag className="h-4 w-4" />{isArabic ? 'القائمة' : 'Menu'}</Button>
+          <Link href={ROUTES.MENU} className="shrink-0">
+            <Button variant="outline" size="sm" className="gap-2"><ShoppingBag className="h-4 w-4" />{isArabic ? 'القائمة' : 'Menu'}</Button>
           </Link>
         </div>
 
         {favorites.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-slate-300 bg-white p-10 text-center text-slate-500 dark:border-slate-800 dark:bg-slate-900">
+          <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500 dark:border-slate-800 dark:bg-slate-900">
             <Heart className="mx-auto mb-3 h-10 w-10 text-red-500" />
             <p className="font-semibold">{isArabic ? 'لا توجد منتجات في المفضلة بعد.' : 'No favorite products yet.'}</p>
             <Link href={ROUTES.MENU} className="mt-4 inline-block text-sm font-semibold text-red-600">{isArabic ? 'استعرض القائمة' : 'Browse menu'}</Link>
@@ -76,7 +76,7 @@ export default function FavoritesPage() {
             ))}
           </div>
         )}
-      </div>
+      </section>
     </main>
   )
 }
@@ -130,10 +130,10 @@ function ProductCard({
 
 function CartToast({ message, isArabic }: { message: string; isArabic: boolean }) {
   return (
-    <div className="fixed bottom-5 left-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-lg border border-green-200 bg-white p-4 shadow-xl dark:border-green-900 dark:bg-slate-900">
+    <div className="fixed bottom-5 left-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-lg border border-green-200 bg-white p-3 shadow-xl sm:p-4 dark:border-green-900 dark:bg-slate-900">
       <div className="flex items-center justify-between gap-3">
-        <p className="font-semibold text-green-700 dark:text-green-300">{message}</p>
-        <Link href={ROUTES.CART} className="shrink-0 rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700">
+        <p className="text-sm font-semibold text-green-700 dark:text-green-300">{message}</p>
+        <Link href={ROUTES.CART} className="shrink-0 rounded-md bg-red-600 px-3 py-2 text-xs font-medium text-white hover:bg-red-700 sm:text-sm">
           {isArabic ? 'عرض السلة' : 'View Cart'}
         </Link>
       </div>

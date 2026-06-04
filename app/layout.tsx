@@ -6,6 +6,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { LanguageProvider } from "@/components/language-provider";
 import { AuthHydrator } from "@/components/auth-hydrator";
 import { PwaRegistrar } from "@/components/pwa-registrar";
+import { FloatingInstallButton } from "@/components/floating-install-button";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -75,6 +76,7 @@ export default function RootLayout({
             <AuthHydrator />
             <PwaRegistrar />
             {children}
+            <FloatingInstallButton />
           </ThemeProvider>
         </LanguageProvider>
       </body>

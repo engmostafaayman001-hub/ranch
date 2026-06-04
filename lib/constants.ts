@@ -102,6 +102,7 @@ export const ROUTES = {
   TRACK_ORDER: '/track',
   DASHBOARD: '/dashboard',
   DASHBOARD_ORDERS: '/dashboard/orders',
+  DASHBOARD_RESTAURANT_ORDERS: '/dashboard/restaurant-orders',
   DASHBOARD_TEAM: '/dashboard/team',
   DASHBOARD_CUSTOMERS: '/dashboard/customers',
   DASHBOARD_PRODUCTS: '/dashboard/products',
@@ -111,4 +112,5 @@ export const ROUTES = {
   DASHBOARD_DELIVERY: '/dashboard/delivery',
   DASHBOARD_SETTINGS: '/dashboard/settings',
   DASHBOARD_POS: '/dashboard/pos',
+  DASHBOARD_EXPENSES: '/dashboard/expenses',
 }

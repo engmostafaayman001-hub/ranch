@@ -2,34 +2,9 @@ import { type NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from './lib/supabase'
 import { canAccessDashboardByEmail } from './lib/access'
 import { getRequestDashboardAccess } from './lib/server-access'
-
-const protectedDashboardRoutes = [
-  '/dashboard',
-  '/dashboard/orders',
-  '/dashboard/team',
-  '/dashboard/customers',
-  '/dashboard/products',
-  '/dashboard/reports',
-  '/dashboard/payments',
-  '/dashboard/notifications',
-  '/dashboard/delivery',
-  '/dashboard/settings',
-  '/dashboard/pos',
-]
+import { canRoleOpenDashboardRoute, DASHBOARD_ROLES } from './lib/dashboard-permissions'
 
 const authRoutes = ['/login', '/register']
-
-const routeRoles: Record<string, string[]> = {
-  '/dashboard/team': ['super_admin', 'admin'],
-  '/dashboard/customers': ['super_admin', 'admin', 'manager', 'support'],
-  '/dashboard/products': ['super_admin', 'admin', 'manager'],
-  '/dashboard/reports': ['super_admin', 'admin', 'manager'],
-  '/dashboard/payments': ['super_admin', 'admin', 'cashier'],
-  '/dashboard/notifications': ['super_admin', 'admin'],
-  '/dashboard/delivery': ['super_admin', 'admin', 'manager', 'delivery'],
-  '/dashboard/settings': ['super_admin', 'admin'],
-  '/dashboard/pos': ['super_admin', 'admin', 'manager'],
-}
 
 type CookieToSet = {
   name: string
@@ -70,16 +45,15 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getSession()
 
   // Redirect to login if accessing protected routes without session
-  if (protectedDashboardRoutes.includes(pathname)) {
+  if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) {
     if (!session) {
       const access = await getRequestDashboardAccess(request)
       if (!access.allowed) {
         return NextResponse.redirect(new URL('/login', request.url))
       }
 
-      const allowedRoles = routeRoles[pathname]
-      if (allowedRoles && access.role && !allowedRoles.includes(access.role)) {
-        return NextResponse.redirect(new URL('/dashboard', request.url))
+      if (!canRoleOpenDashboardRoute(access.role, pathname)) {
+        return NextResponse.redirect(new URL('/unauthorized', request.url))
       }
 
       return response
@@ -102,15 +76,12 @@ export async function middleware(request: NextRequest) {
     }
 
     // List of roles that can access dashboard
-    const dashboardRoles = ['super_admin', 'admin', 'manager', 'cashier', 'delivery', 'support']
-
-    if (!dashboardRoles.includes(teamMember.role)) {
+    if (!(DASHBOARD_ROLES as readonly string[]).includes(teamMember.role)) {
       return NextResponse.redirect(new URL('/unauthorized', request.url))
     }
 
-    const allowedRoles = routeRoles[pathname]
-    if (allowedRoles && !allowedRoles.includes(teamMember.role)) {
-      return NextResponse.redirect(new URL('/dashboard', request.url))
+    if (!canRoleOpenDashboardRoute(teamMember.role, pathname)) {
+      return NextResponse.redirect(new URL('/unauthorized', request.url))
     }
   }
 

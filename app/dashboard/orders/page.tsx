@@ -139,29 +139,36 @@ export default function DashboardOrdersPage() {
     return labels[status || ''] || status || (isArabic ? 'غير محدد' : 'Not specified')
   }
 
+  const appOrders = orders.filter((order) => order.source !== 'restaurant_pos')
+
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-3xl font-bold">{isArabic ? 'إدارة الطلبات' : 'Order Management'}</h2>
-        <p className="mt-2 text-slate-500 dark:text-slate-400">{isArabic ? 'كل تغيير هنا يظهر للعميل في صفحة التتبع.' : 'Changes here appear to customers on the tracking page.'}</p>
+        <h2 className="text-3xl font-bold">{isArabic ? 'إدارة طلبات التطبيق' : 'App Orders Management'}</h2>
+        <p className="mt-2 text-slate-500 dark:text-slate-400">{isArabic ? 'طلبات العملاء من التطبيق، وكل تغيير هنا يظهر للعميل في صفحة التتبع.' : 'Customer app orders. Changes here appear to customers on the tracking page.'}</p>
       </div>
       {message && <p className="rounded-md bg-slate-100 p-3 text-sm dark:bg-slate-900">{message}</p>}
       <Card>
-        <CardHeader><CardTitle>{isArabic ? 'كل الطلبات' : 'All Orders'}</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{isArabic ? 'طلبات التطبيق' : 'App Orders'}</CardTitle></CardHeader>
         <CardContent>
           {loading ? (
             <p className="py-8 text-center text-slate-500">{isArabic ? 'جاري تحميل الطلبات...' : 'Loading orders...'}</p>
-          ) : orders.length === 0 ? (
+          ) : appOrders.length === 0 ? (
             <p className="py-8 text-center text-slate-500">{isArabic ? 'لا توجد طلبات بعد.' : 'No orders yet.'}</p>
           ) : (
             <div className="space-y-3">
-              {orders.map((order) => (
+              {appOrders.map((order) => (
                 <div key={order.id} className="rounded-md border p-4 dark:border-slate-800">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <p className="font-semibold">{order.id}</p>
                       <p className="text-sm text-slate-500">{order.customer} - {order.phone || '-'}</p>
                       <p className="text-sm text-slate-500">{order.address}</p>
+                      {order.notes && (
+                        <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                          {isArabic ? 'ملاحظات' : 'Notes'}: {order.notes}
+                        </p>
+                      )}
                     </div>
                     <div className="text-right">
                       <p className="font-bold">{Number(order.total || 0).toFixed(2)} {currency}</p>
