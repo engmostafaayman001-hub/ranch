@@ -22,7 +22,10 @@ export function Navbar({ onMenuOpen, isLoggedIn, onLogout }: NavbarProps) {
   const { theme, toggleTheme } = useTheme()
   const { language, appName, toggleLanguage, t } = useLanguage()
   const user = useAuthStore((state) => state.user)
-  const cartCount = useAppStore((state) => state.cart.reduce((sum, item) => sum + item.quantity, 0))
+  const cartCount = useAppStore((state) => state.cart.reduce((sum, item) => {
+    const productExists = state.products.some((product) => product.id === item.productId && product.available)
+    return productExists ? sum + item.quantity : sum
+  }, 0))
   const [canOpenDashboard, setCanOpenDashboard] = useState(false)
 
   useEffect(() => {

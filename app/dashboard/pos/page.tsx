@@ -9,8 +9,9 @@ import { Label } from '@/components/ui/label'
 import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN, PAYMENT_METHODS, PAYMENT_METHOD_LABELS, PAYMENT_METHOD_LABELS_EN } from '@/lib/constants'
 import { MenuProduct, useAppStore } from '@/lib/app-store'
-import { useSharedAppData } from '@/lib/use-shared-app-data'
 import { isDisplayableImage } from '@/lib/client-images'
+import { qrImage } from '@/lib/order-print'
+import { useSharedAppData } from '@/lib/use-shared-app-data'
 
 type PosLine = {
   productId: string
@@ -52,8 +53,8 @@ export default function DashboardPosPage() {
     ? `${orderTypeLabel} - ${customer.deliveryAddress.trim()}`
     : orderTypeLabel
 
-  const availableProducts = products.filter((product) => product.available)
-  const filteredProducts = availableProducts.filter((product) => {
+  const filteredProducts = products.filter((product) => {
+    if (!product.available) return false
     const term = search.trim().toLowerCase()
     if (!term) return true
     return `${product.nameAr} ${product.nameEn}`.toLowerCase().includes(term)
@@ -71,13 +72,17 @@ export default function DashboardPosPage() {
   const addProduct = (productId: string) => {
     setLines((current) => {
       const existing = current.find((line) => line.productId === productId)
-      if (existing) return current.map((line) => line.productId === productId ? { ...line, quantity: line.quantity + 1 } : line)
+      if (existing) {
+        return current.map((line) => line.productId === productId ? { ...line, quantity: line.quantity + 1 } : line)
+      }
       return [...current, { productId, quantity: 1 }]
     })
   }
 
   const updateQuantity = (productId: string, quantity: number) => {
-    setLines((current) => quantity <= 0 ? current.filter((line) => line.productId !== productId) : current.map((line) => line.productId === productId ? { ...line, quantity } : line))
+    setLines((current) => quantity <= 0
+      ? current.filter((line) => line.productId !== productId)
+      : current.map((line) => line.productId === productId ? { ...line, quantity } : line))
   }
 
   const applyDiscount = async () => {
@@ -120,7 +125,6 @@ export default function DashboardPosPage() {
       const saleSnapshot = {
         customer: { ...customer, address: orderAddress },
         orderType: orderTypeLabel,
-        deliveryAddress: customer.deliveryAddress,
         items: cartItems.map((item) => ({
           name: isArabic ? item.product.nameAr : item.product.nameEn,
           quantity: item.quantity,
@@ -159,15 +163,18 @@ export default function DashboardPosPage() {
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.message || data.error || 'Could not create sale')
       setMessage(isArabic ? `تم البيع وإنشاء الطلب: ${data.order?.id || ''}` : `Sale completed and order created: ${data.order?.id || ''}`)
-      printReceipt(
-        data.order?.id || '',
-        saleSnapshot,
+      printReceipt({
+        orderId: data.order?.id || '',
+        sale: saleSnapshot,
         isArabic,
         currency,
-        methodLabels[paymentMethod as keyof typeof PAYMENT_METHOD_LABELS] || paymentMethod,
-        printerMethodLabel(settings.printerMethod, isArabic),
-        settings.printerPaperWidth || '80mm'
-      )
+        paymentMethod: methodLabels[paymentMethod as keyof typeof PAYMENT_METHOD_LABELS] || paymentMethod,
+        printerMethod: printerMethodLabel(settings.printerMethod, isArabic),
+        paperWidth: settings.printerPaperWidth || '80mm',
+        invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
+        invoiceQrUrl: settings.invoiceQrUrl,
+        invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
+      })
       setLines([])
       setDiscountCode('')
       setDiscountAmount(0)
@@ -223,12 +230,7 @@ export default function DashboardPosPage() {
 
             <div>
               <Label htmlFor="order-type">{isArabic ? 'نوع الطلب' : 'Order type'}</Label>
-              <select
-                id="order-type"
-                value={orderType}
-                onChange={(event) => setOrderType(event.target.value as PosOrderType)}
-                className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950"
-              >
+              <select id="order-type" value={orderType} onChange={(event) => setOrderType(event.target.value as PosOrderType)} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950">
                 {(Object.keys(ORDER_TYPE_LABELS) as PosOrderType[]).map((type) => (
                   <option key={type} value={type}>{ORDER_TYPE_LABELS[type][isArabic ? 'ar' : 'en']}</option>
                 ))}
@@ -236,12 +238,7 @@ export default function DashboardPosPage() {
             </div>
 
             {orderType === 'delivery' && (
-              <Field
-                id="delivery-address"
-                label={isArabic ? 'عنوان الدليفيري' : 'Delivery address'}
-                value={customer.deliveryAddress}
-                onChange={(value) => setCustomer({ ...customer, deliveryAddress: value })}
-              />
+              <Field id="delivery-address" label={isArabic ? 'عنوان الدليفيري' : 'Delivery address'} value={customer.deliveryAddress} onChange={(value) => setCustomer({ ...customer, deliveryAddress: value })} />
             )}
 
             <div>
@@ -316,26 +313,30 @@ function escapeHtml(value: string) {
     .replace(/'/g, '&#039;')
 }
 
-function printReceipt(
-  orderId: string,
+function printReceipt(options: {
+  orderId: string
   sale: {
     customer: { name: string; phone: string; address: string; notes: string }
     orderType: string
-    deliveryAddress: string
     items: { name: string; quantity: number; price: number }[]
     subtotal: number
     tax: number
     discountAmount: number
     total: number
-  },
-  isArabic: boolean,
-  currency: string,
-  paymentMethod: string,
-  printerMethod: string,
+  }
+  isArabic: boolean
+  currency: string
+  paymentMethod: string
+  printerMethod: string
   paperWidth: string
-) {
+  invoiceName: string
+  invoiceQrUrl: string
+  invoiceMessage: string
+}) {
+  const { orderId, sale, isArabic, currency, paymentMethod, printerMethod, invoiceName, invoiceQrUrl, invoiceMessage } = options
   const direction = isArabic ? 'rtl' : 'ltr'
-  const width = paperWidth === '58mm' ? '58mm' : '80mm'
+  const width = options.paperWidth === '58mm' ? '58mm' : '80mm'
+  const qrSrc = qrImage(invoiceQrUrl)
   const rows = sale.items.map((item) => `
     <tr>
       <td>${escapeHtml(item.name)}</td>
@@ -357,21 +358,28 @@ function printReceipt(
         <title>${isArabic ? 'فاتورة بيع' : 'Sale Receipt'} ${escapeHtml(orderId)}</title>
         <style>
           * { box-sizing: border-box; }
-          body { font-family: Arial, sans-serif; margin: 0; padding: 18px; color: #111827; }
+          body { font-family: Arial, sans-serif; margin: 0; padding: 18px; color: #111827; background: #fff; }
           .receipt { max-width: ${width}; margin: 0 auto; }
+          .brand { text-align: center; border-bottom: 1px dashed #cbd5e1; padding-bottom: 10px; margin-bottom: 10px; }
           h1 { margin: 0 0 4px; font-size: 22px; text-align: center; }
           .muted { color: #64748b; font-size: 12px; text-align: center; margin-bottom: 14px; }
           .meta, .totals, .note { border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; margin: 10px 0; font-size: 13px; }
           table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 12px; }
           th, td { border-bottom: 1px solid #e2e8f0; padding: 7px 4px; text-align: ${isArabic ? 'right' : 'left'}; }
           .line { display: flex; justify-content: space-between; gap: 12px; margin: 6px 0; }
-          .total { font-weight: 700; font-size: 16px; border-top: 1px solid #e2e8f0; padding-top: 8px; }
+          .total { font-weight: 800; font-size: 16px; border-top: 1px solid #e2e8f0; padding-top: 8px; }
+          .qr { display: flex; justify-content: center; margin: 12px 0 6px; }
+          .qr img { width: 100px; height: 100px; }
+          .message { border-top: 1px dashed #cbd5e1; margin-top: 12px; padding-top: 10px; text-align: center; font-size: 12px; color: #334155; }
           @media print { @page { size: ${width} auto; margin: 4mm; } body { padding: 0; } .receipt { max-width: none; } }
         </style>
       </head>
       <body>
         <div class="receipt">
-          <h1>${isArabic ? 'فاتورة بيع' : 'Sale Receipt'}</h1>
+          <div class="brand">
+            <h1>${escapeHtml(invoiceName || (isArabic ? 'فاتورة بيع' : 'Sale Receipt'))}</h1>
+            <div class="muted">${isArabic ? 'فاتورة بيع' : 'Sale Receipt'}</div>
+          </div>
           <div class="muted">${escapeHtml(orderId)} - ${new Date().toLocaleString(isArabic ? 'ar-EG' : 'en-US')}</div>
           <div class="meta">
             <div>${isArabic ? 'العميل' : 'Customer'}: ${escapeHtml(sale.customer.name || '-')}</div>
@@ -398,6 +406,8 @@ function printReceipt(
             <div class="line"><span>${isArabic ? 'الخصم' : 'Discount'}</span><span>-${sale.discountAmount.toFixed(2)} ${currency}</span></div>
             <div class="line total"><span>${isArabic ? 'الإجمالي' : 'Total'}</span><span>${sale.total.toFixed(2)} ${currency}</span></div>
           </div>
+          ${qrSrc ? `<div class="qr"><img src="${qrSrc}" alt="QR" /></div>` : ''}
+          ${invoiceMessage ? `<div class="message">${escapeHtml(invoiceMessage)}</div>` : ''}
           <div class="muted">${isArabic ? 'طريقة الطباعة' : 'Printer method'}: ${escapeHtml(printerMethod)}</div>
         </div>
         <script>

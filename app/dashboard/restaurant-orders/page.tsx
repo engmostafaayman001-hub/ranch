@@ -74,6 +74,9 @@ export default function DashboardRestaurantOrdersPage() {
       title: isArabic ? 'فاتورة طلب مطعم' : 'Restaurant Order Receipt',
       printerMethod: printerMethodLabel(settings.printerMethod, isArabic),
       paperWidth: settings.printerPaperWidth,
+      invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
+      invoiceQrUrl: settings.invoiceQrUrl,
+      invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
     })
     if (!opened) setMessage(isArabic ? 'المتصفح منع نافذة الطباعة. اسمح بالنوافذ المنبثقة ثم حاول مرة أخرى.' : 'The browser blocked the print window. Allow popups and try again.')
   }

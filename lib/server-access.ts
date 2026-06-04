@@ -44,10 +44,6 @@ export async function getRequestDashboardAccess(request: NextRequest): Promise<D
     return { allowed: false, userId: null, email: null, role: null }
   }
 
-  if (canAccessDashboardByEmail(email)) {
-    return { allowed: true, userId: sessionUser?.id || null, email, role: 'super_admin' }
-  }
-
   try {
     const supabase = createSupabaseAdminClient()
     const appUser = sessionUser?.id
@@ -60,7 +56,12 @@ export async function getRequestDashboardAccess(request: NextRequest): Promise<D
             .maybeSingle()
         ).data
 
-    if (!appUser?.id) return { allowed: false, userId: null, email, role: null }
+    if (!appUser?.id) {
+      if (canAccessDashboardByEmail(email)) {
+        return { allowed: true, userId: sessionUser?.id || null, email, role: 'super_admin' }
+      }
+      return { allowed: false, userId: null, email, role: null }
+    }
 
     const { data: teamMember } = await supabase
       .from('team_members')
@@ -70,15 +71,26 @@ export async function getRequestDashboardAccess(request: NextRequest): Promise<D
       .maybeSingle()
 
     const role = teamMember?.role ? String(teamMember.role) : null
-    return {
-      allowed: !!role && DASHBOARD_ROLES.includes(role),
-      userId: appUser.id,
-      email,
-      role,
+    if (role && DASHBOARD_ROLES.includes(role)) {
+      return {
+        allowed: true,
+        userId: appUser.id,
+        email,
+        role,
+      }
     }
   } catch {
-    return { allowed: false, userId: null, email, role: null }
+    if (canAccessDashboardByEmail(email)) {
+      return { allowed: true, userId: sessionUser?.id || null, email, role: 'super_admin' }
+    }
+    return { allowed: false, userId: sessionUser?.id || null, email, role: null }
   }
+
+  if (canAccessDashboardByEmail(email)) {
+    return { allowed: true, userId: sessionUser?.id || null, email, role: 'super_admin' }
+  }
+
+  return { allowed: false, userId: sessionUser?.id || null, email, role: null }
 }
 
 export async function canRequestAccessDashboard(request: NextRequest) {

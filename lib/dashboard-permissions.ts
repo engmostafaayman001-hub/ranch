@@ -6,6 +6,7 @@ export const DASHBOARD_ROUTE_ROLES: Record<string, readonly string[]> = {
   [ROUTES.DASHBOARD]: DASHBOARD_ROLES,
   [ROUTES.DASHBOARD_ORDERS]: ['super_admin', 'admin', 'manager', 'cashier', 'delivery'],
   [ROUTES.DASHBOARD_RESTAURANT_ORDERS]: ['super_admin', 'admin', 'manager', 'cashier'],
+  [ROUTES.DASHBOARD_CATEGORIES]: ['super_admin', 'admin', 'manager'],
   [ROUTES.DASHBOARD_PRODUCTS]: ['super_admin', 'admin', 'manager'],
   [ROUTES.DASHBOARD_CUSTOMERS]: ['super_admin', 'admin', 'manager', 'support'],
   [ROUTES.DASHBOARD_TEAM]: ['super_admin', 'admin'],

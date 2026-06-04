@@ -1,8 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from './lib/supabase'
-import { canAccessDashboardByEmail } from './lib/access'
 import { getRequestDashboardAccess } from './lib/server-access'
-import { canRoleOpenDashboardRoute, DASHBOARD_ROLES, getDefaultDashboardRouteForRole } from './lib/dashboard-permissions'
+import { canRoleOpenDashboardRoute, getDefaultDashboardRouteForRole } from './lib/dashboard-permissions'
 
 const authRoutes = ['/login', '/register']
 
@@ -46,50 +45,16 @@ export async function middleware(request: NextRequest) {
 
   // Redirect to login if accessing protected routes without session
   if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) {
-    if (!session) {
-      const access = await getRequestDashboardAccess(request)
-      if (!access.allowed) {
-        return NextResponse.redirect(new URL('/login', request.url))
-      }
-
-      if (!canRoleOpenDashboardRoute(access.role, pathname)) {
-        return NextResponse.redirect(new URL('/unauthorized', request.url))
-      }
-
-      const defaultRoute = getDefaultDashboardRouteForRole(access.role)
-      if (pathname === '/dashboard' && defaultRoute !== '/dashboard') {
-        return NextResponse.redirect(new URL(defaultRoute, request.url))
-      }
-
-      return response
+    const access = await getRequestDashboardAccess(request)
+    if (!access.allowed) {
+      return NextResponse.redirect(new URL(session ? '/unauthorized' : '/login', request.url))
     }
 
-    if (canAccessDashboardByEmail(session.user.email)) {
-      return response
-    }
-
-    // Check if user has dashboard access
-    const { data: teamMember } = await supabase
-      .from('team_members')
-      .select('role,status')
-      .eq('user_id', session.user.id)
-      .eq('status', 'active')
-      .single()
-
-    if (!teamMember) {
+    if (!canRoleOpenDashboardRoute(access.role, pathname)) {
       return NextResponse.redirect(new URL('/unauthorized', request.url))
     }
 
-    // List of roles that can access dashboard
-    if (!(DASHBOARD_ROLES as readonly string[]).includes(teamMember.role)) {
-      return NextResponse.redirect(new URL('/unauthorized', request.url))
-    }
-
-    if (!canRoleOpenDashboardRoute(teamMember.role, pathname)) {
-      return NextResponse.redirect(new URL('/unauthorized', request.url))
-    }
-
-    const defaultRoute = getDefaultDashboardRouteForRole(teamMember.role)
+    const defaultRoute = getDefaultDashboardRouteForRole(access.role)
     if (pathname === '/dashboard' && defaultRoute !== '/dashboard') {
       return NextResponse.redirect(new URL(defaultRoute, request.url))
     }

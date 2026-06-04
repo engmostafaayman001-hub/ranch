@@ -24,17 +24,28 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         <div className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 px-4 py-4 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95 sm:px-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)} title={isArabic ? 'فتح قائمة لوحة التحكم' : 'Open dashboard menu'}>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setSidebarOpen(true)}
+                title={isArabic ? 'فتح قائمة لوحة التحكم' : 'Open dashboard menu'}
+              >
                 <Menu className="h-5 w-5" aria-hidden="true" />
               </Button>
               <h1 className="text-2xl font-bold">{t('dashboard')}</h1>
             </div>
             <div className="flex flex-wrap gap-2">
               <Link href={ROUTES.TRACK_ORDER}>
-                <Button variant="outline" className="gap-2"><ReceiptText className="h-4 w-4" />{isArabic ? 'تتبع العميل' : 'Customer Tracking'}</Button>
+                <Button variant="outline" className="gap-2">
+                  <ReceiptText className="h-4 w-4" />
+                  {isArabic ? 'تتبع العميل' : 'Customer Tracking'}
+                </Button>
               </Link>
               <Link href={ROUTES.HOME}>
-                <Button className="gap-2"><Home className="h-4 w-4" />{isArabic ? 'فتح التطبيق' : 'Open App'}</Button>
+                <Button className="gap-2">
+                  <Home className="h-4 w-4" />
+                  {isArabic ? 'فتح التطبيق' : 'Open App'}
+                </Button>
               </Link>
             </div>
           </div>
@@ -63,15 +74,17 @@ function DashboardAside({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
           if (active) setRole(null)
         })
     }, 0)
+
     return () => {
       active = false
       window.clearTimeout(timer)
     }
   }, [])
 
-  const visibleLinks = typeof role === 'undefined'
-    ? []
-    : dashboardLinks.filter((link) => role && (link.roles as readonly string[]).includes(role))
+  const visibleLinks =
+    typeof role === 'undefined'
+      ? []
+      : dashboardLinks.filter((link) => role && (link.roles as readonly string[]).includes(role))
 
   return (
     <aside
@@ -100,19 +113,26 @@ function DashboardAside({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
             ))}
           </div>
         ) : visibleLinks.length === 0 ? (
-          <p className="rounded-md bg-slate-900 p-3 text-sm text-slate-300">{isArabic ? 'لا توجد صفحات متاحة لهذا الدور.' : 'No pages available for this role.'}</p>
-        ) : visibleLinks.map((link) => {
-          const Icon = link.icon
-          const active = pathname === link.href || pathname.startsWith(`${link.href}/`)
-          return (
-            <Link key={link.href} href={link.href} onClick={onClose}>
-              <Button variant="ghost" className={`w-full gap-3 text-white hover:bg-slate-800 ${active ? 'bg-slate-800' : ''} ${isArabic ? 'justify-end' : 'justify-start'}`}>
-                <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                {isArabic ? link.labelAr : link.labelEn}
-              </Button>
-            </Link>
-          )
-        })}
+          <p className="rounded-md bg-slate-900 p-3 text-sm text-slate-300">
+            {isArabic ? 'لا توجد صفحات متاحة لهذا الدور.' : 'No pages available for this role.'}
+          </p>
+        ) : (
+          visibleLinks.map((link) => {
+            const Icon = link.icon
+            const active = link.href === ROUTES.DASHBOARD ? pathname === link.href : pathname === link.href || pathname.startsWith(`${link.href}/`)
+            return (
+              <Link key={link.href} href={link.href} onClick={onClose}>
+                <Button
+                  variant="ghost"
+                  className={`w-full gap-3 text-white hover:bg-slate-800 ${active ? 'bg-slate-800' : ''} ${isArabic ? 'justify-end' : 'justify-start'}`}
+                >
+                  <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  {isArabic ? link.labelAr : link.labelEn}
+                </Button>
+              </Link>
+            )
+          })
+        )}
       </nav>
 
       <Link href={ROUTES.HOME}>

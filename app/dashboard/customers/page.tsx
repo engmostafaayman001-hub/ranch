@@ -12,6 +12,8 @@ type Customer = {
   email?: string
   phone?: string
   address?: string
+  createdAt?: string
+  updatedAt?: string
   orders?: number
   totalSpent?: number
   lastOrderAt?: string
@@ -26,6 +28,7 @@ export default function DashboardCustomersPage() {
 
   useEffect(() => {
     let active = true
+
     async function loadCustomers() {
       try {
         const [customersResponse, ordersResponse] = await Promise.all([
@@ -34,18 +37,25 @@ export default function DashboardCustomersPage() {
         ])
         const customersData = await customersResponse.json().catch(() => ({}))
         const ordersData = await ordersResponse.json().catch(() => ({}))
-        const baseCustomers = Array.isArray(customersData.customers) ? customersData.customers as Customer[] : []
-        const orders = Array.isArray(ordersData.orders) ? ordersData.orders as TrackedOrder[] : []
+        const baseCustomers = Array.isArray(customersData.customers) ? (customersData.customers as Customer[]) : []
+        const orders = Array.isArray(ordersData.orders) ? (ordersData.orders as TrackedOrder[]) : []
         const byEmail = new Map<string, Customer>()
 
         for (const customer of baseCustomers) {
           const key = customer.email?.toLowerCase()
-          if (key) byEmail.set(key, { ...customer, orders: 0, totalSpent: 0 })
+          if (!key) continue
+
+          byEmail.set(key, {
+            ...customer,
+            orders: 0,
+            totalSpent: 0,
+          })
         }
 
         for (const order of orders) {
           const key = order.customerEmail?.toLowerCase()
           if (!key) continue
+
           const existing = byEmail.get(key) || {
             id: key,
             name: order.customer,
@@ -55,6 +65,7 @@ export default function DashboardCustomersPage() {
             orders: 0,
             totalSpent: 0,
           }
+
           byEmail.set(key, {
             ...existing,
             name: existing.name || order.customer,
@@ -62,11 +73,20 @@ export default function DashboardCustomersPage() {
             address: existing.address || order.address,
             orders: (existing.orders || 0) + 1,
             totalSpent: (existing.totalSpent || 0) + Number(order.total || 0),
-            lastOrderAt: !existing.lastOrderAt || new Date(order.createdAt) > new Date(existing.lastOrderAt) ? order.createdAt : existing.lastOrderAt,
+            lastOrderAt:
+              !existing.lastOrderAt || new Date(order.createdAt) > new Date(existing.lastOrderAt)
+                ? order.createdAt
+                : existing.lastOrderAt,
           })
         }
 
-        if (active) setCustomers(Array.from(byEmail.values()).sort((a, b) => new Date(b.lastOrderAt || 0).getTime() - new Date(a.lastOrderAt || 0).getTime()))
+        const sorted = Array.from(byEmail.values()).sort((a, b) => {
+          const dateA = new Date(a.lastOrderAt || a.updatedAt || a.createdAt || 0).getTime()
+          const dateB = new Date(b.lastOrderAt || b.updatedAt || b.createdAt || 0).getTime()
+          return dateB - dateA
+        })
+
+        if (active) setCustomers(sorted)
       } catch {
         if (active) setCustomers([])
       } finally {
@@ -81,22 +101,35 @@ export default function DashboardCustomersPage() {
     }
   }, [])
 
+  const formatDate = (value?: string) => {
+    if (!value) return '-'
+    return new Date(value).toLocaleDateString(isArabic ? 'ar-EG' : 'en-US')
+  }
+
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-3xl font-bold">{isArabic ? 'إدارة العملاء' : 'Customers'}</h2>
         <p className="mt-2 text-slate-500 dark:text-slate-400">
-          {isArabic ? 'عرض العملاء المسجلين والعملاء الذين ظهروا في الطلبات.' : 'View registered customers and customers collected from orders.'}
+          {isArabic
+            ? 'عرض الحسابات المسجلة على التطبيق مع بيانات الطلبات الخاصة بكل عميل.'
+            : 'View app registered accounts with each customer order activity.'}
         </p>
       </div>
 
       <Card>
-        <CardHeader><CardTitle>{isArabic ? 'قائمة العملاء' : 'Customer List'}</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>{isArabic ? 'قائمة العملاء' : 'Customer List'}</CardTitle>
+        </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="py-12 text-center text-slate-500">{isArabic ? 'جاري تحميل العملاء...' : 'Loading customers...'}</div>
+            <div className="py-12 text-center text-slate-500">
+              {isArabic ? 'جاري تحميل العملاء...' : 'Loading customers...'}
+            </div>
           ) : customers.length === 0 ? (
-            <div className="py-12 text-center text-slate-500">{isArabic ? 'لا يوجد عملاء بعد.' : 'No customers yet.'}</div>
+            <div className="py-12 text-center text-slate-500">
+              {isArabic ? 'لا يوجد عملاء مسجلون بعد.' : 'No registered customers yet.'}
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -105,6 +138,7 @@ export default function DashboardCustomersPage() {
                     <th className="py-3 font-semibold">{isArabic ? 'الاسم' : 'Name'}</th>
                     <th className="py-3 font-semibold">{isArabic ? 'البريد' : 'Email'}</th>
                     <th className="py-3 font-semibold">{isArabic ? 'الهاتف' : 'Phone'}</th>
+                    <th className="py-3 font-semibold">{isArabic ? 'تاريخ التسجيل' : 'Registered'}</th>
                     <th className="py-3 font-semibold">{isArabic ? 'الطلبات' : 'Orders'}</th>
                     <th className="py-3 font-semibold">{isArabic ? 'الإجمالي' : 'Total'}</th>
                     <th className="py-3 font-semibold">{isArabic ? 'آخر طلب' : 'Last Order'}</th>
@@ -116,9 +150,12 @@ export default function DashboardCustomersPage() {
                       <td className="py-3">{customer.name || '-'}</td>
                       <td className="py-3">{customer.email || '-'}</td>
                       <td className="py-3">{customer.phone || '-'}</td>
+                      <td className="py-3">{formatDate(customer.createdAt)}</td>
                       <td className="py-3">{customer.orders || 0}</td>
-                      <td className="py-3">{Number(customer.totalSpent || 0).toFixed(2)} {currency}</td>
-                      <td className="py-3">{customer.lastOrderAt ? new Date(customer.lastOrderAt).toLocaleDateString(isArabic ? 'ar-EG' : 'en-US') : '-'}</td>
+                      <td className="py-3">
+                        {Number(customer.totalSpent || 0).toFixed(2)} {currency}
+                      </td>
+                      <td className="py-3">{formatDate(customer.lastOrderAt)}</td>
                     </tr>
                   ))}
                 </tbody>

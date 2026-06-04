@@ -34,6 +34,7 @@ export default function DashboardSettingsPage() {
     hero: isArabic ? 'بداية الصفحة الرئيسية' : 'Homepage Hero',
     orderDelivery: isArabic ? 'إعدادات الطلب والتوصيل' : 'Order and Delivery Settings',
     printer: isArabic ? 'إعدادات الطابعة' : 'Printer Settings',
+    invoice: isArabic ? 'بيانات الفاتورة' : 'Invoice Details',
   }
 
   const handleOfferFiles = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -76,6 +77,9 @@ export default function DashboardSettingsPage() {
       printerMethod: printerMethodLabel(settings.printerMethod, isArabic),
       paperWidth: settings.printerPaperWidth || '80mm',
       printerName: settings.printerName || settings.printerIp,
+      invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
+      invoiceQrUrl: settings.invoiceQrUrl,
+      invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
     })
     setPrinterStatus(opened
       ? (isArabic ? 'تم فتح فاتورة اختبار. اختر الطابعة المناسبة من نافذة الطباعة للتأكد من الاتصال.' : 'Test receipt opened. Choose the target printer in the print dialog to confirm connection.')
@@ -151,6 +155,30 @@ export default function DashboardSettingsPage() {
           <Field id="delivery-fee" label={isArabic ? 'رسوم التوصيل' : 'Delivery Fee'} value={String(settings.deliveryFee)} onChange={(value) => updateSettings({ deliveryFee: Number(value) })} type="number" />
           <Field id="tax-rate" label={isArabic ? 'الضريبة %' : 'Tax %'} value={String(settings.taxRate * 100)} onChange={(value) => updateSettings({ taxRate: Number(value) / 100 })} type="number" />
           <Field id="delivery-time" label={isArabic ? 'وقت التوصيل بالدقائق' : 'Delivery Time in Minutes'} value={String(settings.deliveryTime)} onChange={(value) => updateSettings({ deliveryTime: Number(value) })} type="number" />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>{text.invoice}</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field id="invoice-name-ar" label={isArabic ? 'اسم المطعم في الفاتورة بالعربية' : 'Invoice restaurant name in Arabic'} value={settings.invoiceNameAr || ''} onChange={(value) => updateSettings({ invoiceNameAr: value })} />
+            <Field id="invoice-name-en" label={isArabic ? 'اسم المطعم في الفاتورة بالإنجليزية' : 'Invoice restaurant name in English'} value={settings.invoiceNameEn || ''} onChange={(value) => updateSettings({ invoiceNameEn: value })} />
+          </div>
+          <Field id="invoice-qr-url" label={isArabic ? 'رابط يظهر QR في الفاتورة' : 'QR link shown on invoice'} value={settings.invoiceQrUrl || ''} onChange={(value) => updateSettings({ invoiceQrUrl: value })} />
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <Label htmlFor="invoice-welcome-ar">{isArabic ? 'رسالة الفاتورة بالعربية' : 'Invoice message in Arabic'}</Label>
+              <Textarea id="invoice-welcome-ar" value={settings.invoiceWelcomeAr || ''} onChange={(event) => updateSettings({ invoiceWelcomeAr: event.target.value })} />
+            </div>
+            <div>
+              <Label htmlFor="invoice-welcome-en">{isArabic ? 'رسالة الفاتورة بالإنجليزية' : 'Invoice message in English'}</Label>
+              <Textarea id="invoice-welcome-en" value={settings.invoiceWelcomeEn || ''} onChange={(event) => updateSettings({ invoiceWelcomeEn: event.target.value })} />
+            </div>
+          </div>
+          <p className="text-xs text-slate-500">
+            {isArabic ? 'الرابط يتحول تلقائيا إلى QR في الفاتورة المطبوعة. استخدم رابط المنيو أو صفحة التتبع أو حسابات التواصل.' : 'The link is automatically rendered as a QR code on printed invoices. Use a menu, tracking, or social link.'}
+          </p>
         </CardContent>
       </Card>
 

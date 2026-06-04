@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { canRequestAccessDashboard } from '@/lib/server-access'
+import { getRequestDashboardAccess } from '@/lib/server-access'
 import { readSharedAppData, updateSharedCatalog, updateSharedSettings } from '@/lib/server-app-data'
 
 export const runtime = 'nodejs'
@@ -20,13 +20,17 @@ export async function GET() {
 }
 
 export async function PATCH(request: NextRequest) {
-  const allowed = await canRequestAccessDashboard(request)
-  if (!allowed) return json({ error: 'Unauthorized' }, { status: 401 })
+  const access = await getRequestDashboardAccess(request)
+  if (!access.allowed) return json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
     const body = await request.json()
 
     if (body.type === 'catalog') {
+      if (!['super_admin', 'admin', 'manager'].includes(access.role || '')) {
+        return json({ error: 'Forbidden' }, { status: 403 })
+      }
+
       const data = await updateSharedCatalog({
         categories: Array.isArray(body.categories) ? body.categories : [],
         products: Array.isArray(body.products) ? body.products : [],
@@ -35,6 +39,10 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (body.type === 'settings') {
+      if (!['super_admin', 'admin'].includes(access.role || '')) {
+        return json({ error: 'Forbidden' }, { status: 403 })
+      }
+
       const data = await updateSharedSettings(body.settings || {})
       return json(data)
     }

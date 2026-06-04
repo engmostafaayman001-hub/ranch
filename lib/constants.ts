@@ -105,6 +105,7 @@ export const ROUTES = {
   DASHBOARD_RESTAURANT_ORDERS: '/dashboard/restaurant-orders',
   DASHBOARD_TEAM: '/dashboard/team',
   DASHBOARD_CUSTOMERS: '/dashboard/customers',
+  DASHBOARD_CATEGORIES: '/dashboard/categories',
   DASHBOARD_PRODUCTS: '/dashboard/products',
   DASHBOARD_REPORTS: '/dashboard/reports',
   DASHBOARD_PAYMENTS: '/dashboard/payments',

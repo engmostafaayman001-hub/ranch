@@ -70,6 +70,11 @@ export interface AppSettings {
   printerName: string
   printerIp: string
   printerPaperWidth: '58mm' | '80mm'
+  invoiceNameAr: string
+  invoiceNameEn: string
+  invoiceQrUrl: string
+  invoiceWelcomeAr: string
+  invoiceWelcomeEn: string
 }
 
 interface AppStore {
@@ -130,6 +135,11 @@ export const defaultSettings: AppSettings = {
   printerName: '',
   printerIp: '',
   printerPaperWidth: '80mm',
+  invoiceNameAr: 'رانش',
+  invoiceNameEn: 'Ranch',
+  invoiceQrUrl: '',
+  invoiceWelcomeAr: 'شكرا لطلبك من رانش. نتمنى لك يوما سعيدا.',
+  invoiceWelcomeEn: 'Thank you for ordering from Ranch. Have a great day.',
 }
 const createId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
