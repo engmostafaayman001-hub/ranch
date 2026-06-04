@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import {
   Bell,
   FileQuestion,
+  Heart,
   Home,
   Info,
   LayoutDashboard,
@@ -103,6 +104,7 @@ export function Sidebar({ isOpen, onClose, isLoggedIn, onLogout }: SidebarProps)
           <nav className="flex-1 space-y-2">
             <NavItem href={ROUTES.HOME} label={t('home')} icon={Home} onClose={onClose} alignClass={align} />
             <NavItem href={ROUTES.MENU} label={t('menu')} icon={ShoppingBag} onClose={onClose} alignClass={align} />
+            <NavItem href={ROUTES.FAVORITES} label={t('favorites')} icon={Heart} onClose={onClose} alignClass={align} />
             <NavItem href={ROUTES.CART} label={t('cart')} icon={ShoppingCart} onClose={onClose} alignClass={align} />
             <NavItem href={ROUTES.TRACK_ORDER} label={t('trackOrder')} icon={ReceiptText} onClose={onClose} alignClass={align} />
             <NavItem href="/my-orders" label={t('myOrders')} icon={ScrollText} onClose={onClose} alignClass={align} />

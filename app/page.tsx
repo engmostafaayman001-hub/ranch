@@ -1,30 +1,58 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { BellRing, Clock3, Download, LayoutDashboard, ShoppingCart, Utensils } from 'lucide-react'
+import { Heart, Plus, Search, SlidersHorizontal, Star } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { DownloadModal } from '@/components/download-modal'
 import { Navbar } from '@/components/navbar'
 import { Sidebar } from '@/components/sidebar'
 import { useLanguage } from '@/components/language-provider'
-import { CURRENCY, CURRENCY_EN } from '@/lib/constants'
-import { useAppStore } from '@/lib/app-store'
+import { CURRENCY, CURRENCY_EN, ROUTES } from '@/lib/constants'
+import { MenuProduct, useAppStore } from '@/lib/app-store'
 import { useAuthStore } from '@/lib/store'
 import { useSharedAppData } from '@/lib/use-shared-app-data'
+import { isDisplayableImage } from '@/lib/client-images'
 
 export default function Home() {
   useSharedAppData()
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [downloadModalOpen, setDownloadModalOpen] = useState(false)
   const [cartMessage, setCartMessage] = useState('')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [activeOffer, setActiveOffer] = useState(0)
   const { isLoggedIn, logout } = useAuthStore()
   const { language, appName } = useLanguage()
-  const { products, settings, addToCart } = useAppStore()
+  const { categories, products, settings, favoriteProductIds, addToCart, toggleFavoriteProduct } = useAppStore()
   const isArabic = language === 'ar'
   const currency = isArabic ? CURRENCY : CURRENCY_EN
-  const bestSellers = products.filter((product) => product.bestSeller && product.available).slice(0, 4)
-  const visibleProducts = bestSellers.length > 0 ? bestSellers : products.filter((product) => product.available).slice(0, 4)
+  const activeCategories = categories.filter((category) => category.active)
+  const availableProducts = products.filter((product) => product.available)
+  const offerImages = (settings.offerImages?.length ? settings.offerImages : [settings.heroImage]).filter(Boolean)
+
+  useEffect(() => {
+    if (offerImages.length <= 1) return
+    const interval = window.setInterval(() => {
+      setActiveOffer((current) => (current + 1) % offerImages.length)
+    }, 3500)
+    return () => window.clearInterval(interval)
+  }, [offerImages.length])
+
+  const searchedProducts = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase()
+    if (!term) return availableProducts
+    return availableProducts.filter((product) => {
+      const name = isArabic ? product.nameAr : product.nameEn
+      const description = isArabic ? product.descriptionAr : product.descriptionEn
+      return `${name} ${description}`.toLowerCase().includes(term)
+    })
+  }, [availableProducts, isArabic, searchTerm])
+
+  const bestSellers = searchedProducts.filter((product) => product.bestSeller).slice(0, 6)
+  const randomProducts = useMemo(() => {
+    return [...searchedProducts]
+      .filter((product) => !bestSellers.some((best) => best.id === product.id))
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .slice(0, 8)
+  }, [bestSellers, searchedProducts])
 
   const handleLogout = () => {
     logout()
@@ -39,134 +67,208 @@ export default function Home() {
     window.setTimeout(() => setCartMessage(''), 2200)
   }
 
-  const features = [
-    {
-      icon: Clock3,
-      title: isArabic ? 'توصيل سريع' : 'Fast Delivery',
-      desc: isArabic ? `يصلك طلبك خلال حوالي ${settings.deliveryTime} دقيقة.` : `Your order arrives in about ${settings.deliveryTime} minutes.`,
-    },
-    {
-      icon: LayoutDashboard,
-      title: isArabic ? 'قائمة مباشرة' : 'Live Menu Control',
-      desc: isArabic ? 'كل منتج يظهر هنا تتم إدارته من لوحة التحكم.' : 'Every product shown here is managed from the dashboard.',
-    },
-    {
-      icon: BellRing,
-      title: isArabic ? 'عروض وتنبيهات' : 'Offers and Alerts',
-      desc: isArabic ? 'الإشعارات والعروض تظهر للعملاء فور إرسالها.' : 'Customers see notifications as soon as they are sent from the dashboard.',
-    },
-  ]
-
   return (
-    <main className="flex min-h-screen flex-col">
+    <main className="flex min-h-screen flex-col bg-slate-50 dark:bg-slate-950">
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} isLoggedIn={isLoggedIn} onLogout={handleLogout} />
       <Navbar onMenuOpen={() => setSidebarOpen(true)} isLoggedIn={isLoggedIn} onLogout={handleLogout} />
       {cartMessage && <CartToast message={cartMessage} isArabic={isArabic} />}
 
-      <section className="bg-gradient-to-br from-red-50 to-amber-50 dark:from-slate-950 dark:to-slate-900">
-        <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 py-16 sm:px-6 lg:grid-cols-2 lg:px-8">
-          <div>
-            <h1 className="mb-6 text-4xl font-bold leading-tight text-slate-950 dark:text-white md:text-6xl">
-              {isArabic ? settings.heroTitleAr : settings.heroTitleEn}
-            </h1>
-            <p className="mb-8 text-xl text-slate-600 dark:text-slate-400">
-              {isArabic ? settings.heroSubtitleAr : settings.heroSubtitleEn}
+      <section className="mx-auto w-full max-w-7xl space-y-5 px-3 py-4 sm:px-6 lg:px-8">
+        <div className="flex items-center gap-2">
+          <div className="flex h-11 flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <Search className="h-4 w-4 text-slate-400" />
+            <input
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder={isArabic ? 'ابحث عن منتج' : 'Search food'}
+              className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+            />
+          </div>
+          <Link href={ROUTES.MENU}>
+            <Button size="icon" className="h-11 w-11 bg-red-600 hover:bg-red-700" title={isArabic ? 'القائمة' : 'Menu'}>
+              <SlidersHorizontal className="h-5 w-5" />
+            </Button>
+          </Link>
+        </div>
+
+        <OfferSlider images={offerImages} active={activeOffer} title={isArabic ? settings.heroTitleAr : settings.heroTitleEn} isArabic={isArabic} />
+
+        <SectionHeader title={isArabic ? 'الأقسام' : 'Categories'} href={ROUTES.MENU} isArabic={isArabic} />
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {activeCategories.length === 0 ? (
+            <p className="rounded-md border border-dashed border-slate-300 bg-white px-4 py-3 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900">
+              {isArabic ? 'لا توجد أقسام بعد.' : 'No categories yet.'}
             </p>
-            <div className="flex flex-wrap gap-3">
-              <Link href="/menu"><Button size="lg" className="gap-2 bg-red-600 hover:bg-red-700"><Utensils className="h-5 w-5" />{isArabic ? 'اطلب الآن' : 'Order Now'}</Button></Link>
-              <Link href="/about"><Button size="lg" variant="outline">{isArabic ? 'تعرف أكثر' : 'Learn More'}</Button></Link>
-            </div>
-          </div>
-          <HeroImage value={settings.heroImage} />
+          ) : activeCategories.map((category) => (
+            <Link
+              key={category.id}
+              href={`${ROUTES.MENU}?category=${category.id}`}
+              className="shrink-0 rounded-md border border-red-100 bg-white px-4 py-2 text-sm font-semibold text-red-600 shadow-sm dark:border-red-950 dark:bg-slate-900"
+            >
+              {isArabic ? category.nameAr : category.nameEn}
+            </Link>
+          ))}
+        </div>
+
+        <ProductSection
+          title={isArabic ? 'الأكثر مبيعا' : 'Best Sellers'}
+          emptyText={isArabic ? 'لا توجد منتجات أكثر مبيعا بعد.' : 'No best sellers yet.'}
+          products={bestSellers.length ? bestSellers : searchedProducts.slice(0, 4)}
+          currency={currency}
+          isArabic={isArabic}
+          favoriteProductIds={favoriteProductIds}
+          onAddToCart={handleAddToCart}
+          onToggleFavorite={toggleFavoriteProduct}
+        />
+
+        <ProductSection
+          title={isArabic ? 'منتجات من القائمة' : 'Menu Picks'}
+          emptyText={isArabic ? 'لا توجد منتجات منشورة بعد.' : 'No published products yet.'}
+          products={randomProducts}
+          currency={currency}
+          isArabic={isArabic}
+          favoriteProductIds={favoriteProductIds}
+          onAddToCart={handleAddToCart}
+          onToggleFavorite={toggleFavoriteProduct}
+        />
+      </section>
+
+      <section className="bg-white py-8 dark:bg-slate-900">
+        <div className="mx-auto grid max-w-7xl gap-3 px-3 text-sm text-slate-600 sm:px-6 md:grid-cols-3 lg:px-8 dark:text-slate-300">
+          <InfoLine title={isArabic ? 'التوصيل' : 'Delivery'} value={isArabic ? `${settings.deliveryTime} دقيقة تقريبا` : `About ${settings.deliveryTime} minutes`} />
+          <InfoLine title={isArabic ? 'أوقات العمل' : 'Working Hours'} value={isArabic ? settings.workingHoursAr : settings.workingHoursEn} />
+          <InfoLine title={isArabic ? 'الدعم' : 'Support'} value={`${settings.phone} - ${settings.email}`} />
         </div>
       </section>
 
-      <section className="bg-white py-16 dark:bg-slate-950">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <h2 className="mb-10 text-center text-3xl font-bold">{isArabic ? `لماذا تختار ${appName}؟` : `Why Choose ${appName}?`}</h2>
-          <div className="grid gap-8 md:grid-cols-3">
-            {features.map((feature) => {
-              const Icon = feature.icon
-              return (
-                <div key={feature.title} className="text-center">
-                  <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-md bg-red-50 text-red-600 dark:bg-red-950">
-                    <Icon className="h-7 w-7" aria-hidden="true" />
-                  </div>
-                  <h3 className="mb-2 text-xl font-bold">{feature.title}</h3>
-                  <p className="text-slate-600 dark:text-slate-400">{feature.desc}</p>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      </section>
-
-      <section className="bg-slate-50 py-16 dark:bg-slate-900">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <h2 className="mb-10 text-center text-3xl font-bold">{isArabic ? 'منتجات القائمة' : 'Menu Products'}</h2>
-          {visibleProducts.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-slate-300 bg-white p-10 text-center text-slate-500 dark:border-slate-700 dark:bg-slate-950">
-              {isArabic ? 'لا توجد منتجات منشورة بعد. أضف المنتجات من لوحة التحكم لتظهر هنا.' : 'No published products yet. Add products from the dashboard to show them here.'}
-            </div>
-          ) : (
-            <div className="grid gap-6 md:grid-cols-4">
-              {visibleProducts.map((product) => {
-                const name = isArabic ? product.nameAr : product.nameEn
-                return (
-                  <div key={product.id} className="overflow-hidden rounded-lg bg-white shadow-lg transition-shadow hover:shadow-xl dark:bg-slate-800">
-                    <div className="relative flex aspect-square items-center justify-center bg-gradient-to-br from-red-50 to-amber-50 text-6xl dark:from-red-950 dark:to-slate-900">
-                      <ProductImage value={product.image} name={name} />
-                      {product.bestSeller && <div className="absolute top-2 rounded-full bg-red-600 px-3 py-1 text-sm font-semibold text-white ltr:left-2 rtl:right-2">{isArabic ? 'الأكثر مبيعًا' : 'Best Seller'}</div>}
-                    </div>
-                    <div className="p-4">
-                      <h3 className="mb-2 text-lg font-bold">{name}</h3>
-                      <p className="mb-4 text-xl font-bold text-red-600">{product.price} {currency}</p>
-                      <Button size="sm" className="w-full gap-2 bg-red-600 hover:bg-red-700" onClick={() => handleAddToCart(product.id)}>
-                        <ShoppingCart className="h-4 w-4" />
-                        {isArabic ? 'أضف إلى السلة' : 'Add to Cart'}
-                      </Button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      </section>
-
-      <section className="bg-gradient-to-r from-red-600 to-orange-600 py-16 text-white">
-        <div className="mx-auto max-w-7xl px-4 text-center sm:px-6 lg:px-8">
-          <h2 className="mb-4 text-4xl font-bold">{isArabic ? 'نزل التطبيق الآن' : 'Download App Now'}</h2>
-          <p className="mb-6 text-xl opacity-90">{isArabic ? 'احصل على إشعارات العروض وتتبع طلباتك بسهولة.' : 'Get offer notifications and track your orders easily.'}</p>
-          <Button onClick={() => setDownloadModalOpen(true)} className="gap-2 bg-white px-8 text-lg font-bold text-red-600 hover:bg-gray-100">
-            <Download className="h-5 w-5" />{isArabic ? 'تنزيل التطبيق' : 'Download App'}
-          </Button>
-        </div>
-      </section>
-
-      <footer className="bg-slate-900 py-12 text-white">
-        <div className="mx-auto max-w-7xl px-4 text-center text-slate-400 sm:px-6 lg:px-8">
+      <footer className="bg-slate-900 py-8 text-white">
+        <div className="mx-auto grid max-w-7xl gap-4 px-4 text-center text-slate-400 sm:px-6 lg:grid-cols-3 lg:px-8 lg:text-start">
           <p>&copy; 2026 {appName}. {isArabic ? 'جميع الحقوق محفوظة' : 'All rights reserved'}.</p>
+          <p>{isArabic ? settings.addressAr : settings.addressEn}</p>
+          <p>{settings.phone} - {isArabic ? settings.workingHoursAr : settings.workingHoursEn}</p>
         </div>
       </footer>
 
-      <DownloadModal isOpen={downloadModalOpen} onClose={() => setDownloadModalOpen(false)} />
     </main>
   )
 }
 
-function HeroImage({ value }: { value: string }) {
-  const isImage = value.startsWith('data:image') || value.startsWith('http') || value.startsWith('/')
+function OfferSlider({ images, active, title, isArabic }: { images: string[]; active: number; title: string; isArabic: boolean }) {
+  const image = images[active] || ''
   return (
-    <div className="overflow-hidden rounded-lg bg-white p-4 shadow-lg dark:bg-slate-800">
-      <div className="flex aspect-square items-center justify-center overflow-hidden rounded-md bg-gradient-to-br from-red-100 to-amber-100 text-9xl dark:from-red-950 dark:to-slate-900">
-        {isImage ? (
+    <div className="relative overflow-hidden rounded-lg border border-slate-200 bg-slate-900 shadow-sm dark:border-slate-800">
+      <div className="aspect-[16/7] min-h-36 w-full sm:aspect-[21/8]">
+        {isDisplayableImage(image) ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={value} alt="Ranch hero" className="h-full w-full object-cover" />
+          <img src={image} alt={title} className="h-full w-full object-cover" />
         ) : (
-          <span>{value || '🍽️'}</span>
+          <div className="flex h-full items-center justify-center bg-red-50 text-7xl dark:bg-red-950">{image || '🍽️'}</div>
         )}
       </div>
+      <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/20 to-transparent" />
+      <div className="absolute bottom-4 left-4 right-4 max-w-sm text-white rtl:text-right">
+        <p className="text-xs font-semibold uppercase tracking-wide text-amber-200">{isArabic ? 'عرض خاص' : 'Special Offer'}</p>
+        <h1 className="mt-1 line-clamp-2 text-xl font-bold sm:text-3xl">{title}</h1>
+        <Link href={ROUTES.MENU}>
+          <Button size="sm" className="mt-3 bg-red-600 hover:bg-red-700">{isArabic ? 'اطلب الآن' : 'Order Now'}</Button>
+        </Link>
+      </div>
+      {images.length > 1 && (
+        <div className="absolute bottom-2 left-1/2 flex -translate-x-1/2 gap-1.5">
+          {images.map((_, index) => (
+            <span key={index} className={`h-1.5 rounded-full transition-all ${index === active ? 'w-5 bg-red-500' : 'w-1.5 bg-white/70'}`} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ProductSection(props: {
+  title: string
+  emptyText: string
+  products: MenuProduct[]
+  currency: string
+  isArabic: boolean
+  favoriteProductIds: string[]
+  onAddToCart: (id: string) => void
+  onToggleFavorite: (id: string) => void
+}) {
+  return (
+    <section>
+      <SectionHeader title={props.title} href={ROUTES.MENU} isArabic={props.isArabic} />
+      {props.products.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500 dark:border-slate-800 dark:bg-slate-900">{props.emptyText}</div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          {props.products.map((product) => (
+            <ProductCard key={product.id} product={product} {...props} />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function ProductCard({
+  product,
+  currency,
+  isArabic,
+  favoriteProductIds,
+  onAddToCart,
+  onToggleFavorite,
+}: {
+  product: MenuProduct
+  currency: string
+  isArabic: boolean
+  favoriteProductIds: string[]
+  onAddToCart: (id: string) => void
+  onToggleFavorite: (id: string) => void
+}) {
+  const name = isArabic ? product.nameAr : product.nameEn
+  const isFavorite = favoriteProductIds.includes(product.id)
+  return (
+    <article className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div className="relative flex aspect-square items-center justify-center bg-slate-50 p-2 text-5xl dark:bg-slate-800">
+        <ProductImage value={product.image} name={name} />
+        <button
+          type="button"
+          onClick={() => onToggleFavorite(product.id)}
+          className="absolute top-2 flex h-8 w-8 items-center justify-center rounded-full bg-white/95 text-red-600 shadow-sm ltr:right-2 rtl:left-2 dark:bg-slate-950"
+          aria-label={isArabic ? 'إضافة للمفضلة' : 'Add to favorites'}
+        >
+          <Heart className={`h-4 w-4 ${isFavorite ? 'fill-red-600' : ''}`} />
+        </button>
+      </div>
+      <div className="space-y-2 p-2.5">
+        <h3 className="line-clamp-2 min-h-10 text-sm font-bold leading-5">{name}</h3>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-slate-500"><Star className="inline h-3 w-3 fill-amber-400 text-amber-400" /> {product.rating || 0}</span>
+          <span className="text-sm font-bold text-red-600">{Number(product.price || 0).toFixed(2)} {currency}</span>
+        </div>
+        <Button size="sm" className="h-8 w-full gap-1 bg-red-600 text-xs hover:bg-red-700" onClick={() => onAddToCart(product.id)}>
+          <Plus className="h-3.5 w-3.5" />
+          {isArabic ? 'إضافة' : 'Add'}
+        </Button>
+      </div>
+    </article>
+  )
+}
+
+function SectionHeader({ title, href, isArabic }: { title: string; href: string; isArabic: boolean }) {
+  return (
+    <div className="mb-3 mt-5 flex items-center justify-between">
+      <h2 className="text-base font-bold sm:text-xl">{title}</h2>
+      <Link href={href} className="text-xs font-semibold text-red-600 hover:text-red-700">{isArabic ? 'عرض الكل' : 'View all'}</Link>
+    </div>
+  )
+}
+
+function InfoLine({ title, value }: { title: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
+      <p className="font-semibold text-slate-950 dark:text-white">{title}</p>
+      <p className="mt-1">{value}</p>
     </div>
   )
 }
@@ -176,19 +278,18 @@ function CartToast({ message, isArabic }: { message: string; isArabic: boolean }
     <div className="fixed bottom-5 left-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-lg border border-green-200 bg-white p-4 shadow-xl dark:border-green-900 dark:bg-slate-900">
       <div className="flex items-center justify-between gap-3">
         <p className="font-semibold text-green-700 dark:text-green-300">{message}</p>
-        <a href="/cart" className="shrink-0 rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700">
+        <Link href={ROUTES.CART} className="shrink-0 rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700">
           {isArabic ? 'عرض السلة' : 'View Cart'}
-        </a>
+        </Link>
       </div>
     </div>
   )
 }
 
 function ProductImage({ value, name }: { value: string; name: string }) {
-  const isImage = value.startsWith('data:image') || value.startsWith('http') || value.startsWith('/')
-  if (isImage) {
+  if (isDisplayableImage(value)) {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={value} alt={name} className="h-full w-full object-cover" />
+    return <img src={value} alt={name} className="h-full w-full object-contain" />
   }
   return <span>{value || '🍽️'}</span>
 }

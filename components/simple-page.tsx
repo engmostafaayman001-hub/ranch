@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Logo } from '@/components/logo'
 import { useLanguage } from '@/components/language-provider'
+import { useAppStore } from '@/lib/app-store'
+import { useSharedAppData } from '@/lib/use-shared-app-data'
 
 type PageKind = 'about' | 'contact' | 'faq' | 'privacy' | 'terms' | 'refund'
 type LocalizedSimplePage = {
@@ -142,8 +144,29 @@ const pages: Record<PageKind, Record<'ar' | 'en', LocalizedSimplePage>> = {
 }
 
 export function SimplePage({ kind }: { kind: PageKind }) {
+  useSharedAppData()
   const { language, appName, t } = useLanguage()
+  const settings = useAppStore((state) => state.settings)
   const page = pages[kind][language]
+  const contactPage = kind === 'contact'
+    ? {
+        ...page,
+        sections: [
+          {
+            title: language === 'ar' ? 'معلومات التواصل' : 'Contact Information',
+            body: [
+              `${language === 'ar' ? 'الهاتف' : 'Phone'}: ${settings.phone}`,
+              `${language === 'ar' ? 'البريد الإلكتروني' : 'Email'}: ${settings.email}`,
+              `${language === 'ar' ? 'العنوان' : 'Address'}: ${language === 'ar' ? settings.addressAr : settings.addressEn}`,
+            ],
+          },
+          {
+            title: language === 'ar' ? 'أوقات العمل' : 'Working Hours',
+            body: [language === 'ar' ? settings.workingHoursAr : settings.workingHoursEn],
+          },
+        ],
+      }
+    : page
 
   return (
     <main className="min-h-screen bg-white dark:bg-slate-950">
@@ -162,9 +185,9 @@ export function SimplePage({ kind }: { kind: PageKind }) {
       </nav>
 
       <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">
-        <h1 className="mb-8 text-4xl font-bold">{page.title}</h1>
+        <h1 className="mb-8 text-4xl font-bold">{contactPage.title}</h1>
         <div className="space-y-6">
-          {page.sections.map((section) => (
+          {contactPage.sections.map((section) => (
             <Card key={section.title}>
               <CardHeader>
                 <CardTitle>{section.title}</CardTitle>

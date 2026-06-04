@@ -34,7 +34,7 @@ async function requireTeamManager(request: NextRequest) {
   return { access }
 }
 
-async function getRestaurantId() {
+async function getRestaurantId(owner: { userId: string | null; email: string | null }) {
   const supabase = createSupabaseAdminClient()
   const { data } = await supabase
     .from('restaurants')
@@ -43,7 +43,39 @@ async function getRestaurantId() {
     .limit(1)
     .maybeSingle()
 
-  return data?.id ? String(data.id) : null
+  if (data?.id) return String(data.id)
+
+  let ownerId = owner.userId
+
+  if (ownerId) {
+    const { error } = await supabase.from('users').upsert({
+      id: ownerId,
+      email: owner.email || `${ownerId}@ranch.local`,
+      name: owner.email?.split('@')[0] || 'Ranch Admin',
+    })
+    if (error) throw error
+  } else if (owner.email) {
+    const appUser = await ensureAppUser(owner.email, owner.email.split('@')[0] || 'Ranch Admin')
+    ownerId = appUser.id
+  }
+
+  if (!ownerId) {
+    throw new Error('Could not determine restaurant owner')
+  }
+
+  const { data: created, error } = await supabase
+    .from('restaurants')
+    .insert({
+      name: process.env.NEXT_PUBLIC_APP_NAME_EN || 'Ranch',
+      address: 'Cairo, Egypt',
+      phone: '01000000000',
+      owner_id: ownerId,
+    })
+    .select('id')
+    .single()
+
+  if (error) throw error
+  return String(created.id)
 }
 
 async function findAppUserByEmail(email: string) {
@@ -139,8 +171,10 @@ export async function POST(request: NextRequest) {
     if (!email || !name) return json({ error: 'Name and email are required' }, { status: 400 })
     if (!isTeamRole(role)) return json({ error: 'Invalid role' }, { status: 400 })
 
-    const restaurantId = await getRestaurantId()
-    if (!restaurantId) return json({ error: 'No restaurant exists. Create a restaurant first.' }, { status: 400 })
+    const restaurantId = await getRestaurantId({
+      userId: guard.access.userId,
+      email: guard.access.email,
+    })
 
     const supabase = createSupabaseAdminClient()
     const appUser = await ensureAppUser(email, name)

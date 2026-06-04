@@ -59,6 +59,9 @@ export interface AppSettings {
   heroSubtitleAr: string
   heroSubtitleEn: string
   heroImage: string
+  offerImages: string[]
+  workingHoursAr: string
+  workingHoursEn: string
   deliveryFee: number
   taxRate: number
   deliveryTime: number
@@ -71,6 +74,7 @@ interface AppStore {
   cart: CartItem[]
   team: TeamMember[]
   drivers: DeliveryDriver[]
+  favoriteProductIds: string[]
   settings: AppSettings
   setCatalog: (catalog: { categories: MenuCategory[]; products: MenuProduct[] }) => void
   setSettings: (settings: AppSettings) => void
@@ -81,6 +85,7 @@ interface AppStore {
   updateProduct: (id: string, updates: Partial<MenuProduct>) => void
   deleteProduct: (id: string) => void
   toggleProductAvailability: (id: string) => void
+  toggleFavoriteProduct: (productId: string) => void
   addToCart: (productId: string) => void
   updateCartQuantity: (productId: string, quantity: number) => void
   removeFromCart: (productId: string) => void
@@ -110,6 +115,9 @@ export const defaultSettings: AppSettings = {
   heroSubtitleAr: 'وجبات طازجة، توصيل سريع، وتتبع مباشر من لحظة الطلب حتى الاستلام.',
   heroSubtitleEn: 'Fresh meals, fast delivery, and live tracking from order to doorstep.',
   heroImage: '/favicon.png',
+  offerImages: [],
+  workingHoursAr: 'يوميا من 10 صباحا إلى 12 منتصف الليل',
+  workingHoursEn: 'Daily from 10 AM to 12 AM',
   deliveryFee: 29.99,
   taxRate: 0.1,
   deliveryTime: 30,
@@ -126,6 +134,7 @@ export const useAppStore = create<AppStore>()(
       cart: [],
       team: [],
       drivers: [],
+      favoriteProductIds: [],
       settings: defaultSettings,
       setCatalog: (catalog) =>
         set({
@@ -153,6 +162,12 @@ export const useAppStore = create<AppStore>()(
         })),
       toggleProductAvailability: (id) =>
         set((state) => ({ products: state.products.map((product) => (product.id === id ? { ...product, available: !product.available } : product)) })),
+      toggleFavoriteProduct: (productId) =>
+        set((state) => ({
+          favoriteProductIds: state.favoriteProductIds.includes(productId)
+            ? state.favoriteProductIds.filter((id) => id !== productId)
+            : [...state.favoriteProductIds, productId],
+        })),
       addToCart: (productId) =>
         set((state) => {
           const existing = state.cart.find((item) => item.productId === productId)
@@ -194,12 +209,14 @@ export const useAppStore = create<AppStore>()(
           settings: defaultSettings,
           cart: state?.cart?.filter((item) => !sampleIds.has(item.productId)) || [],
           drivers: state?.drivers || [],
+          favoriteProductIds: state?.favoriteProductIds || [],
         }
       },
       partialize: (state) => ({
         cart: state.cart,
         team: state.team,
         drivers: state.drivers,
+        favoriteProductIds: state.favoriteProductIds,
       }),
     }
   )

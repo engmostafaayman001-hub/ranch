@@ -15,7 +15,10 @@ import { useSharedAppData } from '@/lib/use-shared-app-data'
 export default function MenuPage() {
   useSharedAppData()
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [selectedCategory, setSelectedCategory] = useState('all')
+  const [selectedCategory, setSelectedCategory] = useState(() => {
+    if (typeof window === 'undefined') return 'all'
+    return new URLSearchParams(window.location.search).get('category') || 'all'
+  })
   const [searchTerm, setSearchTerm] = useState('')
   const [addedProductId, setAddedProductId] = useState<string | null>(null)
   const [cartMessage, setCartMessage] = useState('')
@@ -124,7 +127,7 @@ function ProductImage({ value, name }: { value: string; name: string }) {
   const isImage = value.startsWith('data:image') || value.startsWith('http') || value.startsWith('/')
   if (isImage) {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={value} alt={name} className="h-full w-full object-cover" />
+    return <img src={value} alt={name} className="h-full w-full object-contain p-3" />
   }
   return <span>{value || '🍽️'}</span>
 }

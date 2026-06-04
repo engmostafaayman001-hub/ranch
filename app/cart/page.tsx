@@ -114,7 +114,7 @@ function ProductThumb({ value, name }: { value: string; name: string }) {
     <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md bg-red-50 text-3xl dark:bg-red-950">
       {isImage ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={value} alt={name} className="h-full w-full object-cover" />
+        <img src={value} alt={name} className="h-full w-full object-contain p-1" />
       ) : (
         <span>{value || '🍽️'}</span>
       )}

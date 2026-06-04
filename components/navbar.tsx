@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { LayoutDashboard, LogIn, LogOut, Menu, Moon, ShoppingCart, Sun, UserPlus } from 'lucide-react'
+import { Heart, LayoutDashboard, LogIn, LogOut, Menu, Moon, ShoppingCart, Sun, UserPlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/logo'
 import { useTheme } from '@/components/theme-provider'
@@ -60,6 +60,7 @@ export function Navbar({ onMenuOpen, isLoggedIn, onLogout }: NavbarProps) {
 
           <div className="hidden items-center gap-1 lg:flex">
             <Link href={ROUTES.MENU}><Button variant="ghost">{t('menu')}</Button></Link>
+            <Link href={ROUTES.FAVORITES}><Button variant="ghost" className="gap-2"><Heart className="h-4 w-4" />{t('favorites')}</Button></Link>
             <Link href={ROUTES.CART}><Button variant="ghost" className="gap-2"><ShoppingCart className="h-4 w-4" />{t('cart')}</Button></Link>
             <Link href={ROUTES.TRACK_ORDER}><Button variant="ghost">{t('trackOrder')}</Button></Link>
             <Link href="/my-orders"><Button variant="ghost">{t('myOrders')}</Button></Link>

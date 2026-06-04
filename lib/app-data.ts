@@ -33,6 +33,9 @@ export interface AppSettings {
   heroSubtitleAr: string
   heroSubtitleEn: string
   heroImage: string
+  offerImages: string[]
+  workingHoursAr: string
+  workingHoursEn: string
   deliveryFee: number
   taxRate: number
   deliveryTime: number
@@ -55,6 +58,9 @@ export const defaultSettings: AppSettings = {
   heroSubtitleAr: 'وجبات طازجة، توصيل سريع، وتتبع مباشر من لحظة الطلب حتى الاستلام.',
   heroSubtitleEn: 'Fresh meals, fast delivery, and live tracking from order to doorstep.',
   heroImage: '/favicon.png',
+  offerImages: [],
+  workingHoursAr: 'يوميا من 10 صباحا إلى 12 منتصف الليل',
+  workingHoursEn: 'Daily from 10 AM to 12 AM',
   deliveryFee: 29.99,
   taxRate: 0.1,
   deliveryTime: 30,

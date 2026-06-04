@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { ChangeEvent, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -9,13 +9,16 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useLanguage } from '@/components/language-provider'
 import { useAppStore } from '@/lib/app-store'
+import { imageFileToOptimizedDataUrl, isAcceptedImageFile } from '@/lib/client-images'
 import { saveSharedSettings, useSharedAppData } from '@/lib/use-shared-app-data'
 
 export default function DashboardSettingsPage() {
-  useSharedAppData()
+  useSharedAppData({ poll: false })
   const { language, setLanguage } = useLanguage()
   const { settings, updateSettings } = useAppStore()
   const [saveStatus, setSaveStatus] = useState('')
+  const [imageStatus, setImageStatus] = useState('')
+  const [offerImageStatus, setOfferImageStatus] = useState('')
   const isArabic = language === 'ar'
 
   const text = {
@@ -31,12 +34,45 @@ export default function DashboardSettingsPage() {
     orderDelivery: isArabic ? 'إعدادات الطلب والتوصيل' : 'Order and Delivery Settings',
   }
 
-  const handleHeroFile = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleHeroFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => updateSettings({ heroImage: String(reader.result) })
-    reader.readAsDataURL(file)
+    if (!isAcceptedImageFile(file)) {
+      setImageStatus(isArabic ? 'اختر ملف صورة فقط.' : 'Choose an image file only.')
+      return
+    }
+
+    setImageStatus(isArabic ? 'جاري تجهيز الصورة...' : 'Preparing image...')
+    try {
+      const dataUrl = await imageFileToOptimizedDataUrl(file, { maxSize: 1800, quality: 0.88 })
+      updateSettings({ heroImage: dataUrl })
+      setImageStatus(isArabic ? `تم رفع الصورة وضبط مقاسها: ${file.name}` : `Image uploaded and resized: ${file.name}`)
+    } catch {
+      setImageStatus(isArabic ? 'تعذر رفع الصورة. حاول مرة أخرى.' : 'Could not upload the image. Try again.')
+    }
+  }
+
+  const handleOfferFiles = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || [])
+    if (files.length === 0) return
+    const invalid = files.find((file) => !isAcceptedImageFile(file))
+    if (invalid) {
+      setOfferImageStatus(isArabic ? 'اختر ملفات صور فقط.' : 'Choose image files only.')
+      return
+    }
+
+    setOfferImageStatus(isArabic ? 'جاري تجهيز صور العروض...' : 'Preparing offer images...')
+    try {
+      const images = await Promise.all(files.map((file) => imageFileToOptimizedDataUrl(file, { maxSize: 1800, quality: 0.88 })))
+      updateSettings({ offerImages: [...(settings.offerImages || []), ...images] })
+      setOfferImageStatus(isArabic ? `تم رفع ${images.length} صورة عروض.` : `${images.length} offer images uploaded.`)
+    } catch {
+      setOfferImageStatus(isArabic ? 'تعذر رفع صور العروض. حاول مرة أخرى.' : 'Could not upload offer images. Try again.')
+    }
+  }
+
+  const removeOfferImage = (index: number) => {
+    updateSettings({ offerImages: (settings.offerImages || []).filter((_, itemIndex) => itemIndex !== index) })
   }
 
   const handleSave = async () => {
@@ -67,8 +103,8 @@ export default function DashboardSettingsPage() {
         <CardHeader><CardTitle>{text.appLanguage}</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="flex gap-2">
-            <Button type="button" className={language === 'ar' ? 'bg-red-600 hover:bg-red-700' : ''} variant={language === 'ar' ? 'default' : 'outline'} onClick={() => setLanguage('ar')}>العربية</Button>
-            <Button type="button" className={language === 'en' ? 'bg-red-600 hover:bg-red-700' : ''} variant={language === 'en' ? 'default' : 'outline'} onClick={() => setLanguage('en')}>English</Button>
+            <Button type="button" className={language === 'ar' ? 'bg-red-600 hover:bg-red-700' : ''} variant={language === 'ar' ? 'default' : 'outline'} onClick={() => { setLanguage('ar'); updateSettings({ defaultLanguage: 'ar' }) }}>العربية</Button>
+            <Button type="button" className={language === 'en' ? 'bg-red-600 hover:bg-red-700' : ''} variant={language === 'en' ? 'default' : 'outline'} onClick={() => { setLanguage('en'); updateSettings({ defaultLanguage: 'en' }) }}>English</Button>
           </div>
           <p className="text-sm text-slate-500">{text.languageHint}</p>
         </CardContent>
@@ -84,6 +120,8 @@ export default function DashboardSettingsPage() {
             <Field id="phone" label={isArabic ? 'رقم الهاتف' : 'Phone'} value={settings.phone} onChange={(value) => updateSettings({ phone: value })} />
             <Field id="address-ar" label={isArabic ? 'العنوان بالعربية' : 'Address in Arabic'} value={settings.addressAr} onChange={(value) => updateSettings({ addressAr: value })} />
             <Field id="address-en" label={isArabic ? 'العنوان بالإنجليزية' : 'Address in English'} value={settings.addressEn} onChange={(value) => updateSettings({ addressEn: value })} />
+            <Field id="hours-ar" label={isArabic ? 'أوقات العمل بالعربية' : 'Working hours in Arabic'} value={settings.workingHoursAr} onChange={(value) => updateSettings({ workingHoursAr: value })} />
+            <Field id="hours-en" label={isArabic ? 'أوقات العمل بالإنجليزية' : 'Working hours in English'} value={settings.workingHoursEn} onChange={(value) => updateSettings({ workingHoursEn: value })} />
           </CardContent>
         </Card>
 
@@ -103,10 +141,18 @@ export default function DashboardSettingsPage() {
             <div>
               <Label htmlFor="hero-image">{isArabic ? 'صورة الصفحة الرئيسية' : 'Hero Image'}</Label>
               <FileInput id="hero-image" accept="image/*" onChange={handleHeroFile} className="mt-1" />
-              <p className="mt-2 text-xs text-slate-500">{isArabic ? 'ارفع صورة، أو اكتب رابط/رمز في الحقل التالي.' : 'Upload an image, or set an emoji/link in the field below.'}</p>
+              <p className="mt-2 text-xs text-slate-500">{isArabic ? 'ارفع أي مقاس صورة، وسيتم ضبطها تلقائيا لتظهر كاملة.' : 'Upload any image size; it will be adjusted automatically to show fully.'}</p>
+              {imageStatus && <p className="mt-2 text-sm text-slate-500">{imageStatus}</p>}
             </div>
             <Field id="hero-image-text" label={isArabic ? 'الصورة الحالية أو الرابط' : 'Current image or emoji'} value={settings.heroImage} onChange={(value) => updateSettings({ heroImage: value })} />
             <HeroPreview value={settings.heroImage} />
+            <div>
+              <Label htmlFor="offer-images">{isArabic ? 'صور العروض المتحركة' : 'Offer Slider Images'}</Label>
+              <FileInput id="offer-images" accept="image/*" multiple onChange={handleOfferFiles} className="mt-1" />
+              <p className="mt-2 text-xs text-slate-500">{isArabic ? 'يمكنك رفع أكثر من صورة، وستظهر تلقائيا في بداية الصفحة الرئيسية.' : 'Upload multiple images; they will rotate automatically on the homepage.'}</p>
+              {offerImageStatus && <p className="mt-2 text-sm text-slate-500">{offerImageStatus}</p>}
+            </div>
+            <OfferImagesPreview images={settings.offerImages || []} onRemove={removeOfferImage} isArabic={isArabic} />
           </CardContent>
         </Card>
       </div>
@@ -127,6 +173,28 @@ export default function DashboardSettingsPage() {
   )
 }
 
+function OfferImagesPreview({ images, onRemove, isArabic }: { images: string[]; onRemove: (index: number) => void; isArabic: boolean }) {
+  if (images.length === 0) {
+    return <p className="rounded-md border border-dashed border-slate-200 p-4 text-center text-sm text-slate-500 dark:border-slate-800">{isArabic ? 'لا توجد صور عروض بعد.' : 'No offer images yet.'}</p>
+  }
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {images.map((image, index) => (
+        <div key={`${image.slice(0, 24)}-${index}`} className="overflow-hidden rounded-md border border-slate-200 dark:border-slate-800">
+          <div className="flex h-32 items-center justify-center bg-slate-50 p-2 dark:bg-slate-900">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={image} alt={`Offer ${index + 1}`} className="h-full w-full object-contain" />
+          </div>
+          <Button type="button" variant="destructive" size="sm" className="w-full rounded-none" onClick={() => onRemove(index)}>
+            {isArabic ? 'حذف الصورة' : 'Remove Image'}
+          </Button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function Field({ id, label, value, onChange, type = 'text' }: { id: string; label: string; value: string; onChange: (value: string) => void; type?: string }) {
   return (
     <div>
@@ -142,10 +210,11 @@ function HeroPreview({ value }: { value: string }) {
     <div className="overflow-hidden rounded-md border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900">
       {isImage ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={value} alt="Hero preview" className="h-48 w-full object-cover" />
+        <img src={value} alt="Hero preview" className="h-48 w-full object-contain p-3" />
       ) : (
         <div className="flex h-48 items-center justify-center text-7xl">{value || '🍽️'}</div>
       )}
     </div>
   )
 }
+

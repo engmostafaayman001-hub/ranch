@@ -98,6 +98,7 @@ export const ROUTES = {
   REGISTER: '/register',
   PROFILE: '/profile',
   ORDERS: '/orders',
+  FAVORITES: '/favorites',
   TRACK_ORDER: '/track',
   DASHBOARD: '/dashboard',
   DASHBOARD_ORDERS: '/dashboard/orders',

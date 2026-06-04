@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { ChangeEvent, FormEvent, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useLanguage } from '@/components/language-provider'
 import { MenuCategory, MenuProduct, useAppStore } from '@/lib/app-store'
+import { imageFileToOptimizedDataUrl, isAcceptedImageFile, isDisplayableImage } from '@/lib/client-images'
 import { saveSharedCatalog, useSharedAppData } from '@/lib/use-shared-app-data'
 
 const emptyProduct = {
@@ -141,25 +142,22 @@ export default function DashboardProductsPage() {
     publishCatalog(categories, products.map((product) => (product.id === id ? { ...product, available: !product.available } : product)))
   }
 
-  const handleImageUpload = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
-    if (!file.type.startsWith('image/')) {
+    if (!isAcceptedImageFile(file)) {
       setUploadStatus(isArabic ? 'اختر ملف صورة فقط.' : 'Choose an image file only.')
       return
     }
-    if (file.size > 2 * 1024 * 1024) {
-      setUploadStatus(isArabic ? 'حجم الصورة يجب أن يكون أقل من 2 MB.' : 'Image size must be less than 2 MB.')
-      return
-    }
 
-    const reader = new FileReader()
-    reader.onload = () => {
-      setProductForm((current) => ({ ...current, image: String(reader.result) }))
-      setUploadStatus(isArabic ? `تم رفع الصورة: ${file.name}` : `Image uploaded: ${file.name}`)
+    setUploadStatus(isArabic ? 'جاري تجهيز الصورة...' : 'Preparing image...')
+    try {
+      const dataUrl = await imageFileToOptimizedDataUrl(file, { maxSize: 1400, quality: 0.86 })
+      setProductForm((current) => ({ ...current, image: dataUrl }))
+      setUploadStatus(isArabic ? `تم رفع الصورة وضبط مقاسها: ${file.name}` : `Image uploaded and resized: ${file.name}`)
+    } catch {
+      setUploadStatus(isArabic ? 'تعذر رفع الصورة. حاول مرة أخرى.' : 'Could not upload the image. Try again.')
     }
-    reader.onerror = () => setUploadStatus(isArabic ? 'تعذر رفع الصورة. حاول مرة أخرى.' : 'Could not upload the image. Try again.')
-    reader.readAsDataURL(file)
   }
 
   return (
@@ -233,9 +231,13 @@ export default function DashboardProductsPage() {
             <div>
               <Label htmlFor="image-upload">{isArabic ? 'رفع صورة المنتج' : 'Upload Product Image'}</Label>
               <FileInput id="image-upload" accept="image/*" onChange={handleImageUpload} className="mt-1" />
+              <p className="mt-2 text-xs text-slate-500">
+                {isArabic ? 'يمكن رفع أي مقاس، وسيتم ضبط الصورة تلقائيا لتظهر كاملة.' : 'Upload any size; the image will be adjusted automatically to show fully.'}
+              </p>
               {uploadStatus && <p className="mt-2 text-sm text-slate-500">{uploadStatus}</p>}
             </div>
             <Field id="image" label={isArabic ? 'مسار الصورة أو الرمز' : 'Image path or emoji'} value={productForm.image} onChange={(value) => setProductForm({ ...productForm, image: value })} />
+            <ProductImagePreview value={productForm.image} />
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={productForm.available} onChange={(event) => setProductForm({ ...productForm, available: event.target.checked })} />
               {isArabic ? 'متوفر للبيع' : 'Available for sale'}
@@ -285,6 +287,20 @@ function Field({ id, label, value, onChange, type = 'text' }: { id: string; labe
     <div>
       <Label htmlFor={id}>{label}</Label>
       <Input id={id} type={type} value={value} onChange={(event) => onChange(event.target.value)} />
+    </div>
+  )
+}
+function ProductImagePreview({ value }: { value: string }) {
+  return (
+    <div className="lg:col-span-2">
+      <div className="flex h-56 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-50 p-3 text-7xl dark:border-slate-800 dark:bg-slate-900">
+        {isDisplayableImage(value) ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={value} alt="Product preview" className="h-full w-full object-contain" />
+        ) : (
+          <span>{value || '🍽️'}</span>
+        )}
+      </div>
     </div>
   )
 }

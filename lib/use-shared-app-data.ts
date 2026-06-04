@@ -9,9 +9,10 @@ type SharedAppData = {
   settings?: AppSettings
 }
 
-export function useSharedAppData() {
+export function useSharedAppData(options: { poll?: boolean } = {}) {
   const setCatalog = useAppStore((state) => state.setCatalog)
   const setSettings = useAppStore((state) => state.setSettings)
+  const poll = options.poll ?? true
 
   useEffect(() => {
     let active = true
@@ -31,11 +32,13 @@ export function useSharedAppData() {
     }
 
     const timer = window.setTimeout(load, 0)
+    const interval = poll ? window.setInterval(load, 10000) : undefined
     return () => {
       active = false
       window.clearTimeout(timer)
+      if (interval) window.clearInterval(interval)
     }
-  }, [setCatalog, setSettings])
+  }, [poll, setCatalog, setSettings])
 }
 
 export async function saveSharedCatalog(categories: MenuCategory[], products: MenuProduct[]) {

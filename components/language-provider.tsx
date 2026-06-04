@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from 'react'
 import { APP_NAME_AR, APP_NAME_EN } from '@/lib/constants'
+import { useAppStore } from '@/lib/app-store'
 
 type Language = 'ar' | 'en'
 
@@ -10,6 +11,7 @@ const translations = {
     home: 'الرئيسية',
     menu: 'القائمة',
     cart: 'السلة',
+    favorites: 'المفضلة',
     profile: 'الملف الشخصي',
     orders: 'الطلبات',
     myOrders: 'طلباتي',
@@ -63,6 +65,7 @@ const translations = {
     home: 'Home',
     menu: 'Menu',
     cart: 'Cart',
+    favorites: 'Favorites',
     profile: 'Profile',
     orders: 'Orders',
     myOrders: 'My Orders',
@@ -134,6 +137,7 @@ function applyLanguage(language: Language) {
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguageState] = useState<Language>('ar')
+  const settings = useAppStore((state) => state.settings)
 
   useEffect(() => {
     const stored = localStorage.getItem('language') as Language | null
@@ -152,7 +156,9 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   }
 
   const t = (key: TranslationKey): string => translations[language][key] || translations.ar[key]
-  const appName = language === 'ar' ? APP_NAME_AR : APP_NAME_EN
+  const appName = language === 'ar'
+    ? settings.restaurantNameAr || APP_NAME_AR
+    : settings.restaurantNameEn || APP_NAME_EN
 
   return (
     <LanguageContext.Provider value={{ language, appName, setLanguage, toggleLanguage, t }}>

@@ -1,11 +1,19 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { CreditCard, ExternalLink, ReceiptText, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useLanguage } from '@/components/language-provider'
-import { CURRENCY, CURRENCY_EN, ORDER_STATUS_LABELS, ORDER_STATUS_LABELS_EN } from '@/lib/constants'
+import {
+  CURRENCY,
+  CURRENCY_EN,
+  ORDER_STATUS_LABELS,
+  ORDER_STATUS_LABELS_EN,
+  PAYMENT_METHOD_LABELS,
+  PAYMENT_METHOD_LABELS_EN,
+} from '@/lib/constants'
 import { useAppStore } from '@/lib/app-store'
 import { TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
 
@@ -70,7 +78,7 @@ export default function DashboardOrdersPage() {
       setMessage(data.message || data.error || (isArabic ? 'تعذر حذف الطلب.' : 'Could not delete order.'))
       return
     }
-    setMessage(isArabic ? 'تم حذف الطلب نهائيًا من لوحة التحكم.' : 'Order deleted from dashboard.')
+    setMessage(isArabic ? 'تم حذف الطلب نهائيا من لوحة التحكم.' : 'Order deleted from dashboard.')
     loadOrders()
   }
 
@@ -106,6 +114,30 @@ export default function DashboardOrdersPage() {
   }
 
   const label = (status: string) => (isArabic ? ORDER_STATUS_LABELS : ORDER_STATUS_LABELS_EN)[status as keyof typeof ORDER_STATUS_LABELS] || status
+
+  const paymentMethodLabel = (method?: string) => {
+    const labels = isArabic ? PAYMENT_METHOD_LABELS : PAYMENT_METHOD_LABELS_EN
+    return labels[method as keyof typeof PAYMENT_METHOD_LABELS] || method || (isArabic ? 'غير محدد' : 'Not specified')
+  }
+
+  const paymentStatusLabel = (status?: string) => {
+    const labels: Record<string, string> = isArabic
+      ? {
+          cash_on_delivery: 'الدفع عند الاستلام',
+          receipt_uploaded: 'إيصال مرفوع',
+          paid: 'مدفوع',
+          pending: 'قيد المراجعة',
+          rejected: 'مرفوض',
+        }
+      : {
+          cash_on_delivery: 'Cash on delivery',
+          receipt_uploaded: 'Receipt uploaded',
+          paid: 'Paid',
+          pending: 'Pending review',
+          rejected: 'Rejected',
+        }
+    return labels[status || ''] || status || (isArabic ? 'غير محدد' : 'Not specified')
+  }
 
   return (
     <div className="space-y-6">
@@ -144,13 +176,43 @@ export default function DashboardOrdersPage() {
                     ))}
                     <Button size="sm" variant="destructive" onClick={() => deleteOrder(order.id)}>{isArabic ? 'حذف الطلب' : 'Delete Order'}</Button>
                   </div>
+                  <div className="mt-4 grid gap-3 rounded-md border bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/40 md:grid-cols-[1fr_auto]">
+                    <div className="space-y-1">
+                      <p className="flex items-center gap-2 text-sm font-semibold">
+                        <CreditCard className="h-4 w-4 text-slate-500" />
+                        {isArabic ? 'الدفع والإيصال' : 'Payment and Receipt'}
+                      </p>
+                      <p className="text-sm text-slate-500">
+                        {paymentMethodLabel(order.payment?.method)} - {paymentStatusLabel(order.payment?.status)}
+                      </p>
+                      {order.payment?.receiptName && (
+                        <p className="flex items-center gap-2 text-xs text-slate-500">
+                          <ReceiptText className="h-3.5 w-3.5" />
+                          {order.payment.receiptName}
+                        </p>
+                      )}
+                    </div>
+                    {order.payment?.receiptDataUrl ? (
+                      <Button asChild type="button" variant="outline">
+                        <a href={order.payment.receiptDataUrl} target="_blank" rel="noreferrer">
+                          <ExternalLink className="me-2 h-4 w-4" />
+                          {isArabic ? 'فتح الإيصال' : 'Open Receipt'}
+                        </a>
+                      </Button>
+                    ) : (
+                      <span className="inline-flex items-center gap-2 self-center text-sm text-slate-500">
+                        <XCircle className="h-4 w-4" />
+                        {isArabic ? 'لا يوجد إيصال مرفوع' : 'No receipt uploaded'}
+                      </span>
+                    )}
+                  </div>
                   <div className="mt-4 grid gap-2 border-t pt-4 dark:border-slate-800 md:grid-cols-[1fr_auto]">
                     <select
                       value={driverSelections[order.id] || ''}
                       onChange={(event) => setDriverSelections((current) => ({ ...current, [order.id]: event.target.value }))}
                       className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950"
                     >
-                      <option value="">{isArabic ? 'اختر سائقًا' : 'Choose a driver'}</option>
+                      <option value="">{isArabic ? 'اختر سائقا' : 'Choose a driver'}</option>
                       {drivers.filter((driver) => driver.status === 'active').map((driver) => (
                         <option key={driver.id} value={driver.id}>{driver.name} - {driver.phone}</option>
                       ))}
