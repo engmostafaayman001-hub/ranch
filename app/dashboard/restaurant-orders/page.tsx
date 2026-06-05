@@ -68,15 +68,19 @@ export default function DashboardRestaurantOrdersPage() {
   }
 
   const printOrder = (order: TrackedOrder) => {
+    const printer = settings.printers.cashier
     const opened = printTrackedOrderReceipt(order, {
       isArabic,
       currency,
       title: isArabic ? 'فاتورة طلب مطعم' : 'Restaurant Order Receipt',
-      printerMethod: printerMethodLabel(settings.printerMethod, isArabic),
-      paperWidth: settings.printerPaperWidth,
+      printerMethod: printerMethodLabel(printer.method, isArabic),
+      printerName: printer.name,
+      paperWidth: printer.paperWidth,
       invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
       invoiceQrUrl: settings.invoiceQrUrl,
       invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
+      printsMainInvoice: printer.printsMainInvoice,
+      printsQr: printer.printsQr,
     })
     if (!opened) setMessage(isArabic ? 'المتصفح منع نافذة الطباعة. اسمح بالنوافذ المنبثقة ثم حاول مرة أخرى.' : 'The browser blocked the print window. Allow popups and try again.')
   }

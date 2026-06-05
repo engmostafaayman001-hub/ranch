@@ -22,7 +22,7 @@ export const dashboardLinks = [
   { href: ROUTES.DASHBOARD_ORDERS, labelAr: 'إدارة طلبات التطبيق', labelEn: 'App Orders', icon: ReceiptText, roles: ['super_admin', 'admin', 'manager', 'cashier', 'delivery'] },
   { href: ROUTES.DASHBOARD_RESTAURANT_ORDERS, labelAr: 'إدارة طلبات المطعم', labelEn: 'Restaurant Orders', icon: Store, roles: ['super_admin', 'admin', 'manager', 'cashier'] },
   { href: ROUTES.DASHBOARD_PAYMENTS, labelAr: 'المدفوعات', labelEn: 'Payments', icon: CreditCard, roles: ['super_admin', 'admin', 'cashier'] },
-  { href: ROUTES.DASHBOARD_DELIVERY, labelAr: 'السائقون والتوصيل', labelEn: 'Delivery', icon: Truck, roles: ['super_admin', 'admin', 'manager', 'delivery'] },
+  { href: ROUTES.DASHBOARD_DELIVERY, labelAr: 'السائقون والتوصيل', labelEn: 'Delivery', icon: Truck, roles: ['super_admin', 'admin', 'manager'] },
   { href: ROUTES.DASHBOARD_CUSTOMERS, labelAr: 'العملاء', labelEn: 'Customers', icon: Users, roles: ['super_admin', 'admin', 'manager', 'support'] },
   { href: ROUTES.DASHBOARD_CATEGORIES, labelAr: 'الأقسام', labelEn: 'Categories', icon: Tags, roles: ['super_admin', 'admin', 'manager'] },
   { href: ROUTES.DASHBOARD_PRODUCTS, labelAr: 'المنتجات', labelEn: 'Products', icon: Package, roles: ['super_admin', 'admin', 'manager'] },

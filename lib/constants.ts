@@ -56,8 +56,8 @@ export const PAYMENT_METHOD_LABELS_EN = {
   instapay: 'InstaPay',
 }
 
-export const VODAFONE_CASH_NUMBER = process.env.NEXT_PUBLIC_VODAFONE_CASH_NUMBER || '01000000000'
-export const INSTAPAY_NUMBER = process.env.NEXT_PUBLIC_INSTAPAY_NUMBER || '01000000000'
+export const VODAFONE_CASH_NUMBER = process.env.NEXT_PUBLIC_VODAFONE_CASH_NUMBER || '01090886364'
+export const INSTAPAY_NUMBER = process.env.NEXT_PUBLIC_INSTAPAY_NUMBER || '01090886364'
 
 export const SUPER_ADMIN_EMAIL = process.env.NEXT_PUBLIC_SUPER_ADMIN_EMAIL || 'ca.markode@gmail.com'
 export const DASHBOARD_ACCESS_EMAILS = Array.from(

@@ -15,17 +15,17 @@ export default function DashboardDeliveryPage() {
   const { drivers, addDriver, updateDriver, deleteDriver } = useAppStore()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [formOpen, setFormOpen] = useState(false)
-  const [form, setForm] = useState({ name: '', phone: '', area: '', status: 'active' as 'active' | 'inactive' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', area: '', status: 'active' as 'active' | 'inactive' })
 
   const closeForm = () => {
     setEditingId(null)
-    setForm({ name: '', phone: '', area: '', status: 'active' })
+    setForm({ name: '', email: '', phone: '', area: '', status: 'active' })
     setFormOpen(false)
   }
 
   const openNewDriver = () => {
     setEditingId(null)
-    setForm({ name: '', phone: '', area: '', status: 'active' })
+    setForm({ name: '', email: '', phone: '', area: '', status: 'active' })
     setFormOpen(true)
   }
 
@@ -55,8 +55,9 @@ export default function DashboardDeliveryPage() {
             <CardTitle>{editingId ? (isArabic ? 'تعديل سائق' : 'Edit Driver') : (isArabic ? 'إضافة سائق' : 'Add Driver')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={submit} className="grid gap-4 md:grid-cols-4">
+            <form onSubmit={submit} className="grid gap-4 md:grid-cols-5">
               <Field id="driver-name" label={isArabic ? 'اسم السائق' : 'Driver Name'} value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
+              <Field id="driver-email" label={isArabic ? 'بريد حساب السائق' : 'Driver Account Email'} value={form.email} onChange={(value) => setForm({ ...form, email: value })} />
               <Field id="driver-phone" label={isArabic ? 'الهاتف' : 'Phone'} value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} />
               <Field id="driver-area" label={isArabic ? 'المنطقة' : 'Area'} value={form.area} onChange={(value) => setForm({ ...form, area: value })} />
               <div className="flex items-end gap-2">
@@ -77,11 +78,11 @@ export default function DashboardDeliveryPage() {
             <div key={driver.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 dark:border-slate-800">
               <div>
                 <p className="font-semibold">{driver.name}</p>
-                <p className="text-sm text-slate-500">{driver.phone} - {driver.area}</p>
+                <p className="text-sm text-slate-500">{driver.phone} - {driver.email || (isArabic ? 'بدون بريد' : 'No email')} - {driver.area}</p>
                 <Badge className={driver.status === 'active' ? 'bg-green-600' : 'bg-slate-500'}>{driver.status === 'active' ? (isArabic ? 'نشط' : 'Active') : (isArabic ? 'غير نشط' : 'Inactive')}</Badge>
               </div>
               <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => { setEditingId(driver.id); setForm({ name: driver.name, phone: driver.phone, area: driver.area, status: driver.status }); setFormOpen(true) }}>{isArabic ? 'تعديل' : 'Edit'}</Button>
+                <Button size="sm" variant="outline" onClick={() => { setEditingId(driver.id); setForm({ name: driver.name, email: driver.email || '', phone: driver.phone, area: driver.area, status: driver.status }); setFormOpen(true) }}>{isArabic ? 'تعديل' : 'Edit'}</Button>
                 <Button size="sm" variant="destructive" onClick={() => deleteDriver(driver.id)}>{isArabic ? 'حذف' : 'Delete'}</Button>
               </div>
             </div>

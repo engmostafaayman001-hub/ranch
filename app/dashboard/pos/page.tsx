@@ -163,17 +163,20 @@ export default function DashboardPosPage() {
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.message || data.error || 'Could not create sale')
       setMessage(isArabic ? `تم البيع وإنشاء الطلب: ${data.order?.id || ''}` : `Sale completed and order created: ${data.order?.id || ''}`)
+      const printer = settings.printers.cashier
       printReceipt({
         orderId: data.order?.id || '',
         sale: saleSnapshot,
         isArabic,
         currency,
         paymentMethod: methodLabels[paymentMethod as keyof typeof PAYMENT_METHOD_LABELS] || paymentMethod,
-        printerMethod: printerMethodLabel(settings.printerMethod, isArabic),
-        paperWidth: settings.printerPaperWidth || '80mm',
+        printerMethod: printerMethodLabel(printer.method, isArabic),
+        printerName: printer.name,
+        paperWidth: printer.paperWidth || '80mm',
         invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
         invoiceQrUrl: settings.invoiceQrUrl,
         invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
+        printsQr: printer.printsQr,
       })
       setLines([])
       setDiscountCode('')
@@ -328,15 +331,17 @@ function printReceipt(options: {
   currency: string
   paymentMethod: string
   printerMethod: string
+  printerName: string
   paperWidth: string
   invoiceName: string
   invoiceQrUrl: string
   invoiceMessage: string
+  printsQr: boolean
 }) {
-  const { orderId, sale, isArabic, currency, paymentMethod, printerMethod, invoiceName, invoiceQrUrl, invoiceMessage } = options
+  const { orderId, sale, isArabic, currency, paymentMethod, printerMethod, printerName, invoiceName, invoiceQrUrl, invoiceMessage, printsQr } = options
   const direction = isArabic ? 'rtl' : 'ltr'
   const width = options.paperWidth === '58mm' ? '58mm' : '80mm'
-  const qrSrc = qrImage(invoiceQrUrl)
+  const qrSrc = printsQr ? qrImage(invoiceQrUrl) : ''
   const rows = sale.items.map((item) => `
     <tr>
       <td>${escapeHtml(item.name)}</td>
@@ -408,7 +413,7 @@ function printReceipt(options: {
           </div>
           ${qrSrc ? `<div class="qr"><img src="${qrSrc}" alt="QR" /></div>` : ''}
           ${invoiceMessage ? `<div class="message">${escapeHtml(invoiceMessage)}</div>` : ''}
-          <div class="muted">${isArabic ? 'طريقة الطباعة' : 'Printer method'}: ${escapeHtml(printerMethod)}</div>
+          <div class="muted">${escapeHtml(printerName || '')}${printerName ? ' - ' : ''}${isArabic ? 'طريقة الطباعة' : 'Printer method'}: ${escapeHtml(printerMethod)}</div>
         </div>
         <script>
           window.onload = () => {

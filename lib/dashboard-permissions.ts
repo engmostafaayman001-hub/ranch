@@ -10,7 +10,7 @@ export const DASHBOARD_ROUTE_ROLES: Record<string, readonly string[]> = {
   [ROUTES.DASHBOARD_PRODUCTS]: ['super_admin', 'admin', 'manager'],
   [ROUTES.DASHBOARD_CUSTOMERS]: ['super_admin', 'admin', 'manager', 'support'],
   [ROUTES.DASHBOARD_TEAM]: ['super_admin', 'admin'],
-  [ROUTES.DASHBOARD_DELIVERY]: ['super_admin', 'admin', 'manager', 'delivery'],
+  [ROUTES.DASHBOARD_DELIVERY]: ['super_admin', 'admin', 'manager'],
   [ROUTES.DASHBOARD_PAYMENTS]: ['super_admin', 'admin', 'cashier'],
   [ROUTES.DASHBOARD_NOTIFICATIONS]: ['super_admin', 'admin'],
   [ROUTES.DASHBOARD_POS]: ['super_admin', 'admin', 'manager', 'cashier'],
@@ -24,7 +24,7 @@ export function getDefaultDashboardRouteForRole(role: string | null | undefined)
     case 'cashier':
       return ROUTES.DASHBOARD_POS
     case 'delivery':
-      return ROUTES.DASHBOARD_DELIVERY
+      return ROUTES.DASHBOARD_ORDERS
     case 'support':
       return ROUTES.DASHBOARD_CUSTOMERS
     case 'super_admin':

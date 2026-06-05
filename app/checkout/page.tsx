@@ -68,6 +68,12 @@ export default function CheckoutPage() {
   const discountAmount = Math.min(subtotal, appliedDiscount?.discountAmount || 0)
   const total = Math.max(0, subtotal + tax + deliveryFee - discountAmount)
   const requiresReceipt = formData.paymentMethod !== PAYMENT_METHODS.CASH
+  const paymentTransferNumber =
+    formData.paymentMethod === PAYMENT_METHODS.VODAFONE_CASH
+      ? settings.vodafoneCashNumber || '01090886364'
+      : formData.paymentMethod === PAYMENT_METHODS.INSTAPAY
+        ? settings.instapayNumber || '01090886364'
+        : ''
 
   const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = event.target
@@ -330,10 +336,16 @@ export default function CheckoutPage() {
                   </div>
 
                   {requiresReceipt ? (
-                    <div>
+                    <div className="space-y-3">
+                      <div className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                        <span className="font-semibold">{isArabic ? 'حوّل على الرقم' : 'Transfer to'}: </span>
+                        <span dir="ltr">{paymentTransferNumber}</span>
+                      </div>
+                      <div>
                       <Label htmlFor="receipt">{isArabic ? 'رفع إيصال الدفع' : 'Upload Payment Receipt'}</Label>
                       <FileInput id="receipt" accept="image/*,.pdf" onChange={handleReceiptUpload} required className="mt-1" />
                       {receipt && <p className="mt-2 rounded-md bg-green-50 px-3 py-2 text-sm text-green-700 dark:bg-green-950 dark:text-green-200">{isArabic ? `تم رفع الإيصال: ${receipt.name}` : `Receipt uploaded: ${receipt.name}`}</p>}
+                      </div>
                     </div>
                   ) : (
                     <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-200">

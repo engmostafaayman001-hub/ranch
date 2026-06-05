@@ -7,6 +7,7 @@ export type DashboardAccess = {
   allowed: boolean
   userId: string | null
   email: string | null
+  name: string | null
   role: string | null
 }
 
@@ -14,6 +15,7 @@ type TeamRoleRow = {
   user_id: string
   role: string | null
   status: string | null
+  users?: { name?: string | null; email?: string | null } | { name?: string | null; email?: string | null }[] | null
 }
 
 type AppUserRow = {
@@ -45,9 +47,14 @@ async function getSupabaseSessionUser(request: NextRequest) {
   }
 }
 
-function roleAccess(userId: string | null, email: string, role: string | null): DashboardAccess | null {
+function getTeamUserName(row: TeamRoleRow) {
+  const user = Array.isArray(row.users) ? row.users[0] : row.users
+  return user?.name ? String(user.name) : null
+}
+
+function roleAccess(userId: string | null, email: string, role: string | null, name: string | null = null): DashboardAccess | null {
   if (!role || !(DASHBOARD_ROLES as readonly string[]).includes(role)) return null
-  return { allowed: true, userId, email, role }
+  return { allowed: true, userId, email, name, role }
 }
 
 export async function getRequestDashboardAccess(request: NextRequest): Promise<DashboardAccess> {
@@ -56,7 +63,7 @@ export async function getRequestDashboardAccess(request: NextRequest): Promise<D
   const email = normalizeEmail(sessionUser?.email || cookieEmail || '')
 
   if (!email) {
-    return { allowed: false, userId: null, email: null, role: null }
+    return { allowed: false, userId: null, email: null, name: null, role: null }
   }
 
   try {
@@ -78,29 +85,29 @@ export async function getRequestDashboardAccess(request: NextRequest): Promise<D
     if (userIds.size > 0) {
       const { data: teamRows } = await supabase
         .from('team_members')
-        .select('user_id,role,status')
+        .select('user_id,role,status,users(name,email)')
         .in('user_id', Array.from(userIds))
 
       const rows = Array.isArray(teamRows) ? (teamRows as TeamRoleRow[]) : []
       const activeRow = rows.find((row) => row.status === 'active' && roleAccess(String(row.user_id), email, row.role))
-      const activeAccess = activeRow ? roleAccess(String(activeRow.user_id), email, activeRow.role) : null
+      const activeAccess = activeRow ? roleAccess(String(activeRow.user_id), email, activeRow.role, getTeamUserName(activeRow)) : null
       if (activeAccess) return activeAccess
 
       if (rows.length > 0) {
-        return { allowed: false, userId: sessionUser?.id || Array.from(userIds)[0] || null, email, role: null }
+        return { allowed: false, userId: sessionUser?.id || Array.from(userIds)[0] || null, email, name: null, role: null }
       }
     }
   } catch {
     if (!canAccessDashboardByEmail(email)) {
-      return { allowed: false, userId: sessionUser?.id || null, email, role: null }
+      return { allowed: false, userId: sessionUser?.id || null, email, name: null, role: null }
     }
   }
 
   if (canAccessDashboardByEmail(email)) {
-    return { allowed: true, userId: sessionUser?.id || null, email, role: 'super_admin' }
+    return { allowed: true, userId: sessionUser?.id || null, email, name: sessionUser?.user_metadata?.name || null, role: 'super_admin' }
   }
 
-  return { allowed: false, userId: sessionUser?.id || null, email, role: null }
+  return { allowed: false, userId: sessionUser?.id || null, email, name: null, role: null }
 }
 
 export async function canRequestAccessDashboard(request: NextRequest) {

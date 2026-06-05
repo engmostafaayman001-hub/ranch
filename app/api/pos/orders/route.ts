@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { deleteServerOrder, readServerOrders, updateServerOrderStatus, upsertServerOrder } from '@/lib/server-orders'
 import { PaymentStatus, TrackingStatus, trackingSteps, TrackedOrder } from '@/lib/order-tracking'
-import { canRequestAccessDashboard, getRequestUserEmail } from '@/lib/server-access'
+import { getRequestDashboardAccess, getRequestUserEmail } from '@/lib/server-access'
 import { validateNotificationDiscount } from '@/lib/discounts'
 import { readServerNotifications } from '@/lib/server-notifications'
 
@@ -56,6 +56,23 @@ function validateOptionalApiKey(request: NextRequest) {
   return configuredKeys.length > 0 && configuredKeys.includes(providedKey)
 }
 
+function normalizeMatchValue(value?: string | null) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function isOrderAssignedToDelivery(order: TrackedOrder, access: { email: string | null; name: string | null }) {
+  const email = normalizeMatchValue(access.email)
+  const name = normalizeMatchValue(access.name)
+  const driverEmail = normalizeMatchValue(order.driver?.email)
+  const driverName = normalizeMatchValue(order.driver?.name)
+
+  return Boolean(
+    (email && driverEmail === email) ||
+      (name && driverName === name) ||
+      (email && driverName === email.split('@')[0])
+  )
+}
+
 function normalizeTrackingStatus(value: unknown): TrackingStatus {
   const raw = String(value || 'placed').toLowerCase()
   const aliases: Record<string, TrackingStatus> = {
@@ -105,8 +122,13 @@ export async function OPTIONS() {
 export async function GET(request: NextRequest) {
   try {
     const userEmail = getRequestUserEmail(request)
-    const isAdmin = await canRequestAccessDashboard(request)
+    const access = await getRequestDashboardAccess(request)
+    const isAdmin = access.allowed
     const orders = await readServerOrders()
+
+    if (access.role === 'delivery') {
+      return json({ orders: orders.filter((order) => order.source !== 'restaurant_pos' && isOrderAssignedToDelivery(order, access)) })
+    }
 
     if (isAdmin) return json({ orders })
     if (!userEmail) return json({ orders: [] })
@@ -136,7 +158,7 @@ export async function POST(request: NextRequest) {
     const customerEmail = String(customer.email || body.customerEmail || body.email || '').toLowerCase()
     const requestEmail = getRequestUserEmail(request)
     const hasValidPosKey = getRequestApiKey(request) ? validateOptionalApiKey(request) : false
-    const isAdmin = await canRequestAccessDashboard(request)
+    const isAdmin = (await getRequestDashboardAccess(request)).allowed
 
     if (!hasValidPosKey && !isAdmin && (!requestEmail || requestEmail !== customerEmail)) {
       return json({ error: 'You can only create orders for your signed-in account' }, { status: 403 })
@@ -208,7 +230,8 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const hasValidPosKey = getRequestApiKey(request) ? validateOptionalApiKey(request) : false
-    const isAdmin = await canRequestAccessDashboard(request)
+    const access = await getRequestDashboardAccess(request)
+    const isAdmin = access.allowed
     if (!hasValidPosKey && !isAdmin) {
       return json({ error: 'Invalid POS API key' }, { status: 401 })
     }
@@ -221,10 +244,22 @@ export async function PATCH(request: NextRequest) {
       return json({ error: 'Invalid order id or status' }, { status: 400 })
     }
 
+    if (access.role === 'delivery') {
+      const orders = await readServerOrders()
+      const existing = orders.find((order) => order.id.toLowerCase() === id.toLowerCase())
+      if (!existing || existing.source === 'restaurant_pos' || !isOrderAssignedToDelivery(existing, access)) {
+        return json({ error: 'Forbidden' }, { status: 403 })
+      }
+      if (body.driver || body.payment || body.paymentStatus) {
+        return json({ error: 'Delivery users can only update assigned order status' }, { status: 403 })
+      }
+    }
+
     const payment = body.payment && typeof body.payment === 'object' ? body.payment : {}
     const driver = body.driver && typeof body.driver === 'object'
       ? {
           name: String(body.driver.name || 'Pending assignment'),
+          email: String(body.driver.email || ''),
           phone: String(body.driver.phone || '-'),
           rating: Number(body.driver.rating || 0),
         }
@@ -250,9 +285,14 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const hasValidPosKey = getRequestApiKey(request) ? validateOptionalApiKey(request) : false
-    const isAdmin = await canRequestAccessDashboard(request)
+    const access = await getRequestDashboardAccess(request)
+    const isAdmin = access.allowed
     if (!hasValidPosKey && !isAdmin) {
       return json({ error: 'Invalid POS API key' }, { status: 401 })
+    }
+
+    if (access.role === 'delivery' && !hasValidPosKey) {
+      return json({ error: 'Delivery users cannot delete orders' }, { status: 403 })
     }
 
     const body = await request.json().catch(() => ({}))

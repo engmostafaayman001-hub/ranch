@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { AppSettings, defaultCategories, defaultProducts, defaultSettings, MenuCategory, MenuProduct } from '@/lib/app-data'
+import { AppSettings, defaultCategories, defaultPrinters, defaultProducts, defaultSettings, MenuCategory, MenuProduct, PrinterRole } from '@/lib/app-data'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
 const DATA_DIR = process.env.VERCEL ? '/tmp/ranch-data' : join(process.cwd(), 'data')
@@ -29,10 +29,19 @@ function canUseSupabaseRuntimeTables() {
 
 function normalizeSharedData(data: Partial<SharedAppData> | null | undefined): SharedAppData {
   const repaired = repairMojibake(data) as Partial<SharedAppData> | null | undefined
+  const printers = repaired?.settings?.printers as Partial<AppSettings['printers']> | undefined
   return {
     categories: Array.isArray(repaired?.categories) ? repaired.categories : [],
     products: Array.isArray(repaired?.products) ? repaired.products : [],
-    settings: { ...defaultSettings, ...(repaired?.settings || {}) },
+    settings: {
+      ...defaultSettings,
+      ...(repaired?.settings || {}),
+      printers: {
+        cashier: { ...defaultPrinters.cashier, ...(printers?.cashier || {}) },
+        kitchen: { ...defaultPrinters.kitchen, ...(printers?.kitchen || {}) },
+        hall: { ...defaultPrinters.hall, ...(printers?.hall || {}) },
+      } as Record<PrinterRole, AppSettings['printers'][PrinterRole]>,
+    },
   }
 }
 
@@ -118,8 +127,19 @@ export async function updateSharedCatalog(catalog: Pick<SharedAppData, 'categori
 
 export async function updateSharedSettings(settings: Partial<AppSettings>) {
   const current = await readSharedAppData()
+  const printers = settings.printers
   return writeSharedAppData({
     ...current,
-    settings: { ...current.settings, ...settings },
+    settings: {
+      ...current.settings,
+      ...settings,
+      printers: printers
+        ? {
+            cashier: { ...current.settings.printers.cashier, ...(printers.cashier || {}) },
+            kitchen: { ...current.settings.printers.kitchen, ...(printers.kitchen || {}) },
+            hall: { ...current.settings.printers.hall, ...(printers.hall || {}) },
+          }
+        : current.settings.printers,
+    },
   })
 }

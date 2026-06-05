@@ -42,9 +42,24 @@ export interface TeamMember {
 export interface DeliveryDriver {
   id: string
   name: string
+  email?: string
   phone: string
   area: string
   status: 'active' | 'inactive'
+}
+
+export type PrinterMethod = 'browser' | 'usb' | 'bluetooth' | 'network'
+export type PrinterPaperWidth = '58mm' | '80mm'
+export type PrinterRole = 'cashier' | 'kitchen' | 'hall'
+
+export interface PrinterConnection {
+  role: PrinterRole
+  name: string
+  method: PrinterMethod
+  ip: string
+  paperWidth: PrinterPaperWidth
+  printsMainInvoice: boolean
+  printsQr: boolean
 }
 
 export interface AppSettings {
@@ -66,15 +81,18 @@ export interface AppSettings {
   taxRate: number
   deliveryTime: number
   defaultLanguage: 'ar' | 'en'
-  printerMethod: 'browser' | 'usb' | 'bluetooth' | 'network'
+  printerMethod: PrinterMethod
   printerName: string
   printerIp: string
-  printerPaperWidth: '58mm' | '80mm'
+  printerPaperWidth: PrinterPaperWidth
+  printers: Record<PrinterRole, PrinterConnection>
   invoiceNameAr: string
   invoiceNameEn: string
   invoiceQrUrl: string
   invoiceWelcomeAr: string
   invoiceWelcomeEn: string
+  vodafoneCashNumber: string
+  instapayNumber: string
 }
 
 interface AppStore {
@@ -112,6 +130,44 @@ export const defaultCategories: MenuCategory[] = []
 
 export const defaultProducts: MenuProduct[] = []
 
+export const defaultPrinters: Record<PrinterRole, PrinterConnection> = {
+  cashier: {
+    role: 'cashier',
+    name: 'Cashier Printer',
+    method: 'browser',
+    ip: '',
+    paperWidth: '80mm',
+    printsMainInvoice: true,
+    printsQr: true,
+  },
+  kitchen: {
+    role: 'kitchen',
+    name: 'Kitchen Printer',
+    method: 'browser',
+    ip: '',
+    paperWidth: '58mm',
+    printsMainInvoice: false,
+    printsQr: false,
+  },
+  hall: {
+    role: 'hall',
+    name: 'Hall Printer',
+    method: 'browser',
+    ip: '',
+    paperWidth: '58mm',
+    printsMainInvoice: false,
+    printsQr: false,
+  },
+}
+
+function mergePrinters(printers?: Partial<Record<PrinterRole, Partial<PrinterConnection>>>) {
+  return {
+    cashier: { ...defaultPrinters.cashier, ...(printers?.cashier || {}) },
+    kitchen: { ...defaultPrinters.kitchen, ...(printers?.kitchen || {}) },
+    hall: { ...defaultPrinters.hall, ...(printers?.hall || {}) },
+  }
+}
+
 export const defaultSettings: AppSettings = {
   restaurantNameAr: 'رانش',
   restaurantNameEn: 'Ranch',
@@ -135,11 +191,14 @@ export const defaultSettings: AppSettings = {
   printerName: '',
   printerIp: '',
   printerPaperWidth: '80mm',
+  printers: defaultPrinters,
   invoiceNameAr: 'رانش',
   invoiceNameEn: 'Ranch',
   invoiceQrUrl: '',
   invoiceWelcomeAr: 'شكرا لطلبك من رانش. نتمنى لك يوما سعيدا.',
   invoiceWelcomeEn: 'Thank you for ordering from Ranch. Have a great day.',
+  vodafoneCashNumber: '01090886364',
+  instapayNumber: '01090886364',
 }
 const createId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
@@ -158,7 +217,7 @@ export const useAppStore = create<AppStore>()(
           categories: catalog.categories,
           products: catalog.products,
         }),
-      setSettings: (settings) => set({ settings: { ...defaultSettings, ...settings } }),
+      setSettings: (settings) => set({ settings: { ...defaultSettings, ...settings, printers: mergePrinters(settings.printers) } }),
       addCategory: (category) =>
         set((state) => ({ categories: [...state.categories, { ...category, id: createId('category') }] })),
       updateCategory: (id, updates) =>
@@ -210,12 +269,19 @@ export const useAppStore = create<AppStore>()(
       updateDriver: (id, updates) =>
         set((state) => ({ drivers: state.drivers.map((driver) => (driver.id === id ? { ...driver, ...updates } : driver)) })),
       deleteDriver: (id) => set((state) => ({ drivers: state.drivers.filter((driver) => driver.id !== id) })),
-      updateSettings: (updates) => set((state) => ({ settings: { ...state.settings, ...updates } })),
+      updateSettings: (updates) =>
+        set((state) => ({
+          settings: {
+            ...state.settings,
+            ...updates,
+            printers: updates.printers ? mergePrinters(updates.printers) : mergePrinters(state.settings.printers),
+          },
+        })),
     }),
     {
       name: 'ranch-app-data',
       storage: createJSONStorage(() => localStorage),
-      version: 4,
+      version: 6,
       migrate: (persistedState) => {
         const state = persistedState as Partial<AppStore> | undefined
         const sampleIds = new Set(['classic-burger', 'cheese-pizza', 'grilled-chicken', 'shawarma-wrap'])
@@ -223,7 +289,7 @@ export const useAppStore = create<AppStore>()(
           ...state,
           categories: state?.categories || [],
           products: state?.products || [],
-          settings: { ...defaultSettings, ...(state?.settings || {}) },
+          settings: { ...defaultSettings, ...(state?.settings || {}), printers: mergePrinters(state?.settings?.printers) },
           cart: state?.cart?.filter((item) => !sampleIds.has(item.productId)) || [],
           drivers: state?.drivers || [],
           favoriteProductIds: state?.favoriteProductIds || [],

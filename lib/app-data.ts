@@ -21,6 +21,20 @@ export interface MenuProduct {
   bestSeller: boolean
 }
 
+export type PrinterMethod = 'browser' | 'usb' | 'bluetooth' | 'network'
+export type PrinterPaperWidth = '58mm' | '80mm'
+export type PrinterRole = 'cashier' | 'kitchen' | 'hall'
+
+export interface PrinterConnection {
+  role: PrinterRole
+  name: string
+  method: PrinterMethod
+  ip: string
+  paperWidth: PrinterPaperWidth
+  printsMainInvoice: boolean
+  printsQr: boolean
+}
+
 export interface AppSettings {
   restaurantNameAr: string
   restaurantNameEn: string
@@ -40,20 +54,53 @@ export interface AppSettings {
   taxRate: number
   deliveryTime: number
   defaultLanguage: 'ar' | 'en'
-  printerMethod: 'browser' | 'usb' | 'bluetooth' | 'network'
+  printerMethod: PrinterMethod
   printerName: string
   printerIp: string
-  printerPaperWidth: '58mm' | '80mm'
+  printerPaperWidth: PrinterPaperWidth
+  printers: Record<PrinterRole, PrinterConnection>
   invoiceNameAr: string
   invoiceNameEn: string
   invoiceQrUrl: string
   invoiceWelcomeAr: string
   invoiceWelcomeEn: string
+  vodafoneCashNumber: string
+  instapayNumber: string
 }
 
 export const defaultCategories: MenuCategory[] = []
 
 export const defaultProducts: MenuProduct[] = []
+
+export const defaultPrinters: Record<PrinterRole, PrinterConnection> = {
+  cashier: {
+    role: 'cashier',
+    name: 'Cashier Printer',
+    method: 'browser',
+    ip: '',
+    paperWidth: '80mm',
+    printsMainInvoice: true,
+    printsQr: true,
+  },
+  kitchen: {
+    role: 'kitchen',
+    name: 'Kitchen Printer',
+    method: 'browser',
+    ip: '',
+    paperWidth: '58mm',
+    printsMainInvoice: false,
+    printsQr: false,
+  },
+  hall: {
+    role: 'hall',
+    name: 'Hall Printer',
+    method: 'browser',
+    ip: '',
+    paperWidth: '58mm',
+    printsMainInvoice: false,
+    printsQr: false,
+  },
+}
 
 export const defaultSettings: AppSettings = {
   restaurantNameAr: 'رانش',
@@ -78,9 +125,12 @@ export const defaultSettings: AppSettings = {
   printerName: '',
   printerIp: '',
   printerPaperWidth: '80mm',
+  printers: defaultPrinters,
   invoiceNameAr: 'رانش',
   invoiceNameEn: 'Ranch',
   invoiceQrUrl: '',
   invoiceWelcomeAr: 'شكرا لطلبك من رانش. نتمنى لك يوما سعيدا.',
   invoiceWelcomeEn: 'Thank you for ordering from Ranch. Have a great day.',
+  vodafoneCashNumber: '01090886364',
+  instapayNumber: '01090886364',
 }

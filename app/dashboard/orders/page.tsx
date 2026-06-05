@@ -30,6 +30,8 @@ export default function DashboardOrdersPage() {
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
   const [driverSelections, setDriverSelections] = useState<Record<string, string>>({})
+  const [dashboardRole, setDashboardRole] = useState<string | null>(null)
+  const isDeliveryUser = dashboardRole === 'delivery'
 
   const loadOrders = async () => {
     try {
@@ -49,6 +51,22 @@ export default function DashboardOrdersPage() {
     return () => {
       window.clearTimeout(timer)
       window.clearInterval(interval)
+    }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    fetch('/api/auth/dashboard-access', { cache: 'no-store' })
+      .then((response) => response.json())
+      .then((data) => {
+        if (active) setDashboardRole(typeof data.role === 'string' ? data.role : null)
+      })
+      .catch(() => {
+        if (active) setDashboardRole(null)
+      })
+
+    return () => {
+      active = false
     }
   }, [])
 
@@ -101,6 +119,7 @@ export default function DashboardOrdersPage() {
         status: order.status,
         driver: {
           name: driver.name,
+          email: driver.email || '',
           phone: driver.phone,
           rating: 0,
         },
@@ -142,15 +161,19 @@ export default function DashboardOrdersPage() {
   }
 
   const printOrder = (order: TrackedOrder) => {
+    const printer = settings.printers.cashier
     const opened = printTrackedOrderReceipt(order, {
       isArabic,
       currency,
       title: isArabic ? 'فاتورة طلب التطبيق' : 'App Order Receipt',
-      printerMethod: printerMethodLabel(settings.printerMethod, isArabic),
-      paperWidth: settings.printerPaperWidth,
+      printerMethod: printerMethodLabel(printer.method, isArabic),
+      printerName: printer.name,
+      paperWidth: printer.paperWidth,
       invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
       invoiceQrUrl: settings.invoiceQrUrl,
       invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
+      printsMainInvoice: printer.printsMainInvoice,
+      printsQr: printer.printsQr,
     })
     if (!opened) setMessage(isArabic ? 'المتصفح منع نافذة الطباعة. اسمح بالنوافذ المنبثقة ثم حاول مرة أخرى.' : 'The browser blocked the print window. Allow popups and try again.')
   }
@@ -192,16 +215,16 @@ export default function DashboardOrdersPage() {
                     </div>
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
-                    <Button size="sm" variant="outline" className="gap-2" onClick={() => printOrder(order)}>
+                    {!isDeliveryUser && <Button size="sm" variant="outline" className="gap-2" onClick={() => printOrder(order)}>
                       <Printer className="h-4 w-4" />
                       {isArabic ? 'طباعة' : 'Print'}
-                    </Button>
+                    </Button>}
                     {statuses.map((status) => (
                       <Button key={status} size="sm" variant={order.status === status ? 'default' : 'outline'} onClick={() => updateStatus(order.id, status)}>
                         {label(status)}
                       </Button>
                     ))}
-                    <Button size="sm" variant="destructive" onClick={() => deleteOrder(order.id)}>{isArabic ? 'حذف الطلب' : 'Delete Order'}</Button>
+                    {!isDeliveryUser && <Button size="sm" variant="destructive" onClick={() => deleteOrder(order.id)}>{isArabic ? 'حذف الطلب' : 'Delete Order'}</Button>}
                   </div>
                   <div className="mt-4 grid gap-3 rounded-md border bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/40 md:grid-cols-[1fr_auto]">
                     <div className="space-y-1">
@@ -233,7 +256,7 @@ export default function DashboardOrdersPage() {
                       </span>
                     )}
                   </div>
-                  <div className="mt-4 grid gap-2 border-t pt-4 dark:border-slate-800 md:grid-cols-[1fr_auto]">
+                  {!isDeliveryUser && <div className="mt-4 grid gap-2 border-t pt-4 dark:border-slate-800 md:grid-cols-[1fr_auto]">
                     <select
                       value={driverSelections[order.id] || ''}
                       onChange={(event) => setDriverSelections((current) => ({ ...current, [order.id]: event.target.value }))}
@@ -241,7 +264,7 @@ export default function DashboardOrdersPage() {
                     >
                       <option value="">{isArabic ? 'اختر سائقا' : 'Choose a driver'}</option>
                       {drivers.filter((driver) => driver.status === 'active').map((driver) => (
-                        <option key={driver.id} value={driver.id}>{driver.name} - {driver.phone}</option>
+                        <option key={driver.id} value={driver.id}>{driver.name} - {driver.email || driver.phone}</option>
                       ))}
                     </select>
                     <Button type="button" variant="outline" onClick={() => assignDriver(order)}>
@@ -250,7 +273,7 @@ export default function DashboardOrdersPage() {
                     <p className="text-sm text-slate-500 md:col-span-2">
                       {isArabic ? 'السائق الحالي' : 'Current driver'}: {order.driver?.name || (isArabic ? 'لم يتم التعيين' : 'Not assigned')} {order.driver?.phone && order.driver.phone !== '-' ? `- ${order.driver.phone}` : ''}
                     </p>
-                  </div>
+                  </div>}
                 </div>
               ))}
             </div>

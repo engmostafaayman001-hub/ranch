@@ -51,6 +51,7 @@ export interface TrackedOrder {
   estimatedDelivery: string
   driver: {
     name: string
+    email?: string
     phone: string
     rating: number
   }

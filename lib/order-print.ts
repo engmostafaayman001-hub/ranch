@@ -5,10 +5,13 @@ export type InvoicePrintOptions = {
   currency: string
   title?: string
   printerMethod?: string
+  printerName?: string
   paperWidth?: string
   invoiceName?: string
   invoiceQrUrl?: string
   invoiceMessage?: string
+  printsMainInvoice?: boolean
+  printsQr?: boolean
 }
 
 function escapeHtml(value: string) {
@@ -32,7 +35,8 @@ export function printTrackedOrderReceipt(order: TrackedOrder, options: InvoicePr
   const width = options.paperWidth === '58mm' ? '58mm' : '80mm'
   const title = options.title || (isArabic ? 'فاتورة طلب' : 'Order Receipt')
   const invoiceName = options.invoiceName || title
-  const qrSrc = qrImage(options.invoiceQrUrl)
+  const isMainInvoice = options.printsMainInvoice !== false
+  const qrSrc = options.printsQr === false ? '' : qrImage(options.invoiceQrUrl)
   const receiptWindow = window.open('', '_blank', 'width=420,height=720')
   if (!receiptWindow) return false
 
@@ -47,7 +51,7 @@ export function printTrackedOrderReceipt(order: TrackedOrder, options: InvoicePr
           body { font-family: Arial, sans-serif; margin: 0; padding: 16px; color: #111827; background: #fff; }
           .receipt { max-width: ${width}; margin: 0 auto; }
           .brand { text-align: center; border-bottom: 1px dashed #cbd5e1; padding-bottom: 10px; margin-bottom: 10px; }
-          .brand-name { margin: 0; font-size: 22px; font-weight: 800; }
+          .brand-name { margin: 0; font-size: ${isMainInvoice ? '22px' : '18px'}; font-weight: 800; }
           .title { margin-top: 4px; color: #64748b; font-size: 12px; }
           .muted { color: #64748b; font-size: 12px; text-align: center; margin-bottom: 10px; }
           .box { border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; margin: 10px 0; font-size: 13px; }
@@ -72,20 +76,20 @@ export function printTrackedOrderReceipt(order: TrackedOrder, options: InvoicePr
           <div class="muted">${escapeHtml(order.id)} - ${new Date(order.createdAt || Date.now()).toLocaleString(isArabic ? 'ar-EG' : 'en-US')}</div>
           <div class="box">
             <div>${isArabic ? 'العميل' : 'Customer'}: ${escapeHtml(order.customer || '-')}</div>
-            <div>${isArabic ? 'الهاتف' : 'Phone'}: ${escapeHtml(order.phone || '-')}</div>
+            ${isMainInvoice ? `<div>${isArabic ? 'الهاتف' : 'Phone'}: ${escapeHtml(order.phone || '-')}</div>` : ''}
             <div>${isArabic ? 'العنوان / المكان' : 'Address / Place'}: ${escapeHtml(order.address || '-')}</div>
             <div>${isArabic ? 'الحالة' : 'Status'}: ${escapeHtml(order.status || '-')}</div>
-            <div>${isArabic ? 'الدفع' : 'Payment'}: ${escapeHtml(order.payment?.method || '-')} - ${escapeHtml(order.payment?.status || '-')}</div>
+            ${isMainInvoice ? `<div>${isArabic ? 'الدفع' : 'Payment'}: ${escapeHtml(order.payment?.method || '-')} - ${escapeHtml(order.payment?.status || '-')}</div>` : ''}
           </div>
           ${order.notes ? `<div class="box"><strong>${isArabic ? 'ملاحظات' : 'Notes'}:</strong> ${escapeHtml(order.notes)}</div>` : ''}
           <div class="box">
             <div class="line"><span>${isArabic ? 'عدد المنتجات' : 'Items'}</span><span>${Number(order.items || 0)}</span></div>
-            ${order.discount ? `<div class="line"><span>${isArabic ? 'خصم' : 'Discount'} ${escapeHtml(order.discount.code)}</span><span>-${Number(order.discount.amount || 0).toFixed(2)} ${currency}</span></div>` : ''}
-            <div class="line total"><span>${isArabic ? 'الإجمالي' : 'Total'}</span><span>${Number(order.total || 0).toFixed(2)} ${currency}</span></div>
+            ${isMainInvoice && order.discount ? `<div class="line"><span>${isArabic ? 'خصم' : 'Discount'} ${escapeHtml(order.discount.code)}</span><span>-${Number(order.discount.amount || 0).toFixed(2)} ${currency}</span></div>` : ''}
+            ${isMainInvoice ? `<div class="line total"><span>${isArabic ? 'الإجمالي' : 'Total'}</span><span>${Number(order.total || 0).toFixed(2)} ${currency}</span></div>` : ''}
           </div>
           ${qrSrc ? `<div class="qr"><img src="${qrSrc}" alt="QR" /></div>` : ''}
-          ${options.invoiceMessage ? `<div class="message">${escapeHtml(options.invoiceMessage)}</div>` : ''}
-          <div class="muted">${isArabic ? 'طريقة الطباعة' : 'Printer method'}: ${escapeHtml(options.printerMethod || (isArabic ? 'المتصفح' : 'Browser'))}</div>
+          ${isMainInvoice && options.invoiceMessage ? `<div class="message">${escapeHtml(options.invoiceMessage)}</div>` : ''}
+          <div class="muted">${escapeHtml(options.printerName || '')}${options.printerName ? ' - ' : ''}${isArabic ? 'طريقة الطباعة' : 'Printer method'}: ${escapeHtml(options.printerMethod || (isArabic ? 'المتصفح' : 'Browser'))}</div>
         </div>
         <script>
           window.onload = () => {
@@ -100,7 +104,7 @@ export function printTrackedOrderReceipt(order: TrackedOrder, options: InvoicePr
   return true
 }
 
-export function printPrinterTest(options: { isArabic: boolean; printerMethod: string; paperWidth: string; printerName?: string; invoiceName?: string; invoiceQrUrl?: string; invoiceMessage?: string }) {
+export function printPrinterTest(options: { isArabic: boolean; printerMethod: string; paperWidth: string; printerName?: string; invoiceName?: string; invoiceQrUrl?: string; invoiceMessage?: string; printsMainInvoice?: boolean; printsQr?: boolean }) {
   const fakeOrder: TrackedOrder = {
     id: 'TEST-PRINT',
     customer: options.isArabic ? 'اختبار الطابعة' : 'Printer Test',
@@ -114,7 +118,7 @@ export function printPrinterTest(options: { isArabic: boolean; printerMethod: st
     estimatedDelivery: '-',
     driver: { name: '-', phone: '-', rating: 0 },
     payment: { method: 'test', status: 'paid' },
-    notes: options.isArabic ? 'إذا ظهرت هذه الفاتورة فالطباعة عبر المتصفح تعمل.' : 'If this receipt appears, browser printing is working.',
+    notes: options.isArabic ? 'إذا ظهرت هذه الورقة فالطباعة عبر المتصفح تعمل.' : 'If this receipt appears, browser printing is working.',
     history: [{ status: 'received', at: new Date().toISOString() }],
   }
 
@@ -123,9 +127,12 @@ export function printPrinterTest(options: { isArabic: boolean; printerMethod: st
     currency: '',
     title: options.isArabic ? 'اختبار اتصال الطابعة' : 'Printer Connection Test',
     printerMethod: options.printerMethod,
+    printerName: options.printerName,
     paperWidth: options.paperWidth,
     invoiceName: options.invoiceName,
     invoiceQrUrl: options.invoiceQrUrl,
     invoiceMessage: options.invoiceMessage,
+    printsMainInvoice: options.printsMainInvoice,
+    printsQr: options.printsQr,
   })
 }
