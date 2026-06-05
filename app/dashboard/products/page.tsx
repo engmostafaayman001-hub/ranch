@@ -272,12 +272,14 @@ function Field({ id, label, value, onChange, type = 'text' }: { id: string; labe
 }
 
 function ProductImagePreview({ value }: { value: string }) {
+  const [failedValue, setFailedValue] = useState('')
+  const failed = failedValue === value
   return (
     <div className="lg:col-span-2">
       <div className="flex h-56 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-50 p-3 text-3xl font-semibold text-slate-400 dark:border-slate-800 dark:bg-slate-900">
-        {isDisplayableImage(value) ? (
+        {isDisplayableImage(value) && !failed ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={value} alt="Product preview" className="h-full w-full object-contain" />
+          <img src={value} alt="Product preview" className="h-full w-full object-contain" onError={() => setFailedValue(value)} />
         ) : (
           <span>{value || 'IMG'}</span>
         )}

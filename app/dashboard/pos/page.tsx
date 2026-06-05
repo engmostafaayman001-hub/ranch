@@ -1,7 +1,7 @@
 'use client'
 
-import { FormEvent, useMemo, useState } from 'react'
-import { Minus, Plus, Search, ShoppingCart, Trash2 } from 'lucide-react'
+import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { Printer, Minus, Plus, Search, ShoppingCart, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -11,6 +11,7 @@ import { CURRENCY, CURRENCY_EN, PAYMENT_METHODS, PAYMENT_METHOD_LABELS, PAYMENT_
 import { MenuProduct, useAppStore } from '@/lib/app-store'
 import { isDisplayableImage } from '@/lib/client-images'
 import { qrImage } from '@/lib/order-print'
+import { TrackedOrder } from '@/lib/order-tracking'
 import { useSharedAppData } from '@/lib/use-shared-app-data'
 
 type PosLine = {
@@ -19,6 +20,14 @@ type PosLine = {
 }
 
 type PosOrderType = 'dine_in' | 'delivery' | 'takeaway'
+
+type Expense = {
+  id: string
+  name: string
+  amount: number
+  date: string
+  note: string
+}
 
 const ORDER_TYPE_LABELS: Record<PosOrderType, { ar: string; en: string }> = {
   dine_in: { ar: 'داخل المطعم', en: 'Dine in' },
@@ -38,6 +47,8 @@ export default function DashboardPosPage() {
   const [message, setMessage] = useState('')
   const [discountCode, setDiscountCode] = useState('')
   const [discountAmount, setDiscountAmount] = useState(0)
+  const [dailyOrders, setDailyOrders] = useState<TrackedOrder[]>([])
+  const [dailyExpenses, setDailyExpenses] = useState<Expense[]>([])
   const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHODS.CASH)
   const [orderType, setOrderType] = useState<PosOrderType>('dine_in')
   const [customer, setCustomer] = useState({
@@ -68,6 +79,34 @@ export default function DashboardPosPage() {
   const subtotal = cartItems.reduce((sum, item) => sum + item.product.price * item.quantity, 0)
   const tax = subtotal * settings.taxRate
   const total = Math.max(0, subtotal + tax - discountAmount)
+
+  useEffect(() => {
+    let active = true
+    const loadDailyClosingData = async () => {
+      try {
+        const [ordersResponse, expensesResponse] = await Promise.all([
+          fetch('/api/pos/orders', { cache: 'no-store' }),
+          fetch('/api/expenses', { cache: 'no-store' }),
+        ])
+        const ordersData = await ordersResponse.json().catch(() => ({}))
+        const expensesData = await expensesResponse.json().catch(() => ({}))
+        if (!active) return
+        setDailyOrders(Array.isArray(ordersData.orders) ? ordersData.orders : [])
+        setDailyExpenses(Array.isArray(expensesData.expenses) ? expensesData.expenses : [])
+      } catch {
+        if (!active) return
+        setDailyOrders([])
+        setDailyExpenses([])
+      }
+    }
+
+    loadDailyClosingData()
+    const interval = window.setInterval(loadDailyClosingData, 15000)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+    }
+  }, [])
 
   const addProduct = (productId: string) => {
     setLines((current) => {
@@ -190,7 +229,19 @@ export default function DashboardPosPage() {
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950">
+        <div>
+          <h2 className="text-xl font-bold">{isArabic ? 'نقطة البيع' : 'Point of Sale'}</h2>
+          <p className="text-sm text-slate-500">{isArabic ? 'إتمام البيع وطباعة التقفيل اليومي من نفس الشاشة.' : 'Complete sales and print the daily closing from the same screen.'}</p>
+        </div>
+        <Button type="button" variant="outline" className="gap-2" onClick={() => printPosDailyClosing({ orders: dailyOrders, expenses: dailyExpenses, isArabic, currency, paymentLabels: methodLabels })}>
+          <Printer className="h-4 w-4" />
+          {isArabic ? 'طباعة تقفيل اليوم' : 'Print Daily Closing'}
+        </Button>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
       <Card>
         <CardHeader>
           <CardTitle>{isArabic ? 'نقطة بيع المطعم' : 'Restaurant Point of Sale'}</CardTitle>
@@ -303,6 +354,7 @@ export default function DashboardPosPage() {
           </form>
         </CardContent>
       </Card>
+      </div>
     </div>
   )
 }
@@ -314,6 +366,111 @@ function escapeHtml(value: string) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;')
+}
+
+function printPosDailyClosing({
+  orders,
+  expenses,
+  isArabic,
+  currency,
+  paymentLabels,
+}: {
+  orders: TrackedOrder[]
+  expenses: Expense[]
+  isArabic: boolean
+  currency: string
+  paymentLabels: Record<string, string>
+}) {
+  const today = new Date()
+  const start = new Date(today)
+  start.setHours(0, 0, 0, 0)
+  const end = new Date(today)
+  end.setHours(23, 59, 59, 999)
+  const inToday = (value?: string) => {
+    const date = new Date(value || '')
+    if (Number.isNaN(date.getTime())) return false
+    return date.getTime() >= start.getTime() && date.getTime() <= end.getTime()
+  }
+  const dayOrders = orders.filter((order) => order.status !== 'cancelled' && inToday(order.createdAt))
+  const dayExpenses = expenses.filter((expense) => inToday(expense.date))
+  const revenue = dayOrders.reduce((sum, order) => sum + Number(order.total || 0), 0)
+  const expenseTotal = dayExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0)
+  const net = revenue - expenseTotal
+  const payments = dayOrders.reduce<Record<string, number>>((totals, order) => {
+    const method = order.payment?.method || 'cash'
+    totals[method] = (totals[method] || 0) + Number(order.total || 0)
+    return totals
+  }, {})
+  const title = isArabic ? 'تقفيل يومي - نقطة البيع' : 'Daily Closing - POS'
+  const money = (value: number) => `${Number(value || 0).toFixed(2)} ${currency}`
+  const paymentRows = Object.entries(payments).map(([method, total]) => `
+    <div class="line"><span>${escapeHtml(paymentLabels[method] || method)}</span><strong>${money(total)}</strong></div>
+  `).join('')
+  const expenseRows = dayExpenses.map((expense) => `
+    <div class="line"><span>${escapeHtml(expense.name)}</span><strong>${money(Number(expense.amount || 0))}</strong></div>
+  `).join('')
+  const orderRows = dayOrders.map((order) => `
+    <tr>
+      <td>${escapeHtml(order.id)}</td>
+      <td>${escapeHtml(order.customer || '-')}</td>
+      <td>${escapeHtml(paymentLabels[order.payment?.method || 'cash'] || order.payment?.method || 'cash')}</td>
+      <td>${money(Number(order.total || 0))}</td>
+    </tr>
+  `).join('')
+  const printWindow = window.open('', '_blank', 'width=720,height=860')
+  if (!printWindow) return
+  printWindow.document.write(`
+    <!doctype html>
+    <html dir="${isArabic ? 'rtl' : 'ltr'}" lang="${isArabic ? 'ar' : 'en'}">
+      <head>
+        <meta charset="utf-8" />
+        <title>${escapeHtml(title)}</title>
+        <style>
+          * { box-sizing: border-box; }
+          body { margin: 0; padding: 20px; font-family: Arial, sans-serif; color: #111827; background: #fff; }
+          h1 { margin: 0; font-size: 24px; }
+          h2 { font-size: 16px; margin: 0 0 8px; }
+          .muted { color: #64748b; font-size: 12px; }
+          .header { border-bottom: 2px solid #111827; padding-bottom: 12px; margin-bottom: 14px; }
+          .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0; }
+          .box { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; margin-top: 10px; }
+          .label { color: #64748b; font-size: 12px; }
+          .value { margin-top: 5px; font-size: 18px; font-weight: 800; }
+          .line { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid #eef2f7; padding: 7px 0; }
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+          th, td { border-bottom: 1px solid #e5e7eb; padding: 7px; text-align: ${isArabic ? 'right' : 'left'}; }
+          @media print { body { padding: 10mm; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>${escapeHtml(title)}</h1>
+          <p class="muted">${new Date().toLocaleString(isArabic ? 'ar-EG' : 'en-US')}</p>
+        </div>
+        <div class="grid">
+          <div class="box"><div class="label">${isArabic ? 'إجمالي المبيعات' : 'Sales total'}</div><div class="value">${money(revenue)}</div></div>
+          <div class="box"><div class="label">${isArabic ? 'المصروفات' : 'Expenses'}</div><div class="value">${money(expenseTotal)}</div></div>
+          <div class="box"><div class="label">${isArabic ? 'الصافي' : 'Net'}</div><div class="value">${money(net)}</div></div>
+        </div>
+        <div class="box"><h2>${isArabic ? 'طرق الدفع' : 'Payment methods'}</h2>${paymentRows || `<p class="muted">${isArabic ? 'لا توجد مدفوعات.' : 'No payments.'}</p>`}</div>
+        <div class="box"><h2>${isArabic ? 'المصروفات' : 'Expenses'}</h2>${expenseRows || `<p class="muted">${isArabic ? 'لا توجد مصروفات.' : 'No expenses.'}</p>`}</div>
+        <div class="box">
+          <h2>${isArabic ? 'طلبات اليوم' : 'Today orders'}</h2>
+          <table>
+            <thead><tr><th>${isArabic ? 'الطلب' : 'Order'}</th><th>${isArabic ? 'العميل' : 'Customer'}</th><th>${isArabic ? 'الدفع' : 'Payment'}</th><th>${isArabic ? 'الإجمالي' : 'Total'}</th></tr></thead>
+            <tbody>${orderRows}</tbody>
+          </table>
+        </div>
+        <script>
+          window.onload = () => {
+            window.print();
+            setTimeout(() => window.close(), 500);
+          };
+        </script>
+      </body>
+    </html>
+  `)
+  printWindow.document.close()
 }
 
 function printReceipt(options: {

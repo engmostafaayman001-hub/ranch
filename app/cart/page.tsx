@@ -120,11 +120,12 @@ function Line({ label, value }: { label: string; value: string }) {
 }
 
 function ProductThumb({ value, name }: { value: string; name: string }) {
+  const [failed, setFailed] = useState(false)
   return (
     <div className="flex aspect-square w-full shrink-0 items-center justify-center overflow-hidden rounded-md bg-red-50 p-1 text-3xl dark:bg-red-950">
-      {isDisplayableImage(value) ? (
+      {isDisplayableImage(value) && !failed ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={value} alt={name} className="h-full w-full object-contain" />
+        <img src={value} alt={name} className="h-full w-full object-contain" onError={() => setFailed(true)} />
       ) : (
         <span>{value || '🍽️'}</span>
       )}

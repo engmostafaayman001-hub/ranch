@@ -95,12 +95,13 @@ function ProductCard({
   onToggleFavorite: (id: string) => void
 }) {
   const name = isArabic ? product.nameAr : product.nameEn
+  const [imageFailed, setImageFailed] = useState(false)
   return (
     <article className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="relative flex aspect-square items-center justify-center bg-slate-50 p-2 text-5xl dark:bg-slate-800">
-        {isDisplayableImage(product.image) ? (
+        {isDisplayableImage(product.image) && !imageFailed ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={product.image} alt={name} className="h-full w-full object-contain" />
+          <img src={product.image} alt={name} className="h-full w-full object-contain" onError={() => setImageFailed(true)} />
         ) : (
           <span>{product.image || '🍽️'}</span>
         )}

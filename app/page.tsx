@@ -159,12 +159,14 @@ export default function Home() {
 
 function OfferSlider({ images, active, title, isArabic }: { images: string[]; active: number; title: string; isArabic: boolean }) {
   const image = images[active] || ''
+  const [failedImage, setFailedImage] = useState('')
+  const canShowImage = isDisplayableImage(image) && failedImage !== image
   return (
     <div className="relative overflow-hidden rounded-lg border border-slate-200 bg-slate-900 shadow-sm dark:border-slate-800">
       <div className="aspect-[16/7] min-h-36 w-full sm:aspect-[21/8]">
-        {isDisplayableImage(image) ? (
+        {canShowImage ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={image} alt={title} className="h-full w-full object-cover" />
+          <img src={image} alt={title} className="h-full w-full object-cover" onError={() => setFailedImage(image)} />
         ) : (
           <div className="flex h-full items-center justify-center bg-red-50 text-7xl dark:bg-red-950">{image || '🍽️'}</div>
         )}
@@ -321,9 +323,10 @@ function CartToast({ message, isArabic }: { message: string; isArabic: boolean }
 }
 
 function ProductImage({ value, name }: { value: string; name: string }) {
-  if (isDisplayableImage(value)) {
+  const [failed, setFailed] = useState(false)
+  if (isDisplayableImage(value) && !failed) {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={value} alt={name} className="h-full w-full object-contain" />
+    return <img src={value} alt={name} className="h-full w-full object-contain" onError={() => setFailed(true)} />
   }
   return <span>{value || '🍽️'}</span>
 }

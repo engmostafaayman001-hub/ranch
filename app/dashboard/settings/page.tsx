@@ -299,16 +299,29 @@ function OfferImagesPreview({ images, onRemove, isArabic }: { images: string[]; 
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       {images.map((image, index) => (
-        <div key={`${image.slice(0, 24)}-${index}`} className="overflow-hidden rounded-md border border-slate-200 dark:border-slate-800">
-          <div className="flex h-32 items-center justify-center bg-slate-50 p-2 dark:bg-slate-900">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={image} alt={`Offer ${index + 1}`} className="h-full w-full object-contain" />
-          </div>
-          <Button type="button" variant="destructive" size="sm" className="w-full rounded-none" onClick={() => onRemove(index)}>
-            {isArabic ? 'حذف الصورة' : 'Remove Image'}
-          </Button>
-        </div>
+        <OfferImageTile key={`${image.slice(0, 24)}-${index}`} image={image} index={index} isArabic={isArabic} onRemove={onRemove} />
       ))}
+    </div>
+  )
+}
+
+function OfferImageTile({ image, index, isArabic, onRemove }: { image: string; index: number; isArabic: boolean; onRemove: (index: number) => void }) {
+  const [failedImage, setFailedImage] = useState('')
+  const failed = failedImage === image
+
+  return (
+    <div className="overflow-hidden rounded-md border border-slate-200 dark:border-slate-800">
+      <div className="flex h-32 items-center justify-center bg-slate-50 p-2 text-sm text-slate-500 dark:bg-slate-900">
+        {!failed ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={image} alt={`Offer ${index + 1}`} className="h-full w-full object-contain" onError={() => setFailedImage(image)} />
+        ) : (
+          <span>{isArabic ? 'الصورة غير قابلة للعرض' : 'Image cannot be displayed'}</span>
+        )}
+      </div>
+      <Button type="button" variant="destructive" size="sm" className="w-full rounded-none" onClick={() => onRemove(index)}>
+        {isArabic ? 'حذف الصورة' : 'Remove Image'}
+      </Button>
     </div>
   )
 }

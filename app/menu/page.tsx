@@ -178,9 +178,10 @@ function ProductCard({
 }
 
 function ProductImage({ value, name }: { value: string; name: string }) {
-  if (isDisplayableImage(value)) {
+  const [failed, setFailed] = useState(false)
+  if (isDisplayableImage(value) && !failed) {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={value} alt={name} className="h-full w-full object-contain" />
+    return <img src={value} alt={name} className="h-full w-full object-contain" onError={() => setFailed(true)} />
   }
   return <span>{value || '🍽️'}</span>
 }
