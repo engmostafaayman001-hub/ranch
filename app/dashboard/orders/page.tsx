@@ -1,10 +1,11 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CreditCard, ExternalLink, Printer, ReceiptText, XCircle } from 'lucide-react'
+import { CreditCard, Eye, Printer, ReceiptText, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { ReceiptPreviewDialog } from '@/components/receipt-preview-dialog'
 import { useLanguage } from '@/components/language-provider'
 import {
   CURRENCY,
@@ -17,7 +18,6 @@ import {
 import { PrinterRole, useAppStore } from '@/lib/app-store'
 import { TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
 import { printerManager, syncPrinterManagerSettings, trackedOrderToReceiptPayload } from '@/lib/printer'
-import { openReceiptViewer } from '@/lib/receipt-viewer'
 
 const statuses: TrackingStatus[] = ['placed', 'confirmed', 'preparing', 'ready_for_delivery', 'out_for_delivery', 'delivered', 'received', 'cancelled']
 
@@ -32,23 +32,28 @@ export default function DashboardOrdersPage() {
   const [message, setMessage] = useState('')
   const [driverSelections, setDriverSelections] = useState<Record<string, string>>({})
   const [dashboardRole, setDashboardRole] = useState<string | null>(null)
+  const [receiptPreview, setReceiptPreview] = useState<{ url: string; title: string; name?: string } | null>(null)
   const loadingOrders = useRef(false)
   const isDeliveryUser = dashboardRole === 'delivery'
 
-  const loadOrders = async () => {
+  const loadOrders = useCallback(async () => {
     if (loadingOrders.current) return
     loadingOrders.current = true
     try {
       const response = await fetch('/api/pos/orders?source=app&limit=120', { cache: 'no-store' })
       const data = await response.json().catch(() => ({}))
-      setOrders(Array.isArray(data.orders) ? data.orders : [])
+      if (response.ok && Array.isArray(data.orders)) {
+        setOrders(data.orders)
+      } else {
+        setMessage(data.message || data.error || (isArabic ? 'تعذر تحديث الطلبات، يتم عرض آخر قائمة محفوظة.' : 'Could not refresh orders. Showing the last loaded list.'))
+      }
     } catch {
-      setOrders([])
+      setMessage(isArabic ? 'تعذر تحديث الطلبات، يتم عرض آخر قائمة محفوظة.' : 'Could not refresh orders. Showing the last loaded list.')
     } finally {
       loadingOrders.current = false
       setLoading(false)
     }
-  }
+  }, [isArabic])
 
   useEffect(() => {
     const timer = window.setTimeout(loadOrders, 0)
@@ -57,7 +62,7 @@ export default function DashboardOrdersPage() {
       window.clearTimeout(timer)
       window.clearInterval(interval)
     }
-  }, [])
+  }, [loadOrders])
 
   useEffect(() => {
     let active = true
@@ -204,8 +209,10 @@ export default function DashboardOrdersPage() {
   }
 
   const openOrderReceipt = async (order: TrackedOrder) => {
+    const title = `${isArabic ? 'إيصال الطلب' : 'Order receipt'} ${order.id}`
+
     if (order.payment?.receiptDataUrl) {
-      openReceiptViewer(order.payment.receiptDataUrl, `${isArabic ? 'إيصال الطلب' : 'Order receipt'} ${order.id}`)
+      setReceiptPreview({ url: order.payment.receiptDataUrl, title, name: order.payment.receiptName })
       return
     }
 
@@ -218,7 +225,7 @@ export default function DashboardOrdersPage() {
         setMessage(isArabic ? 'لا يوجد ملف إيصال محفوظ لهذا الطلب.' : 'No receipt file is saved for this order.')
         return
       }
-      openReceiptViewer(receipt, `${isArabic ? 'إيصال الطلب' : 'Order receipt'} ${order.id}`)
+      setReceiptPreview({ url: receipt, title, name: order.payment?.receiptName })
     } catch {
       setMessage(isArabic ? 'تعذر تحميل الإيصال.' : 'Could not load the receipt.')
     }
@@ -227,6 +234,7 @@ export default function DashboardOrdersPage() {
 
   return (
     <div className="space-y-6">
+      <ReceiptPreviewDialog receipt={receiptPreview} onClose={() => setReceiptPreview(null)} isArabic={isArabic} />
       <div>
         <h2 className="text-3xl font-bold">{isArabic ? 'إدارة طلبات التطبيق' : 'App Orders Management'}</h2>
         <p className="mt-2 text-slate-500 dark:text-slate-400">{isArabic ? 'طلبات العملاء من التطبيق، وكل تغيير هنا يظهر للعميل في صفحة التتبع.' : 'Customer app orders. Changes here appear to customers on the tracking page.'}</p>
@@ -297,7 +305,7 @@ export default function DashboardOrdersPage() {
                     </div>
                     {order.payment?.receiptDataUrl || order.payment?.receiptName || order.payment?.receiptUploadedAt ? (
                       <Button type="button" variant="outline" onClick={() => openOrderReceipt(order)}>
-                        <ExternalLink className="me-2 h-4 w-4" />
+                        <Eye className="me-2 h-4 w-4" />
                         {isArabic ? 'فتح الإيصال' : 'Open Receipt'}
                       </Button>
                     ) : (

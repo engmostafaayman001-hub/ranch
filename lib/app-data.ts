@@ -21,6 +21,15 @@ export interface MenuProduct {
   bestSeller: boolean
 }
 
+export interface DeliveryDriver {
+  id: string
+  name: string
+  email?: string
+  phone: string
+  area: string
+  status: 'active' | 'inactive'
+}
+
 export type PrinterMethod = 'bluetooth' | 'usb' | 'network'
 export type PrinterPaperWidth = '58mm' | '80mm'
 export type PrinterRole = 'cashier' | 'kitchen' | 'hall'

@@ -1,14 +1,14 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CheckCircle2, Clock3, CreditCard, ExternalLink, ReceiptText, Wallet, XCircle } from 'lucide-react'
+import { CheckCircle2, Clock3, CreditCard, Eye, ReceiptText, Wallet, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { ReceiptPreviewDialog } from '@/components/receipt-preview-dialog'
 import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN, PAYMENT_METHOD_LABELS, PAYMENT_METHOD_LABELS_EN } from '@/lib/constants'
 import { PaymentStatus, TrackedOrder } from '@/lib/order-tracking'
-import { openReceiptViewer } from '@/lib/receipt-viewer'
 
 const statusStyles: Record<PaymentStatus, string> = {
   cash_on_delivery: 'bg-amber-600 text-white hover:bg-amber-600',
@@ -25,6 +25,7 @@ export default function DashboardPaymentsPage() {
   const locale = isArabic ? 'ar-EG' : 'en-US'
   const [orders, setOrders] = useState<TrackedOrder[]>([])
   const [loading, setLoading] = useState(true)
+  const [receiptPreview, setReceiptPreview] = useState<{ url: string; title: string; name?: string } | null>(null)
   const loadingPayments = useRef(false)
 
   useEffect(() => {
@@ -86,6 +87,7 @@ export default function DashboardPaymentsPage() {
 
   return (
     <div className="space-y-6">
+      <ReceiptPreviewDialog receipt={receiptPreview} onClose={() => setReceiptPreview(null)} isArabic={isArabic} />
       <div>
         <h2 className="text-3xl font-bold">{isArabic ? 'المدفوعات والإيصالات' : 'Payments and Receipts'}</h2>
         <p className="mt-2 text-slate-500 dark:text-slate-400">
@@ -180,8 +182,17 @@ export default function DashboardPaymentsPage() {
                       <td className="py-3 font-semibold">{Number(order.total || 0).toFixed(2)} {currency}</td>
                       <td className="py-3">
                         {order.payment?.receiptDataUrl ? (
-                          <Button type="button" size="sm" variant="outline" onClick={() => openReceiptViewer(order.payment?.receiptDataUrl, `${isArabic ? 'إيصال الطلب' : 'Order receipt'} ${order.id}`)}>
-                            <ExternalLink className="me-2 h-4 w-4" />
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setReceiptPreview({
+                              url: order.payment?.receiptDataUrl || '',
+                              title: `${isArabic ? 'إيصال الطلب' : 'Order receipt'} ${order.id}`,
+                              name: order.payment?.receiptName,
+                            })}
+                          >
+                            <Eye className="me-2 h-4 w-4" />
                             {isArabic ? 'فتح الإيصال' : 'Open Receipt'}
                           </Button>
                         ) : (

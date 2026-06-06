@@ -10,6 +10,7 @@ import { useLanguage } from '@/components/language-provider'
 import { DashboardPrintWatcher } from '@/components/dashboard-print-watcher'
 import { ROUTES } from '@/lib/constants'
 import { dashboardLinks } from '@/lib/dashboard-routes'
+import { useSharedAppData } from '@/lib/use-shared-app-data'
 
 const roleLabels: Record<string, { ar: string; en: string }> = {
   super_admin: { ar: 'مالك النظام', en: 'Super Admin' },
@@ -21,6 +22,7 @@ const roleLabels: Record<string, { ar: string; en: string }> = {
 }
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
+  useSharedAppData()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { language, t } = useLanguage()
   const isArabic = language === 'ar'

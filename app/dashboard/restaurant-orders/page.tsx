@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Printer, ReceiptText } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -23,20 +23,24 @@ export default function DashboardRestaurantOrdersPage() {
   const [message, setMessage] = useState('')
   const loadingOrders = useRef(false)
 
-  const loadOrders = async () => {
+  const loadOrders = useCallback(async () => {
     if (loadingOrders.current) return
     loadingOrders.current = true
     try {
       const response = await fetch('/api/pos/orders?source=restaurant_pos&limit=120', { cache: 'no-store' })
       const data = await response.json().catch(() => ({}))
-      setOrders(Array.isArray(data.orders) ? data.orders : [])
+      if (response.ok && Array.isArray(data.orders)) {
+        setOrders(data.orders)
+      } else {
+        setMessage(data.message || data.error || (isArabic ? 'تعذر تحديث الطلبات، يتم عرض آخر قائمة محفوظة.' : 'Could not refresh orders. Showing the last loaded list.'))
+      }
     } catch {
-      setOrders([])
+      setMessage(isArabic ? 'تعذر تحديث الطلبات، يتم عرض آخر قائمة محفوظة.' : 'Could not refresh orders. Showing the last loaded list.')
     } finally {
       loadingOrders.current = false
       setLoading(false)
     }
-  }
+  }, [isArabic])
 
   useEffect(() => {
     const timer = window.setTimeout(loadOrders, 0)
@@ -45,7 +49,7 @@ export default function DashboardRestaurantOrdersPage() {
       window.clearTimeout(timer)
       window.clearInterval(interval)
     }
-  }, [])
+  }, [loadOrders])
 
   const label = (status: string) => (isArabic ? ORDER_STATUS_LABELS : ORDER_STATUS_LABELS_EN)[status as keyof typeof ORDER_STATUS_LABELS] || status
 

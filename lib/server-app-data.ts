@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { AppSettings, defaultCategories, defaultPrinters, defaultProducts, defaultSettings, MenuCategory, MenuProduct, PrinterRole } from '@/lib/app-data'
+import { AppSettings, defaultCategories, defaultPrinters, defaultProducts, defaultSettings, DeliveryDriver, MenuCategory, MenuProduct, PrinterRole } from '@/lib/app-data'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
 const DATA_DIR = process.env.VERCEL ? '/tmp/ranch-data' : join(process.cwd(), 'data')
@@ -17,12 +17,14 @@ let supabaseAppDataCooldownUntil = 0
 export type SharedAppData = {
   categories: MenuCategory[]
   products: MenuProduct[]
+  drivers: DeliveryDriver[]
   settings: AppSettings
 }
 
 const fallbackData: SharedAppData = {
   categories: defaultCategories,
   products: defaultProducts,
+  drivers: [],
   settings: defaultSettings,
 }
 
@@ -52,6 +54,7 @@ function normalizeSharedData(data: Partial<SharedAppData> | null | undefined): S
   return {
     categories: Array.isArray(repaired?.categories) ? repaired.categories : [],
     products: Array.isArray(repaired?.products) ? repaired.products : [],
+    drivers: Array.isArray(repaired?.drivers) ? repaired.drivers : [],
     settings: {
       ...defaultSettings,
       ...(repaired?.settings || {}),
@@ -210,5 +213,13 @@ export async function updateSharedSettings(settings: Partial<AppSettings>) {
           }
         : current.settings.printers,
     },
+  })
+}
+
+export async function updateSharedDrivers(drivers: DeliveryDriver[]) {
+  const current = await readSharedAppData()
+  return writeSharedAppData({
+    ...current,
+    drivers,
   })
 }

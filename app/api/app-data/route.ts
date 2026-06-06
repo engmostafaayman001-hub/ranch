@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { getRequestDashboardAccess } from '@/lib/server-access'
-import { readSharedAppData, updateSharedCatalog, updateSharedSettings } from '@/lib/server-app-data'
+import { readSharedAppData, updateSharedCatalog, updateSharedDrivers, updateSharedSettings } from '@/lib/server-app-data'
 
 export const runtime = 'nodejs'
 
@@ -44,6 +44,15 @@ export async function PATCH(request: NextRequest) {
       }
 
       const data = await updateSharedSettings(body.settings || {})
+      return json(data)
+    }
+
+    if (body.type === 'drivers') {
+      if (!['super_admin', 'admin', 'manager'].includes(access.role || '')) {
+        return json({ error: 'Forbidden' }, { status: 403 })
+      }
+
+      const data = await updateSharedDrivers(Array.isArray(body.drivers) ? body.drivers : [])
       return json(data)
     }
 

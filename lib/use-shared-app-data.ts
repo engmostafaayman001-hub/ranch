@@ -1,17 +1,19 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { AppSettings, MenuCategory, MenuProduct, useAppStore } from '@/lib/app-store'
+import { AppSettings, DeliveryDriver, MenuCategory, MenuProduct, useAppStore } from '@/lib/app-store'
 
 type SharedAppData = {
   categories?: MenuCategory[]
   products?: MenuProduct[]
+  drivers?: DeliveryDriver[]
   settings?: AppSettings
 }
 
 export function useSharedAppData(options: { poll?: boolean } = {}) {
   const setCatalog = useAppStore((state) => state.setCatalog)
   const setSettings = useAppStore((state) => state.setSettings)
+  const setDrivers = useAppStore((state) => state.setDrivers)
   const poll = options.poll ?? true
   const [loading, setLoading] = useState(true)
   const loadingRef = useRef(false)
@@ -30,6 +32,12 @@ export function useSharedAppData(options: { poll?: boolean } = {}) {
           setCatalog({ categories: data.categories, products: data.products })
         }
         if (data.settings) setSettings(data.settings)
+        if (Array.isArray(data.drivers)) {
+          const localDrivers = useAppStore.getState().drivers
+          if (data.drivers.length > 0 || localDrivers.length === 0) {
+            setDrivers(data.drivers)
+          }
+        }
       } catch {
         // Keep local persisted data if the shared source is unavailable.
       } finally {
@@ -45,7 +53,7 @@ export function useSharedAppData(options: { poll?: boolean } = {}) {
       window.clearTimeout(timer)
       if (interval) window.clearInterval(interval)
     }
-  }, [poll, setCatalog, setSettings])
+  }, [poll, setCatalog, setDrivers, setSettings])
 
   return { loading }
 }
@@ -70,4 +78,15 @@ export async function saveSharedSettings(settings: AppSettings) {
   const data = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(data.message || data.error || 'Could not save settings')
   return data as { settings: AppSettings }
+}
+
+export async function saveSharedDrivers(drivers: DeliveryDriver[]) {
+  const response = await fetch('/api/app-data', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'drivers', drivers }),
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(data.message || data.error || 'Could not save drivers')
+  return data as { drivers: DeliveryDriver[] }
 }

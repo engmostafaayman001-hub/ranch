@@ -7,20 +7,57 @@ import { useAppStore } from '@/lib/app-store'
 import { printerManager, syncPrinterManagerSettings, trackedOrderToReceiptPayload } from '@/lib/printer'
 import { TrackedOrder } from '@/lib/order-tracking'
 
-const AUTO_PRINTED_APP_ORDERS_KEY = 'baseeta-auto-printed-app-orders-v1'
+const AUTO_PRINTED_APP_ORDERS_KEY = 'baseeta-auto-printed-app-orders-v2'
 const MAX_AUTO_PRINTED_IDS = 250
+const AUTO_PRINT_BACKFILL_MS = 15 * 60 * 1000
 
-function readAutoPrintedIds() {
+type AutoPrintedOrderRoles = {
+  cashier?: boolean
+  kitchen?: boolean
+}
+
+type AutoPrintedOrders = Record<string, AutoPrintedOrderRoles>
+
+function readAutoPrintedOrders(): AutoPrintedOrders {
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(AUTO_PRINTED_APP_ORDERS_KEY) || '[]')
-    return Array.isArray(parsed) ? parsed.map(String) : []
+    const parsed = JSON.parse(window.localStorage.getItem(AUTO_PRINTED_APP_ORDERS_KEY) || '{}')
+    if (Array.isArray(parsed)) {
+      return Object.fromEntries(parsed.map((id) => [String(id), { cashier: true, kitchen: true }]))
+    }
+    if (!parsed || typeof parsed !== 'object') return {}
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>).map(([id, value]) => {
+        const roles = value && typeof value === 'object' ? value as AutoPrintedOrderRoles : {}
+        return [id, { cashier: roles.cashier === true, kitchen: roles.kitchen === true }]
+      })
+    )
   } catch {
-    return []
+    return {}
   }
 }
 
-function saveAutoPrintedIds(ids: string[]) {
-  window.localStorage.setItem(AUTO_PRINTED_APP_ORDERS_KEY, JSON.stringify(ids.slice(-MAX_AUTO_PRINTED_IDS)))
+function saveAutoPrintedOrders(orders: AutoPrintedOrders) {
+  const entries = Object.entries(orders).slice(-MAX_AUTO_PRINTED_IDS)
+  window.localStorage.setItem(AUTO_PRINTED_APP_ORDERS_KEY, JSON.stringify(Object.fromEntries(entries)))
+}
+
+function markOrderRolePrinted(orderId: string, role: keyof AutoPrintedOrderRoles) {
+  const current = readAutoPrintedOrders()
+  saveAutoPrintedOrders({
+    ...current,
+    [orderId]: {
+      ...(current[orderId] || {}),
+      [role]: true,
+    },
+  })
+}
+
+function markOrderFullyPrinted(orderId: string) {
+  const current = readAutoPrintedOrders()
+  saveAutoPrintedOrders({
+    ...current,
+    [orderId]: { cashier: true, kitchen: true },
+  })
 }
 
 export function DashboardPrintWatcher() {
@@ -28,9 +65,9 @@ export function DashboardPrintWatcher() {
   const isArabic = language === 'ar'
   const currency = isArabic ? CURRENCY : CURRENCY_EN
   const settings = useAppStore((state) => state.settings)
-  const [dashboardRole, setDashboardRole] = useState<string | null>(null)
+  const [dashboardRole, setDashboardRole] = useState<string | null | undefined>(undefined)
   const bootstrapped = useRef(false)
-  const printingIds = useRef(new Set<string>())
+  const printingJobs = useRef(new Set<string>())
   const watcherStartedAt = useRef<number | null>(null)
   const checkingOrders = useRef(false)
 
@@ -60,7 +97,7 @@ export function DashboardPrintWatcher() {
   }, [])
 
   useEffect(() => {
-    if (dashboardRole === 'delivery') return
+    if (!dashboardRole || dashboardRole === 'delivery') return
     let active = true
 
     const checkOrders = async () => {
@@ -73,58 +110,66 @@ export function DashboardPrintWatcher() {
         if (!active) return
 
         const appOrders = (Array.isArray(data.orders) ? data.orders : []) as TrackedOrder[]
-        const printedIds = readAutoPrintedIds()
-        const printed = new Set(printedIds)
+        const printedOrders = readAutoPrintedOrders()
 
         const firstRun = !bootstrapped.current
         const shouldPrintOrder = (order: TrackedOrder) => {
           const createdAt = new Date(order.createdAt).getTime()
           if (Number.isNaN(createdAt)) return !firstRun
-          return !firstRun || createdAt >= (watcherStartedAt.current || Date.now()) - 5000
+          if (!firstRun) return true
+          const startedAt = watcherStartedAt.current || Date.now()
+          return createdAt >= startedAt - AUTO_PRINT_BACKFILL_MS
         }
 
         if (firstRun) {
           const oldOrderIds = appOrders
             .filter((order) => !shouldPrintOrder(order))
             .map((order) => order.id)
-          if (oldOrderIds.length) saveAutoPrintedIds(Array.from(new Set([...printedIds, ...oldOrderIds])))
+          if (oldOrderIds.length) oldOrderIds.forEach(markOrderFullyPrinted)
           bootstrapped.current = true
         }
 
         const newOrders = appOrders
-          .filter((order) => shouldPrintOrder(order) && !printed.has(order.id) && !printingIds.current.has(order.id))
+          .filter((order) => {
+            if (!shouldPrintOrder(order)) return false
+            const roles = printedOrders[order.id] || {}
+            return roles.cashier !== true || roles.kitchen !== true
+          })
           .sort((first, second) => new Date(first.createdAt).getTime() - new Date(second.createdAt).getTime())
 
         if (newOrders.length === 0) return
 
         syncPrinterManagerSettings(settings.printers)
         for (const order of newOrders) {
-          printingIds.current.add(order.id)
           const payload = createPrintPayload(order)
-          Promise.allSettled([
-            printerManager.printCashierReceipt(payload),
-            printerManager.printKitchenTicket(payload),
-          ])
-            .then((results) => {
-              const printedSuccessfully = results.some((result) => {
-                if (result.status === 'rejected') return false
-                const value = result.value as { skipped?: boolean } | undefined
-                return value?.skipped !== true
+          const roles = readAutoPrintedOrders()[order.id] || {}
+          const jobs = [
+            roles.cashier === true ? null : { role: 'cashier' as const, print: () => printerManager.printCashierReceipt(payload) },
+            roles.kitchen === true ? null : { role: 'kitchen' as const, print: () => printerManager.printKitchenTicket(payload) },
+          ].filter(Boolean) as Array<{ role: keyof AutoPrintedOrderRoles; print: () => Promise<{ skipped?: boolean; reason?: string } | unknown> }>
+
+          for (const job of jobs) {
+            const jobKey = `${order.id}:${job.role}`
+            if (printingJobs.current.has(jobKey)) continue
+            printingJobs.current.add(jobKey)
+
+            job.print()
+              .then((result) => {
+                const value = result as { skipped?: boolean; reason?: string } | undefined
+                if (value?.skipped === true) {
+                  console.warn(`[DashboardPrintWatcher] ${job.role} print for app order ${order.id} was skipped: ${value.reason || 'printer is not ready'}`)
+                  return
+                }
+                markOrderRolePrinted(order.id, job.role)
+                console.info(`[DashboardPrintWatcher] App order ${order.id} printed on ${job.role}.`)
               })
-              if (printedSuccessfully) {
-                const latest = readAutoPrintedIds()
-                saveAutoPrintedIds(Array.from(new Set([...latest, order.id])))
-                console.info(`[DashboardPrintWatcher] App order ${order.id} printed by restaurant printers.`)
-              } else {
-                console.warn(`[DashboardPrintWatcher] App order ${order.id} was not marked printed because all print jobs were skipped or failed.`)
-              }
-            })
-            .catch((error) => {
-              console.error('[DashboardPrintWatcher] Automatic app order print failed:', error)
-            })
-            .finally(() => {
-              printingIds.current.delete(order.id)
-            })
+              .catch((error) => {
+                console.error(`[DashboardPrintWatcher] Automatic ${job.role} print failed for app order ${order.id}:`, error)
+              })
+              .finally(() => {
+                printingJobs.current.delete(jobKey)
+              })
+          }
         }
       } catch (error) {
         console.error('[DashboardPrintWatcher] Could not check app orders:', error)
@@ -134,7 +179,7 @@ export function DashboardPrintWatcher() {
     }
 
     checkOrders()
-    const interval = window.setInterval(checkOrders, 8000)
+    const interval = window.setInterval(checkOrders, 3000)
     return () => {
       active = false
       window.clearInterval(interval)

@@ -114,6 +114,7 @@ interface AppStore {
   settings: AppSettings
   setCatalog: (catalog: { categories: MenuCategory[]; products: MenuProduct[] }) => void
   setSettings: (settings: AppSettings) => void
+  setDrivers: (drivers: DeliveryDriver[]) => void
   addCategory: (category: Omit<MenuCategory, 'id'>) => void
   updateCategory: (id: string, updates: Partial<MenuCategory>) => void
   deleteCategory: (id: string) => void
@@ -266,6 +267,7 @@ export const useAppStore = create<AppStore>()(
           products: catalog.products,
         }),
       setSettings: (settings) => set({ settings: { ...defaultSettings, ...settings, printers: mergePrinters(settings.printers) } }),
+      setDrivers: (drivers) => set({ drivers }),
       addCategory: (category) =>
         set((state) => ({ categories: [...state.categories, { ...category, id: createId('category') }] })),
       updateCategory: (id, updates) =>
