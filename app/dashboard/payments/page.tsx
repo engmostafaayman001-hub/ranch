@@ -33,7 +33,7 @@ export default function DashboardPaymentsPage() {
       if (loadingPayments.current) return
       loadingPayments.current = true
       try {
-        const response = await fetch('/api/pos/orders?includeReceipts=1', { cache: 'no-store' })
+        const response = await fetch('/api/pos/orders?includeReceipts=1&limit=200', { cache: 'no-store' })
         const data = await response.json().catch(() => ({}))
         if (mounted) setOrders(Array.isArray(data.orders) ? data.orders : [])
       } catch {

@@ -98,7 +98,7 @@ export default function DashboardPosPage() {
       loadingDailyClosing.current = true
       try {
         const [ordersResponse, expensesResponse] = await Promise.all([
-          fetch('/api/pos/orders', { cache: 'no-store' }),
+          fetch('/api/pos/orders?source=restaurant_pos&limit=300', { cache: 'no-store' }),
           fetch('/api/expenses', { cache: 'no-store' }),
         ])
         const ordersData = await ordersResponse.json().catch(() => ({}))
@@ -209,7 +209,7 @@ export default function DashboardPosPage() {
           tax,
           discountCode: discountAmount > 0 ? discountCode : undefined,
           paymentMethod,
-          paymentStatus: paymentMethod === PAYMENT_METHODS.CASH ? 'cash_on_delivery' : 'paid',
+          paymentStatus: 'paid',
           status: 'received',
           estimatedDelivery: orderTypeLabel,
         }),
@@ -232,7 +232,7 @@ export default function DashboardPosPage() {
         paymentMethod: posPaymentLabel(paymentMethod),
         currency,
         invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
-        invoiceQrUrl: settings.invoiceQrUrl,
+        invoiceQrUrl: settings.printers.cashier.printsQr === false ? undefined : settings.invoiceQrUrl,
         invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
         logoUrl: settings.invoiceLogo || settings.heroImage,
         isArabic,
@@ -243,6 +243,12 @@ export default function DashboardPosPage() {
         ...(orderType === 'dine_in' ? [printerManager.printHallTicket(receiptPayload)] : []),
       ])
       const failedPrints = printResults.filter((result) => result.status === 'rejected')
+      const skippedPrints = printResults.filter((result) => result.status === 'fulfilled' && (result.value as { skipped?: boolean } | undefined)?.skipped)
+      const sentPrints = printResults.filter((result) => result.status === 'fulfilled' && (result.value as { skipped?: boolean } | undefined)?.skipped !== true)
+      if (sentPrints.length === 0 && skippedPrints.length > 0) {
+        const reason = (skippedPrints[0] as PromiseFulfilledResult<{ reason?: string }>).value?.reason
+        setMessage(reason || (isArabic ? 'ØªÙ… Ø§Ù„Ø¨ÙŠØ¹ ÙˆØ¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø·Ù„Ø¨ØŒ Ù„ÙƒÙ† Ù„Ù… ØªØ±Ø³Ù„ Ø§Ù„ÙØ§ØªÙˆØ±Ø© Ù„Ø£Ù† Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø§Ù„Ø·Ø§Ø¨Ø¹Ø© ØºÙŠØ± Ù…ÙƒØªÙ…Ù„Ø©.' : 'Sale completed, but the receipt was not sent because printer settings are incomplete.'))
+      }
       if (failedPrints.length) {
         setMessage(isArabic
           ? `تم البيع وإنشاء الطلب، لكن فشل إرسال ${failedPrints.length} أمر طباعة. راجع إعدادات الطابعات.`

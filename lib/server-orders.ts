@@ -8,10 +8,18 @@ const ORDERS_FILE = join(DATA_DIR, 'orders.json')
 const ORDERS_CACHE_MS = 7000
 const SUPABASE_READ_TIMEOUT_MS = 2500
 const SUPABASE_COOLDOWN_MS = 60000
+const DEFAULT_ORDERS_LIMIT = 100
 
 let ordersCache: { data: TrackedOrder[]; at: number } | null = null
 let ordersReadPromise: Promise<TrackedOrder[]> | null = null
 let supabaseOrdersCooldownUntil = 0
+
+export type ServerOrderSourceFilter = 'app' | 'restaurant_pos'
+
+export type ReadServerOrdersOptions = {
+  source?: ServerOrderSourceFilter
+  limit?: number
+}
 
 function canUseSupabaseRuntimeTables() {
   return Boolean(
@@ -42,6 +50,22 @@ function setOrdersCache(orders: TrackedOrder[]) {
   ordersCache = { data: orders, at: Date.now() }
 }
 
+function normalizeLimit(limit?: number) {
+  if (!Number.isFinite(limit)) return DEFAULT_ORDERS_LIMIT
+  return Math.min(500, Math.max(1, Math.floor(Number(limit))))
+}
+
+function matchesSource(order: TrackedOrder, source?: ServerOrderSourceFilter) {
+  if (!source) return true
+  if (source === 'restaurant_pos') return order.source === 'restaurant_pos'
+  return order.source !== 'restaurant_pos'
+}
+
+function applyReadOptions(orders: TrackedOrder[], options: ReadServerOrdersOptions = {}) {
+  const limit = normalizeLimit(options.limit)
+  return orders.filter((order) => matchesSource(order, options.source)).slice(0, limit)
+}
+
 function withTimeout<T>(promise: PromiseLike<T>, ms: number): Promise<T> {
   return Promise.race([
     promise,
@@ -62,21 +86,30 @@ async function readOrdersFile() {
   }
 }
 
-async function readServerOrdersFresh(): Promise<TrackedOrder[]> {
+async function readServerOrdersFresh(options: ReadServerOrdersOptions = {}): Promise<TrackedOrder[]> {
   if (canUseSupabaseRuntimeTables() && Date.now() >= supabaseOrdersCooldownUntil) {
     const supabase = createSupabaseAdminClient()
     try {
+      let query = supabase
+        .from('app_orders')
+        .select('data')
+        .order('created_at', { ascending: false })
+        .limit(normalizeLimit(options.limit))
+
+      if (options.source === 'restaurant_pos') {
+        query = query.eq('data->>source', 'restaurant_pos')
+      } else if (options.source === 'app') {
+        query = query.or('data->>source.is.null,data->>source.neq.restaurant_pos')
+      }
+
       const { data, error } = await withTimeout(
-        supabase
-          .from('app_orders')
-          .select('data')
-          .order('created_at', { ascending: false }),
+        query,
         SUPABASE_READ_TIMEOUT_MS
       )
 
       if (!error && Array.isArray(data)) {
         const orders = data.map(normalizeOrder)
-        setOrdersCache(orders)
+        if (!options.source) setOrdersCache(orders)
         return orders
       }
     } catch (error) {
@@ -85,17 +118,18 @@ async function readServerOrdersFresh(): Promise<TrackedOrder[]> {
     }
   }
 
-  if (ordersCache) return ordersCache.data
+  if (ordersCache) return applyReadOptions(ordersCache.data, options)
   const orders = await readOrdersFile()
   setOrdersCache(orders)
-  return orders
+  return applyReadOptions(orders, options)
 }
 
-export async function readServerOrders(): Promise<TrackedOrder[]> {
-  if (isFreshCache()) return ordersCache!.data
+export async function readServerOrders(options: ReadServerOrdersOptions = {}): Promise<TrackedOrder[]> {
+  if (isFreshCache()) return applyReadOptions(ordersCache!.data, options)
+  if (options.source || options.limit) return readServerOrdersFresh(options)
   if (ordersReadPromise) return ordersReadPromise
 
-  ordersReadPromise = readServerOrdersFresh().finally(() => {
+  ordersReadPromise = readServerOrdersFresh(options).finally(() => {
     ordersReadPromise = null
   })
   return ordersReadPromise

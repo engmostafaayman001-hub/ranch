@@ -124,7 +124,7 @@ export default function DashboardReportsPage() {
       loadingReports.current = true
       try {
         const [ordersResponse, customersResponse, expensesResponse] = await Promise.all([
-          fetch('/api/pos/orders', { cache: 'no-store' }),
+          fetch('/api/pos/orders?limit=500', { cache: 'no-store' }),
           fetch('/api/customers', { cache: 'no-store' }),
           fetch('/api/expenses', { cache: 'no-store' }),
         ])

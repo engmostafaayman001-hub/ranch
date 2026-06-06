@@ -38,10 +38,10 @@ export function DashboardPrintWatcher() {
     isArabic,
     currency,
     invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
-    invoiceQrUrl: settings.invoiceQrUrl,
+    invoiceQrUrl: settings.printers.cashier.printsQr === false ? undefined : settings.invoiceQrUrl,
     invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
     logoUrl: settings.invoiceLogo || settings.heroImage,
-  }), [currency, isArabic, settings.heroImage, settings.invoiceLogo, settings.invoiceNameAr, settings.invoiceNameEn, settings.invoiceQrUrl, settings.invoiceWelcomeAr, settings.invoiceWelcomeEn])
+  }), [currency, isArabic, settings.heroImage, settings.invoiceLogo, settings.invoiceNameAr, settings.invoiceNameEn, settings.invoiceQrUrl, settings.invoiceWelcomeAr, settings.invoiceWelcomeEn, settings.printers.cashier.printsQr])
 
   useEffect(() => {
     let active = true
@@ -68,12 +68,11 @@ export function DashboardPrintWatcher() {
       checkingOrders.current = true
       try {
         if (!watcherStartedAt.current) watcherStartedAt.current = Date.now()
-        const response = await fetch('/api/pos/orders', { cache: 'no-store' })
+        const response = await fetch('/api/pos/orders?source=app&limit=40', { cache: 'no-store' })
         const data = await response.json().catch(() => ({}))
         if (!active) return
 
-        const appOrders = (Array.isArray(data.orders) ? data.orders : [])
-          .filter((order: TrackedOrder) => order.source !== 'restaurant_pos') as TrackedOrder[]
+        const appOrders = (Array.isArray(data.orders) ? data.orders : []) as TrackedOrder[]
         const printedIds = readAutoPrintedIds()
         const printed = new Set(printedIds)
 

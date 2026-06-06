@@ -39,7 +39,7 @@ export default function DashboardOrdersPage() {
     if (loadingOrders.current) return
     loadingOrders.current = true
     try {
-      const response = await fetch('/api/pos/orders', { cache: 'no-store' })
+      const response = await fetch('/api/pos/orders?source=app&limit=120', { cache: 'no-store' })
       const data = await response.json().catch(() => ({}))
       setOrders(Array.isArray(data.orders) ? data.orders : [])
     } catch {
@@ -169,10 +169,10 @@ export default function DashboardOrdersPage() {
     isArabic,
     currency,
     invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
-    invoiceQrUrl: settings.invoiceQrUrl,
+    invoiceQrUrl: settings.printers.cashier.printsQr === false ? undefined : settings.invoiceQrUrl,
     invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
     logoUrl: settings.invoiceLogo || settings.heroImage,
-  }), [currency, isArabic, settings.heroImage, settings.invoiceLogo, settings.invoiceNameAr, settings.invoiceNameEn, settings.invoiceQrUrl, settings.invoiceWelcomeAr, settings.invoiceWelcomeEn])
+  }), [currency, isArabic, settings.heroImage, settings.invoiceLogo, settings.invoiceNameAr, settings.invoiceNameEn, settings.invoiceQrUrl, settings.invoiceWelcomeAr, settings.invoiceWelcomeEn, settings.printers.cashier.printsQr])
 
   const isPrinterAvailable = (role: PrinterRole) => {
     const printer = settings.printers[role]
@@ -183,9 +183,15 @@ export default function DashboardOrdersPage() {
     syncPrinterManagerSettings(settings.printers)
     try {
       const payload = createPrintPayload(order)
-      if (role === 'cashier') await printerManager.printCashierReceipt(payload)
-      if (role === 'kitchen') await printerManager.printKitchenTicket(payload)
-      if (role === 'hall') await printerManager.printHallTicket(payload)
+      const result = role === 'cashier'
+        ? await printerManager.printCashierReceipt(payload)
+        : role === 'kitchen'
+          ? await printerManager.printKitchenTicket(payload)
+          : await printerManager.printHallTicket(payload)
+      if ((result as { skipped?: boolean; reason?: string } | undefined)?.skipped) {
+        setMessage((result as { reason?: string } | undefined)?.reason || (isArabic ? 'Ù„Ù… ÙŠØªÙ… Ø¥Ø±Ø³Ø§Ù„ Ø£Ù…Ø± Ø§Ù„Ø·Ø¨Ø§Ø¹Ø© Ù„Ø£Ù† Ø¥Ø¹Ø¯Ø§Ø¯ Ø§Ù„Ø·Ø§Ø¨Ø¹Ø© ØºÙŠØ± Ù…ÙƒØªÙ…Ù„.' : 'Print job was not sent because the printer is not fully configured.'))
+        return
+      }
       const label = role === 'cashier'
         ? (isArabic ? 'فاتورة الكاشير' : 'cashier receipt')
         : role === 'kitchen'
@@ -217,7 +223,7 @@ export default function DashboardOrdersPage() {
       setMessage(isArabic ? 'تعذر تحميل الإيصال.' : 'Could not load the receipt.')
     }
   }
-  const appOrders = useMemo(() => orders.filter((order) => order.source !== 'restaurant_pos'), [orders])
+  const appOrders = useMemo(() => orders, [orders])
 
   return (
     <div className="space-y-6">

@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { deleteServerOrder, readServerOrders, stripHeavyOrderFields, updateServerOrderStatus, upsertServerOrder } from '@/lib/server-orders'
+import { deleteServerOrder, readServerOrders, ServerOrderSourceFilter, stripHeavyOrderFields, updateServerOrderStatus, upsertServerOrder } from '@/lib/server-orders'
 import { PaymentStatus, TrackingStatus, trackingSteps, TrackedOrder } from '@/lib/order-tracking'
 import { getRequestDashboardAccess, getRequestUserEmail } from '@/lib/server-access'
 import { validateNotificationDiscount } from '@/lib/discounts'
@@ -58,6 +58,19 @@ function validateOptionalApiKey(request: NextRequest) {
 
 function normalizeMatchValue(value?: string | null) {
   return String(value || '').trim().toLowerCase()
+}
+
+function normalizeSourceFilter(value?: string | null): ServerOrderSourceFilter | undefined {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (['app', 'application', 'customer_app'].includes(normalized)) return 'app'
+  if (['restaurant_pos', 'pos', 'restaurant'].includes(normalized)) return 'restaurant_pos'
+  return undefined
+}
+
+function normalizeLimit(value?: string | null) {
+  const limit = Number(value || 100)
+  if (!Number.isFinite(limit)) return 100
+  return Math.min(500, Math.max(1, Math.floor(limit)))
 }
 
 function isOrderAssignedToDelivery(order: TrackedOrder, access: { email: string | null; name: string | null }) {
@@ -156,7 +169,9 @@ export async function GET(request: NextRequest) {
     const isAdmin = access.allowed
     const includeReceipts = request.nextUrl.searchParams.get('includeReceipts') === '1'
     const requestedOrderId = request.nextUrl.searchParams.get('orderId')?.trim().toLowerCase()
-    const allOrders = await readServerOrders()
+    const source = requestedOrderId ? undefined : normalizeSourceFilter(request.nextUrl.searchParams.get('source'))
+    const limit = normalizeLimit(request.nextUrl.searchParams.get('limit'))
+    const allOrders = await readServerOrders({ source, limit })
     const orders = requestedOrderId
       ? allOrders.filter((order) => order.id.toLowerCase() === requestedOrderId)
       : allOrders

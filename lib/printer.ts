@@ -114,11 +114,14 @@ declare global {
     }
     bluetooth?: {
       requestDevice: (options: Record<string, unknown>) => Promise<BluetoothDeviceLike>
+      getDevices?: () => Promise<BluetoothDeviceLike[]>
     }
   }
 }
 
 const STORAGE_KEY = 'baseeta-pos-printer-settings'
+const BLUETOOTH_PRINT_SERVICES = ['000018f0-0000-1000-8000-00805f9b34fb', '0000ffe0-0000-1000-8000-00805f9b34fb']
+const BLUETOOTH_PRINT_CHARACTERISTICS = ['00002af1-0000-1000-8000-00805f9b34fb', '0000ffe1-0000-1000-8000-00805f9b34fb']
 const defaultPrinters: Record<ThermalPrinterRole, ThermalPrinterSettings> = {
   cashier: {
     role: 'cashier',
@@ -636,10 +639,7 @@ export class PrinterManager {
 
   private async connectBluetooth(role: ThermalPrinterRole, printer: ThermalPrinterSettings) {
     if (!navigator.bluetooth) throw new Error('هذا المتصفح لا يدعم Web Bluetooth.')
-    const device = this.bluetoothDevices[role] || await navigator.bluetooth.requestDevice({
-      acceptAllDevices: true,
-      optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb', '0000ffe0-0000-1000-8000-00805f9b34fb'],
-    })
+    const device = await this.getBluetoothDevice(role, printer)
     if (!device.gatt) throw new Error('تعذر فتح اتصال Bluetooth.')
     this.bluetoothDevices[role] = device
     device.addEventListener?.('gattserverdisconnected', () => {
@@ -647,23 +647,57 @@ export class PrinterManager {
       console.info(`[PrinterManager] ${role} Bluetooth disconnected. Reconnect will reuse the selected device while this page remains open.`)
     })
     const server = await device.gatt.connect()
-    const services = ['000018f0-0000-1000-8000-00805f9b34fb', '0000ffe0-0000-1000-8000-00805f9b34fb']
-    const chars = ['00002af1-0000-1000-8000-00805f9b34fb', '0000ffe1-0000-1000-8000-00805f9b34fb']
-    for (const serviceId of services) {
+    for (const serviceId of BLUETOOTH_PRINT_SERVICES) {
       try {
         const service = await server.getPrimaryService(serviceId)
-        for (const charId of chars) {
+        for (const charId of BLUETOOTH_PRINT_CHARACTERISTICS) {
           try {
             const characteristic = await service.getCharacteristic(charId)
             this.bluetoothCharacteristics[role] = characteristic
             printer.deviceId = device.id || printer.deviceId
             printer.deviceName = device.name || printer.deviceName
+            printer.lastConnected = new Date().toISOString()
+            this.saveSettings()
             return characteristic
           } catch {}
         }
       } catch {}
     }
     throw new Error('لم يتم العثور على characteristic للطباعة عبر Bluetooth.')
+  }
+
+  private async getBluetoothDevice(role: ThermalPrinterRole, printer: ThermalPrinterSettings) {
+    const currentDevice = this.bluetoothDevices[role]
+    if (currentDevice?.gatt) return currentDevice
+
+    const storedDeviceId = (printer.deviceId || '').trim()
+    const storedDeviceName = (printer.deviceName || printer.name || '').trim()
+
+    if (typeof navigator.bluetooth?.getDevices === 'function') {
+      const devices = await navigator.bluetooth.getDevices().catch(() => [])
+      const restored = devices.find((device) =>
+        (storedDeviceId && device.id === storedDeviceId) ||
+        (storedDeviceName && device.name === storedDeviceName)
+      ) || (!storedDeviceId && !storedDeviceName && devices.length === 1 ? devices[0] : undefined)
+
+      if (restored?.gatt) {
+        this.bluetoothDevices[role] = restored
+        printer.deviceId = restored.id || printer.deviceId
+        printer.deviceName = restored.name || printer.deviceName
+        this.saveSettings()
+        return restored
+      }
+    }
+
+    const selected = await navigator.bluetooth!.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: BLUETOOTH_PRINT_SERVICES,
+    })
+    this.bluetoothDevices[role] = selected
+    printer.deviceId = selected.id || printer.deviceId
+    printer.deviceName = selected.name || printer.deviceName
+    this.saveSettings()
+    return selected
   }
 
   private async disconnect(role: ThermalPrinterRole) {

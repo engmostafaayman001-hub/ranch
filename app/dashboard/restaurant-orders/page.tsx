@@ -27,9 +27,9 @@ export default function DashboardRestaurantOrdersPage() {
     if (loadingOrders.current) return
     loadingOrders.current = true
     try {
-      const response = await fetch('/api/pos/orders', { cache: 'no-store' })
+      const response = await fetch('/api/pos/orders?source=restaurant_pos&limit=120', { cache: 'no-store' })
       const data = await response.json().catch(() => ({}))
-      setOrders(Array.isArray(data.orders) ? data.orders.filter((order: TrackedOrder) => order.source === 'restaurant_pos') : [])
+      setOrders(Array.isArray(data.orders) ? data.orders : [])
     } catch {
       setOrders([])
     } finally {
@@ -75,7 +75,7 @@ export default function DashboardRestaurantOrdersPage() {
     isArabic,
     currency,
     invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
-    invoiceQrUrl: settings.invoiceQrUrl,
+    invoiceQrUrl: settings.printers.cashier.printsQr === false ? undefined : settings.invoiceQrUrl,
     invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
     logoUrl: settings.invoiceLogo || settings.heroImage,
   })
@@ -89,9 +89,15 @@ export default function DashboardRestaurantOrdersPage() {
     syncPrinterManagerSettings(settings.printers)
     try {
       const payload = createPrintPayload(order)
-      if (role === 'cashier') await printerManager.printCashierReceipt(payload)
-      if (role === 'kitchen') await printerManager.printKitchenTicket(payload)
-      if (role === 'hall') await printerManager.printHallTicket(payload)
+      const result = role === 'cashier'
+        ? await printerManager.printCashierReceipt(payload)
+        : role === 'kitchen'
+          ? await printerManager.printKitchenTicket(payload)
+          : await printerManager.printHallTicket(payload)
+      if ((result as { skipped?: boolean; reason?: string } | undefined)?.skipped) {
+        setMessage((result as { reason?: string } | undefined)?.reason || (isArabic ? 'Ù„Ù… ÙŠØªÙ… Ø¥Ø±Ø³Ø§Ù„ Ø£Ù…Ø± Ø§Ù„Ø·Ø¨Ø§Ø¹Ø© Ù„Ø£Ù† Ø¥Ø¹Ø¯Ø§Ø¯ Ø§Ù„Ø·Ø§Ø¨Ø¹Ø© ØºÙŠØ± Ù…ÙƒØªÙ…Ù„.' : 'Print job was not sent because the printer is not fully configured.'))
+        return
+      }
       const label = role === 'cashier'
         ? (isArabic ? 'فاتورة الكاشير' : 'cashier receipt')
         : role === 'kitchen'
