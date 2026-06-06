@@ -130,7 +130,10 @@ function matchesSource(order: TrackedOrder, source?: ServerOrderSourceFilter) {
 
 function applyReadOptions(orders: TrackedOrder[], options: ReadServerOrdersOptions = {}) {
   const limit = normalizeLimit(options.limit)
-  return orders.filter((order) => matchesSource(order, options.source)).slice(0, limit)
+  return orders
+    .filter((order) => !options.orderId || order.id.toLowerCase() === options.orderId.toLowerCase())
+    .filter((order) => matchesSource(order, options.source))
+    .slice(0, limit)
 }
 
 function withTimeout<T>(promise: PromiseLike<T>, ms: number): Promise<T> {
@@ -220,6 +223,7 @@ async function readServerOrdersFresh(options: ReadServerOrdersOptions = {}): Pro
 }
 
 export async function readServerOrders(options: ReadServerOrdersOptions = {}): Promise<TrackedOrder[]> {
+  if (options.orderId) return readServerOrdersFresh(options)
   if (options.source) return readServerOrdersFresh(options)
   if (isFreshCache()) return applyReadOptions(ordersCache!.data, options)
   if (options.limit) return readServerOrdersFresh(options)
@@ -240,6 +244,56 @@ export function stripHeavyOrderFields(order: TrackedOrder, options: { includeRec
       receiptDataUrl: undefined,
     },
   }
+}
+
+type ReceiptRow = {
+  customer_email?: string | null
+  receipt_name?: string | null
+  receipt_data_url?: string | null
+  receipt_uploaded_at?: string | null
+}
+
+export async function readServerOrderReceipt(orderId: string) {
+  const normalizedOrderId = orderId.trim()
+  if (!normalizedOrderId) return null
+
+  if (canUseSupabaseRuntimeTables()) {
+    const supabase = createSupabaseAdminClient()
+    const { data, error } = await withTimeout(
+      supabase
+        .from('app_orders')
+        .select([
+          'customer_email',
+          'receipt_name:data->payment->>receiptName',
+          'receipt_data_url:data->payment->>receiptDataUrl',
+          'receipt_uploaded_at:data->payment->>receiptUploadedAt',
+        ].join(','))
+        .eq('id', normalizedOrderId)
+        .maybeSingle(),
+      SUPABASE_READ_TIMEOUT_MS
+    )
+
+    if (error) throw error
+    if (!data) return null
+
+    const row = data as unknown as ReceiptRow
+    return {
+      customerEmail: row.customer_email || undefined,
+      receiptName: row.receipt_name || undefined,
+      receiptDataUrl: row.receipt_data_url || undefined,
+      receiptUploadedAt: row.receipt_uploaded_at || undefined,
+    }
+  }
+
+  const order = (await readServerOrders({ orderId: normalizedOrderId, includeReceipts: true }))[0]
+  return order?.payment
+    ? {
+        receiptName: order.payment.receiptName,
+        receiptDataUrl: order.payment.receiptDataUrl,
+        receiptUploadedAt: order.payment.receiptUploadedAt,
+        customerEmail: order.customerEmail,
+      }
+    : null
 }
 
 export async function writeServerOrders(orders: TrackedOrder[]) {

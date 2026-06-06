@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN } from '@/lib/constants'
 import { useAppStore } from '@/lib/app-store'
+import { fetchDashboardOrderDetails } from '@/lib/dashboard-order-fetch'
 import { printerManager, syncPrinterManagerSettings, trackedOrderToReceiptPayload } from '@/lib/printer'
 import { TrackedOrder } from '@/lib/order-tracking'
 
@@ -58,6 +59,11 @@ function markOrderFullyPrinted(orderId: string) {
     ...current,
     [orderId]: { cashier: true, kitchen: true },
   })
+}
+
+function isPrinterSelectionBlocked(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || '')
+  return /requestDevice|user gesture|اختيار الطابعة|cancelled|canceled/i.test(message)
 }
 
 export function DashboardPrintWatcher() {
@@ -143,7 +149,9 @@ export function DashboardPrintWatcher() {
 
         syncPrinterManagerSettings(settings.printers)
         for (const order of newOrders) {
-          const payload = createPrintPayload(order)
+          const fullOrder = await fetchDashboardOrderDetails(order.id).catch(() => null)
+          const printableOrder = fullOrder || order
+          const payload = createPrintPayload(printableOrder)
           const roles = readAutoPrintedOrders()[order.id] || {}
           const cashierEnabled = settings.printers.cashier?.isEnabled === true
           const kitchenEnabled = settings.printers.kitchen?.isEnabled === true
@@ -169,6 +177,7 @@ export function DashboardPrintWatcher() {
               .then((result) => {
                 const value = result as { skipped?: boolean; reason?: string } | undefined
                 if (value?.skipped === true) {
+                  markOrderRolePrinted(order.id, job.role)
                   console.warn(`[DashboardPrintWatcher] ${job.role} print for app order ${order.id} was skipped: ${value.reason || 'printer is not ready'}`)
                   return
                 }
@@ -176,6 +185,11 @@ export function DashboardPrintWatcher() {
                 console.info(`[DashboardPrintWatcher] App order ${order.id} printed on ${job.role}.`)
               })
               .catch((error) => {
+                if (isPrinterSelectionBlocked(error)) {
+                  markOrderRolePrinted(order.id, job.role)
+                  console.warn(`[DashboardPrintWatcher] Automatic ${job.role} print for app order ${order.id} needs a manual printer selection.`)
+                  return
+                }
                 console.error(`[DashboardPrintWatcher] Automatic ${job.role} print failed for app order ${order.id}:`, error)
               })
               .finally(() => {

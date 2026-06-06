@@ -113,6 +113,23 @@ export default function DashboardSettingsPage() {
     syncPrinterManagerSettings(printers)
   }
 
+  const connectPrinter = async (role: PrinterRole) => {
+    syncPrinterManagerSettings(settings.printers)
+    setPrinterStatus((current) => ({ ...current, [role]: isArabic ? 'جاري ربط الطابعة...' : 'Connecting printer...' }))
+    try {
+      const result = await printerManager.connectPrinter(role)
+      updatePrinter(role, {
+        deviceId: result.printer.deviceId || '',
+        deviceName: result.printer.deviceName || result.printer.name || settings.printers[role].deviceName,
+        deviceAddress: result.printer.deviceAddress || settings.printers[role].deviceAddress,
+        lastConnected: result.printer.lastConnected || new Date().toISOString(),
+      })
+      setPrinterStatus((current) => ({ ...current, [role]: isArabic ? 'تم ربط الطابعة. ستتم الطباعة تلقائيا في الطلبات التالية.' : 'Printer connected. Future orders will print automatically.' }))
+    } catch (error) {
+      setPrinterStatus((current) => ({ ...current, [role]: error instanceof Error ? error.message : (isArabic ? 'تعذر ربط الطابعة.' : 'Could not connect printer.') }))
+    }
+  }
+
   const testPrinter = async (role: PrinterRole, kind: 'connection' | 'arabic' | 'qr' | 'kitchen' | 'hall' = 'arabic') => {
     syncPrinterManagerSettings(settings.printers)
     setPrinterStatus((current) => ({ ...current, [role]: isArabic ? 'جاري اختبار الطابعة...' : 'Testing printer...' }))
@@ -316,6 +333,7 @@ export default function DashboardSettingsPage() {
               isArabic={isArabic}
               statusMessage={printerStatus.cashier}
               onChange={updatePrinter}
+              onConnect={connectPrinter}
               onTest={testPrinter}
             />
             <PrinterCard
@@ -326,6 +344,7 @@ export default function DashboardSettingsPage() {
               isArabic={isArabic}
               statusMessage={printerStatus.kitchen}
               onChange={updatePrinter}
+              onConnect={connectPrinter}
               onTest={testPrinter}
             />
             <PrinterCard
@@ -336,6 +355,7 @@ export default function DashboardSettingsPage() {
               isArabic={isArabic}
               statusMessage={printerStatus.hall}
               onChange={updatePrinter}
+              onConnect={connectPrinter}
               onTest={testPrinter}
             />
           </div>
@@ -392,6 +412,7 @@ function PrinterCard({
   isArabic,
   statusMessage,
   onChange,
+  onConnect,
   onTest,
 }: {
   role: PrinterRole
@@ -401,18 +422,26 @@ function PrinterCard({
   isArabic: boolean
   statusMessage?: string
   onChange: (role: PrinterRole, updates: Partial<PrinterConnection>) => void
+  onConnect: (role: PrinterRole) => void
   onTest: (role: PrinterRole, kind?: 'connection' | 'arabic' | 'qr' | 'kitchen' | 'hall') => void
 }) {
   const method = printer.method || 'network'
   const enabled = printer.isEnabled === true
   const networkReady = Boolean((printer.ip || printer.deviceAddress || '').trim())
-  const ready = enabled && (method !== 'network' || networkReady)
+  const deviceConnected = Boolean(printer.lastConnected && (printer.deviceId || printer.deviceAddress || printer.deviceName))
+  const ready = enabled && (method === 'network' ? networkReady : deviceConnected)
   const status = !enabled
     ? { label: isArabic ? 'غير مفعلة' : 'Disabled', className: 'bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300', icon: AlertCircle }
     : ready
       ? { label: method === 'network' ? (isArabic ? 'جاهزة للطباعة' : 'Ready') : (isArabic ? 'جاهزة لاختيار الجهاز' : 'Ready to pair'), className: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200', icon: CheckCircle2 }
       : { label: isArabic ? 'تحتاج عنوان الشبكة' : 'Needs bridge URL', className: 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-200', icon: AlertCircle }
-  const StatusIcon = status.icon
+  const displayStatus = !enabled
+    ? { label: isArabic ? 'غير مفعلة' : 'Disabled', className: 'bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300', icon: AlertCircle }
+    : ready
+      ? { label: method === 'network' ? (isArabic ? 'جاهزة للطباعة' : 'Ready') : (isArabic ? 'مربوطة' : 'Connected'), className: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200', icon: CheckCircle2 }
+      : { label: method === 'network' ? (isArabic ? 'تحتاج عنوان الشبكة' : 'Needs bridge URL') : (isArabic ? 'تحتاج ربط' : 'Needs pairing'), className: 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-200', icon: AlertCircle }
+  void status
+  const StatusIcon = displayStatus.icon
   const connectionOptions = [
     { value: 'bluetooth' as const, label: 'Bluetooth', hint: isArabic ? 'اختيار مباشر من المتصفح' : 'Browser device picker', icon: Bluetooth },
     { value: 'usb' as const, label: 'USB / OTG', hint: isArabic ? 'كابل أو محول OTG' : 'Cable or OTG adapter', icon: Usb },
@@ -431,9 +460,9 @@ function PrinterCard({
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="text-lg font-bold">{title}</h3>
-            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${status.className}`}>
+            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${displayStatus.className}`}>
               <StatusIcon className="h-3.5 w-3.5" />
-              {status.label}
+              {displayStatus.label}
             </span>
           </div>
           <p className="mt-1 text-sm text-slate-500">{description}</p>
@@ -517,6 +546,12 @@ function PrinterCard({
       {printer.lastConnected && <p className="mt-3 text-xs text-slate-500">{isArabic ? 'آخر اتصال' : 'Last connected'}: {new Date(printer.lastConnected).toLocaleString(isArabic ? 'ar-EG' : 'en-US')}</p>}
 
       <div className="mt-5 flex flex-wrap gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
+        {method !== 'network' && (
+          <Button type="button" size="sm" className="gap-2 bg-blue-600 hover:bg-blue-700" onClick={() => onConnect(role)}>
+            {method === 'bluetooth' ? <Bluetooth className="h-4 w-4" /> : <Usb className="h-4 w-4" />}
+            {deviceConnected ? (isArabic ? 'إعادة ربط الطابعة' : 'Reconnect Printer') : (isArabic ? 'ربط الطابعة' : 'Connect Printer')}
+          </Button>
+        )}
         <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'connection')}>
           <PrinterCheck className="h-4 w-4" />
           {isArabic ? 'اختبار اتصال' : 'Connection'}

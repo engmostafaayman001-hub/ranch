@@ -71,6 +71,7 @@ type PrintJob = {
   kind: 'cashier' | 'kitchen' | 'hall' | 'diagnostic'
   payload: ReceiptPayload
   strict?: boolean
+  allowDevicePrompt?: boolean
 }
 
 type UsbDevice = {
@@ -203,6 +204,11 @@ function money(value: number | undefined, currency: string) {
 function isDeviceChooserCancelled(error: unknown) {
   if (!(error instanceof Error)) return false
   return error.name === 'NotFoundError' || /cancelled|canceled|requestDevice/i.test(error.message)
+}
+
+function isReconnectRequired(error: unknown) {
+  if (!(error instanceof Error)) return false
+  return /needs reconnect|user gesture|requestDevice/i.test(error.message)
 }
 
 function qrUrl(value?: string) {
@@ -448,7 +454,13 @@ export function trackedOrderToReceiptPayload(order: TrackedOrder, options: Parti
     },
     lines: Array.isArray(maybeLines) && maybeLines.length
       ? maybeLines
-      : [{ name: options.isArabic === false ? 'Items count' : 'عدد الأصناف', quantity: Number(order.items || 0), price: Number(order.total || 0) }],
+      : [{
+          name: options.isArabic === false
+            ? `Order details unavailable (${Number(order.items || 0)} items)`
+            : `تفاصيل الأصناف غير محفوظة (${Number(order.items || 0)} عنصر)`,
+          quantity: 1,
+          price: Number(order.total || 0),
+        }],
     total: Number(order.total || 0),
     paymentMethod: order.payment?.method,
     ...options,
@@ -477,10 +489,18 @@ export class PrinterManager {
 
   async testConnection(role: ThermalPrinterRole) {
     const printer = this.settings[role]
-    await this.connect(role, printer)
+    await this.connect(role, printer, true)
     printer.lastConnected = new Date().toISOString()
     this.saveSettings()
     return { ok: true, message: 'تم الاتصال بالطابعة بنجاح.' }
+  }
+
+  async connectPrinter(role: ThermalPrinterRole) {
+    const printer = this.settings[role]
+    await this.connect(role, printer, true)
+    printer.lastConnected = new Date().toISOString()
+    this.saveSettings()
+    return { ok: true, printer: { ...printer } }
   }
 
   printCashierReceipt(payload: ReceiptPayload) {
@@ -500,6 +520,7 @@ export class PrinterManager {
       role,
       kind: kind === 'diagnostic' ? (role === 'cashier' ? 'cashier' : role) : kind,
       strict: true,
+      allowDevicePrompt: true,
       payload: {
         orderId: `TEST-${role.toUpperCase()}`,
         orderType: role === 'hall' ? 'DINE_IN' : 'TEST',
@@ -549,16 +570,21 @@ export class PrinterManager {
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       try {
         console.info(`[PrinterManager] Printing ${job.kind} on ${job.role}. Attempt ${attempt}/${attempts}.`)
-        await this.print(job, printer)
+        await this.print(job, printer, job.allowDevicePrompt === true)
         printer.lastConnected = new Date().toISOString()
         this.saveSettings()
         return { ok: true }
       } catch (error) {
         lastError = error
-        console.error(`[PrinterManager] ${job.role} print failed:`, error)
+        if (isReconnectRequired(error)) {
+          const reason = error instanceof Error ? error.message : 'Printer needs reconnect'
+          if (job.strict) throw new Error(reason)
+          return { ok: true, skipped: true, needsReconnect: true, reason }
+        }
         if (isDeviceChooserCancelled(error)) {
           throw new Error('تم إلغاء اختيار الطابعة. افتح نافذة الاختيار مرة أخرى واختر الجهاز عند الطباعة.')
         }
+        console.error(`[PrinterManager] ${job.role} print failed:`, error)
         await this.disconnect(job.role)
         if (attempt < attempts) await new Promise((resolve) => window.setTimeout(resolve, 350 * attempt))
       }
@@ -566,13 +592,13 @@ export class PrinterManager {
     throw lastError instanceof Error ? lastError : new Error('تعذر إرسال أمر الطباعة.')
   }
 
-  private async print(job: PrintJob, printer: ThermalPrinterSettings) {
+  private async print(job: PrintJob, printer: ThermalPrinterSettings, allowDevicePrompt = false) {
     const canvas = await renderReceiptImage(job, printer)
     const bytes = canvasToRasterEscPos(canvas)
     const method = printer.connectionType || printer.method
     if (method === 'network') return this.printNetwork(printer, bytes, canvas)
-    if (method === 'usb') return this.printUsb(job.role, printer, bytes)
-    if (method === 'bluetooth') return this.printBluetooth(job.role, printer, bytes)
+    if (method === 'usb') return this.printUsb(job.role, printer, bytes, allowDevicePrompt)
+    if (method === 'bluetooth') return this.printBluetooth(job.role, printer, bytes, allowDevicePrompt)
     throw new Error('طريقة الاتصال غير مدعومة.')
   }
 
@@ -595,9 +621,9 @@ export class PrinterManager {
     if (!response.ok) throw new Error(`فشل bridge الطباعة الشبكية: ${response.status}`)
   }
 
-  private async printUsb(role: ThermalPrinterRole, printer: ThermalPrinterSettings, bytes: Uint8Array) {
+  private async printUsb(role: ThermalPrinterRole, printer: ThermalPrinterSettings, bytes: Uint8Array, allowDevicePrompt = false) {
     if (!navigator.usb) throw new Error('هذا المتصفح لا يدعم WebUSB.')
-    const device = this.usbDevices[role] || await navigator.usb.requestDevice({ filters: [] })
+    const device = this.usbDevices[role] || await this.getUsbDevice(role, printer, allowDevicePrompt)
     if (!device.opened) await device.open()
     const configuration = device.configuration
     if (!configuration) await device.selectConfiguration(1)
@@ -621,15 +647,36 @@ export class PrinterManager {
     return ''
   }
 
-  private async printBluetooth(role: ThermalPrinterRole, printer: ThermalPrinterSettings, bytes: Uint8Array) {
-    const characteristic = this.bluetoothCharacteristics[role] || await this.connectBluetooth(role, printer)
+  private async getUsbDevice(role: ThermalPrinterRole, printer: ThermalPrinterSettings, allowDevicePrompt: boolean) {
+    const storedDeviceId = (printer.deviceId || '').trim()
+    const storedDeviceName = (printer.deviceName || printer.name || '').trim()
+
+    if (typeof navigator.usb?.getDevices === 'function') {
+      const devices = await navigator.usb.getDevices().catch(() => [])
+      const restored = devices.find((device) =>
+        (storedDeviceId && device.serialNumber === storedDeviceId) ||
+        (storedDeviceName && device.productName === storedDeviceName)
+      ) || (!storedDeviceId && !storedDeviceName && devices.length === 1 ? devices[0] : undefined)
+
+      if (restored) return restored
+    }
+
+    if (!allowDevicePrompt) {
+      throw new Error('USB printer needs reconnect')
+    }
+
+    return navigator.usb!.requestDevice({ filters: [] })
+  }
+
+  private async printBluetooth(role: ThermalPrinterRole, printer: ThermalPrinterSettings, bytes: Uint8Array, allowDevicePrompt = false) {
+    const characteristic = this.bluetoothCharacteristics[role] || await this.connectBluetooth(role, printer, allowDevicePrompt)
     const chunkSize = 180
     for (let index = 0; index < bytes.length; index += chunkSize) {
       await characteristic.writeValue(toArrayBuffer(bytes.slice(index, index + chunkSize)))
     }
   }
 
-  private async connect(role: ThermalPrinterRole, printer: ThermalPrinterSettings) {
+  private async connect(role: ThermalPrinterRole, printer: ThermalPrinterSettings, allowDevicePrompt = false) {
     const method = printer.connectionType || printer.method
     if (method === 'network') {
       const ip = (printer.ip || printer.deviceAddress || '').trim()
@@ -637,18 +684,18 @@ export class PrinterManager {
       return
     }
     if (method === 'usb') {
-      await this.printUsb(role, printer, new Uint8Array([0x1b, 0x40]))
+      await this.printUsb(role, printer, new Uint8Array([0x1b, 0x40]), allowDevicePrompt)
       return
     }
     if (method === 'bluetooth') {
-      await this.connectBluetooth(role, printer)
+      await this.connectBluetooth(role, printer, allowDevicePrompt)
       return
     }
   }
 
-  private async connectBluetooth(role: ThermalPrinterRole, printer: ThermalPrinterSettings) {
+  private async connectBluetooth(role: ThermalPrinterRole, printer: ThermalPrinterSettings, allowDevicePrompt = false) {
     if (!navigator.bluetooth) throw new Error('هذا المتصفح لا يدعم Web Bluetooth.')
-    const device = await this.getBluetoothDevice(role, printer)
+    const device = await this.getBluetoothDevice(role, printer, allowDevicePrompt)
     if (!device.gatt) throw new Error('تعذر فتح اتصال Bluetooth.')
     this.bluetoothDevices[role] = device
     device.addEventListener?.('gattserverdisconnected', () => {
@@ -675,7 +722,7 @@ export class PrinterManager {
     throw new Error('لم يتم العثور على characteristic للطباعة عبر Bluetooth.')
   }
 
-  private async getBluetoothDevice(role: ThermalPrinterRole, printer: ThermalPrinterSettings) {
+  private async getBluetoothDevice(role: ThermalPrinterRole, printer: ThermalPrinterSettings, allowDevicePrompt: boolean) {
     const currentDevice = this.bluetoothDevices[role]
     if (currentDevice?.gatt) return currentDevice
 
@@ -696,6 +743,10 @@ export class PrinterManager {
         this.saveSettings()
         return restored
       }
+    }
+
+    if (!allowDevicePrompt) {
+      throw new Error('Bluetooth printer needs reconnect')
     }
 
     const selected = await navigator.bluetooth!.requestDevice({

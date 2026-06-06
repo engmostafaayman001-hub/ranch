@@ -3,10 +3,9 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Banknote, CreditCard, Smartphone } from 'lucide-react'
+import { Banknote, CheckCircle2, CreditCard, FileText, ImageIcon, Smartphone, UploadCloud, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { FileInput } from '@/components/ui/file-input'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Logo } from '@/components/logo'
@@ -34,7 +33,7 @@ export default function CheckoutPage() {
     notes: '',
     paymentMethod: PAYMENT_METHODS.CASH,
   })
-  const [receipt, setReceipt] = useState<{ name: string; dataUrl: string } | null>(null)
+  const [receipt, setReceipt] = useState<{ name: string; dataUrl: string; type: string; size: number } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [discountCode, setDiscountCode] = useState('')
@@ -76,6 +75,7 @@ export default function CheckoutPage() {
       : formData.paymentMethod === PAYMENT_METHODS.INSTAPAY
         ? settings.instapayNumber || '01090886364'
         : ''
+  const receiptSizeLabel = receipt ? `${(receipt.size / 1024 / 1024).toFixed(2)} MB` : ''
 
   const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = event.target
@@ -102,11 +102,23 @@ export default function CheckoutPage() {
 
     const reader = new FileReader()
     reader.onload = () => {
-      setReceipt({ name: file.name, dataUrl: String(reader.result) })
+      const dataUrl = String(reader.result || '')
+      if (!dataUrl.startsWith('data:')) {
+        setReceipt(null)
+        setError(isArabic ? 'تعذر قراءة ملف الإيصال.' : 'Could not read the receipt file.')
+        return
+      }
+      setReceipt({ name: file.name, dataUrl, type: file.type, size: file.size })
       setError(null)
     }
     reader.onerror = () => setError(isArabic ? 'تعذر رفع الإيصال.' : 'Could not upload receipt.')
     reader.readAsDataURL(file)
+  }
+
+  const clearReceipt = () => {
+    setReceipt(null)
+    const input = document.getElementById('receipt') as HTMLInputElement | null
+    if (input) input.value = ''
   }
 
   const readError = async (response: Response, fallback: string) => {
@@ -363,10 +375,37 @@ export default function CheckoutPage() {
                         <span className="font-semibold">{isArabic ? 'حوّل على الرقم' : 'Transfer to'}: </span>
                         <span dir="ltr">{paymentTransferNumber}</span>
                       </div>
-                      <div>
-                      <Label htmlFor="receipt">{isArabic ? 'رفع إيصال الدفع' : 'Upload Payment Receipt'}</Label>
-                      <FileInput id="receipt" accept="image/*,.pdf" onChange={handleReceiptUpload} required className="mt-1" />
-                      {receipt && <p className="mt-2 rounded-md bg-green-50 px-3 py-2 text-sm text-green-700 dark:bg-green-950 dark:text-green-200">{isArabic ? `تم رفع الإيصال: ${receipt.name}` : `Receipt uploaded: ${receipt.name}`}</p>}
+                      <div className="space-y-2">
+                        <Label htmlFor="receipt">{isArabic ? 'رفع إيصال الدفع' : 'Upload Payment Receipt'}</Label>
+                        <input id="receipt" type="file" accept="image/*,.pdf" onChange={handleReceiptUpload} required className="sr-only" />
+                        <label
+                          htmlFor="receipt"
+                          className="flex min-h-32 cursor-pointer flex-col items-center justify-center gap-3 rounded-md border border-dashed border-slate-300 bg-white p-4 text-center transition hover:border-red-400 hover:bg-red-50 dark:border-slate-700 dark:bg-slate-950 dark:hover:border-red-500 dark:hover:bg-red-950/20"
+                        >
+                          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-red-50 text-red-600 dark:bg-red-950">
+                            <UploadCloud className="h-5 w-5" />
+                          </span>
+                          <span className="text-sm font-semibold">{isArabic ? 'اختر صورة أو PDF للإيصال' : 'Choose a receipt image or PDF'}</span>
+                          <span className="text-xs text-slate-500">PNG, JPG, WEBP, PDF - 2 MB</span>
+                        </label>
+                        {receipt && (
+                          <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-800 dark:border-green-900 dark:bg-green-950 dark:text-green-200">
+                            <div className="flex min-w-0 items-center gap-3">
+                              {receipt.type === 'application/pdf' ? <FileText className="h-5 w-5 shrink-0" /> : <ImageIcon className="h-5 w-5 shrink-0" />}
+                              <div className="min-w-0">
+                                <p className="flex items-center gap-2 font-semibold">
+                                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                                  <span className="truncate">{receipt.name}</span>
+                                </p>
+                                <p className="text-xs text-green-700 dark:text-green-300">{receiptSizeLabel}</p>
+                              </div>
+                            </div>
+                            <Button type="button" size="sm" variant="outline" className="gap-2" onClick={clearReceipt}>
+                              <X className="h-4 w-4" />
+                              {isArabic ? 'إزالة' : 'Remove'}
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ) : (
