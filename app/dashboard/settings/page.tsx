@@ -122,6 +122,7 @@ export default function DashboardSettingsPage() {
       } else {
         await printerManager.printTest(role, kind === 'kitchen' ? 'kitchen' : kind === 'hall' ? 'hall' : 'diagnostic', {
           invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
+          invoiceAddress: isArabic ? settings.addressAr : settings.addressEn,
           invoiceQrUrl: kind === 'qr' ? settings.invoiceQrUrl || 'https://markode.co' : settings.invoiceQrUrl,
           invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
           logoUrl: settings.invoiceLogo || settings.heroImage,

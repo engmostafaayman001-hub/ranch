@@ -52,6 +52,7 @@ export type ReceiptPayload = {
   paymentMethod?: string
   currency?: string
   invoiceName?: string
+  invoiceAddress?: string
   invoiceMessage?: string
   invoiceQrUrl?: string
   logoUrl?: string
@@ -309,6 +310,9 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
   }
 
   drawText(job.payload.invoiceName || (isArabic ? 'فاتورة طلب' : 'Order Receipt'), { size: 27, weight: 900, align: 'center' })
+  if (job.payload.invoiceAddress) {
+    drawText(job.payload.invoiceAddress, { size: 17, weight: 700, align: 'center' })
+  }
   drawText(job.kind === 'cashier' ? (isArabic ? 'فاتورة كاشير' : 'Cashier Receipt') : job.kind === 'kitchen' ? (isArabic ? 'تذكرة مطبخ' : 'Kitchen Ticket') : (isArabic ? 'تذكرة صالة' : 'Hall Ticket'), { size: 18, weight: 700, align: 'center' })
   divider()
   twoCol(isArabic ? 'رقم الطلب' : 'Order', job.payload.orderId || '-')
@@ -361,7 +365,7 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
       divider()
       drawText(job.payload.invoiceMessage, { size: 18, weight: 700, align: 'center' })
     }
-    drawText('markode.co', { size: 15, weight: 600, align: 'center' })
+    drawText('https://markode.co - +0201090886364', { size: 15, weight: 600, align: 'center' })
   }
 
   y += 32
@@ -509,6 +513,7 @@ export class PrinterManager {
         paymentMethod: 'Cash',
         currency: 'ج.م',
         invoiceName: 'Baseeta POS',
+        invoiceAddress: 'Cairo, Egypt',
         invoiceMessage: 'شكرا لطلبك',
         invoiceQrUrl: 'https://markode.co',
         isArabic: true,

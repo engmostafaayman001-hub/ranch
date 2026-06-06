@@ -9,6 +9,7 @@ export type InvoicePrintOptions = {
   printerName?: string
   paperWidth?: string
   invoiceName?: string
+  invoiceAddress?: string
   invoiceQrUrl?: string
   invoiceMessage?: string
   printsMainInvoice?: boolean
@@ -30,6 +31,7 @@ export async function printTrackedOrderReceipt(order: TrackedOrder, options: Inv
       isArabic,
       currency,
       invoiceName,
+      invoiceAddress: options.invoiceAddress,
       invoiceQrUrl: options.printsQr === false ? undefined : options.invoiceQrUrl,
       invoiceMessage: options.invoiceMessage,
     }))
@@ -40,10 +42,11 @@ export async function printTrackedOrderReceipt(order: TrackedOrder, options: Inv
   }
 }
 
-export async function printPrinterTest(options: { isArabic: boolean; printerMethod: string; paperWidth: string; printerName?: string; invoiceName?: string; invoiceQrUrl?: string; invoiceMessage?: string; printsMainInvoice?: boolean; printsQr?: boolean }) {
+export async function printPrinterTest(options: { isArabic: boolean; printerMethod: string; paperWidth: string; printerName?: string; invoiceName?: string; invoiceAddress?: string; invoiceQrUrl?: string; invoiceMessage?: string; printsMainInvoice?: boolean; printsQr?: boolean }) {
   try {
     await printerManager.printTest('cashier', 'cashier', {
       invoiceName: options.invoiceName,
+      invoiceAddress: options.invoiceAddress,
       invoiceQrUrl: options.printsQr === false ? undefined : options.invoiceQrUrl,
       invoiceMessage: options.invoiceMessage,
       isArabic: options.isArabic,

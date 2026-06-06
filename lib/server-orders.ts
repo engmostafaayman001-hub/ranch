@@ -100,12 +100,18 @@ async function readServerOrdersFresh(options: ReadServerOrdersOptions = {}): Pro
   if (canUseSupabaseRuntimeTables() && Date.now() >= supabaseOrdersCooldownUntil) {
     const supabase = createSupabaseAdminClient()
     try {
-      const readLimit = options.source ? 500 : normalizeLimit(options.limit)
-      const query = supabase
+      const readLimit = normalizeLimit(options.limit)
+      let query = supabase
         .from('app_orders')
         .select('data')
         .order('created_at', { ascending: false })
         .limit(readLimit)
+
+      if (options.source === 'restaurant_pos') {
+        query = query.eq('data->>source', 'restaurant_pos')
+      } else if (options.source === 'app') {
+        query = query.neq('data->>source', 'restaurant_pos')
+      }
 
       const { data, error } = await withTimeout(
         query,
@@ -117,11 +123,12 @@ async function readServerOrdersFresh(options: ReadServerOrdersOptions = {}): Pro
       if (Array.isArray(data)) {
         const orders = data.map(normalizeOrder)
         if (!options.source && !options.limit) setOrdersCache(orders)
-        return applyReadOptions(orders, options)
+        return options.source ? orders : applyReadOptions(orders, options)
       }
     } catch (error) {
       console.warn('[server-orders] Falling back after Supabase read failed:', getSupabaseErrorMessage(error))
       supabaseOrdersCooldownUntil = Date.now() + SUPABASE_COOLDOWN_MS
+      if (ordersCache) return applyReadOptions(ordersCache.data, options)
       if (shouldRequireSupabaseRuntimeTables()) throw error
     }
   }

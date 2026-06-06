@@ -16,6 +16,7 @@ import {
   PAYMENT_METHOD_LABELS_EN,
 } from '@/lib/constants'
 import { PrinterRole, useAppStore } from '@/lib/app-store'
+import { fetchDashboardOrdersBySource } from '@/lib/dashboard-order-fetch'
 import { TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
 import { printerManager, syncPrinterManagerSettings, trackedOrderToReceiptPayload } from '@/lib/printer'
 
@@ -40,21 +41,15 @@ export default function DashboardOrdersPage() {
     if (loadingOrders.current) return
     loadingOrders.current = true
     try {
-      const response = await fetch('/api/pos/orders?source=app&limit=120', { cache: 'no-store' })
-      const data = await response.json().catch(() => ({}))
-      if (response.ok && Array.isArray(data.orders)) {
-        setOrders(data.orders)
-      } else {
-        setMessage(data.message || data.error || (isArabic ? 'تعذر تحديث الطلبات، يتم عرض آخر قائمة محفوظة.' : 'Could not refresh orders. Showing the last loaded list.'))
-      }
-    } catch {
-      setMessage(isArabic ? 'تعذر تحديث الطلبات، يتم عرض آخر قائمة محفوظة.' : 'Could not refresh orders. Showing the last loaded list.')
+      setOrders(await fetchDashboardOrdersBySource('app', 120))
+      setMessage('')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not refresh orders. Showing the last loaded list.')
     } finally {
       loadingOrders.current = false
       setLoading(false)
     }
-  }, [isArabic])
-
+  }, [])
   useEffect(() => {
     const timer = window.setTimeout(loadOrders, 0)
     const interval = window.setInterval(loadOrders, 10000)
@@ -174,10 +169,11 @@ export default function DashboardOrdersPage() {
     isArabic,
     currency,
     invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
+    invoiceAddress: isArabic ? settings.addressAr : settings.addressEn,
     invoiceQrUrl: settings.printers.cashier.printsQr === false ? undefined : settings.invoiceQrUrl,
     invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
     logoUrl: settings.invoiceLogo || settings.heroImage,
-  }), [currency, isArabic, settings.heroImage, settings.invoiceLogo, settings.invoiceNameAr, settings.invoiceNameEn, settings.invoiceQrUrl, settings.invoiceWelcomeAr, settings.invoiceWelcomeEn, settings.printers.cashier.printsQr])
+  }), [currency, isArabic, settings.addressAr, settings.addressEn, settings.heroImage, settings.invoiceLogo, settings.invoiceNameAr, settings.invoiceNameEn, settings.invoiceQrUrl, settings.invoiceWelcomeAr, settings.invoiceWelcomeEn, settings.printers.cashier.printsQr])
 
   const isPrinterAvailable = (role: PrinterRole) => {
     const printer = settings.printers[role]

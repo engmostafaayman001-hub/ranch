@@ -232,6 +232,7 @@ export default function DashboardPosPage() {
         paymentMethod: posPaymentLabel(paymentMethod),
         currency,
         invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
+        invoiceAddress: isArabic ? settings.addressAr : settings.addressEn,
         invoiceQrUrl: settings.printers.cashier.printsQr === false ? undefined : settings.invoiceQrUrl,
         invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
         logoUrl: settings.invoiceLogo || settings.heroImage,
@@ -469,6 +470,7 @@ async function printPosDailyClosing({
       currency,
       isArabic,
       invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
+      invoiceAddress: isArabic ? settings.addressAr : settings.addressEn,
       logoUrl: settings.invoiceLogo || settings.heroImage,
     })) as { skipped?: boolean; reason?: string }
     if (result?.skipped) {
