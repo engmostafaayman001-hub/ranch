@@ -9,6 +9,7 @@ import { printerManager, syncPrinterManagerSettings, trackedOrderToReceiptPayloa
 import { TrackedOrder } from '@/lib/order-tracking'
 
 const AUTO_PRINTED_APP_ORDERS_KEY = 'baseeta-auto-printed-app-orders-v2'
+const AUTO_PRINT_RECONNECT_BLOCKS_KEY = 'baseeta-auto-print-reconnect-blocks-v1'
 const MAX_AUTO_PRINTED_IDS = 250
 const AUTO_PRINT_BACKFILL_MS = 15 * 60 * 1000
 
@@ -18,6 +19,7 @@ type AutoPrintedOrderRoles = {
 }
 
 type AutoPrintedOrders = Record<string, AutoPrintedOrderRoles>
+type ReconnectBlockedOrderRoles = Record<string, Partial<Record<keyof AutoPrintedOrderRoles, string>>>
 
 function readAutoPrintedOrders(): AutoPrintedOrders {
   try {
@@ -64,6 +66,59 @@ function markOrderFullyPrinted(orderId: string) {
 function isPrinterSelectionBlocked(error: unknown) {
   const message = error instanceof Error ? error.message : String(error || '')
   return /requestDevice|user gesture|اختيار الطابعة|cancelled|canceled/i.test(message)
+}
+
+function readReconnectBlocks(): ReconnectBlockedOrderRoles {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(AUTO_PRINT_RECONNECT_BLOCKS_KEY) || '{}')
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as ReconnectBlockedOrderRoles
+      : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveReconnectBlocks(blocks: ReconnectBlockedOrderRoles) {
+  window.localStorage.setItem(AUTO_PRINT_RECONNECT_BLOCKS_KEY, JSON.stringify(blocks))
+}
+
+function getPrinterConnectionStamp(settings: ReturnType<typeof useAppStore.getState>['settings'], role: keyof AutoPrintedOrderRoles) {
+  return settings.printers[role]?.lastConnected || ''
+}
+
+function isReconnectBlocked(orderId: string, role: keyof AutoPrintedOrderRoles, settings: ReturnType<typeof useAppStore.getState>['settings']) {
+  const blockedStamp = readReconnectBlocks()[orderId]?.[role]
+  return Boolean(blockedStamp && blockedStamp === getPrinterConnectionStamp(settings, role))
+}
+
+function blockUntilPrinterReconnect(orderId: string, role: keyof AutoPrintedOrderRoles, settings: ReturnType<typeof useAppStore.getState>['settings']) {
+  const current = readReconnectBlocks()
+  saveReconnectBlocks({
+    ...current,
+    [orderId]: {
+      ...(current[orderId] || {}),
+      [role]: getPrinterConnectionStamp(settings, role),
+    },
+  })
+}
+
+function clearReconnectBlock(orderId: string, role: keyof AutoPrintedOrderRoles) {
+  const current = readReconnectBlocks()
+  if (!current[orderId]?.[role]) return
+  const nextOrder = { ...current[orderId] }
+  delete nextOrder[role]
+  const next = { ...current }
+  if (Object.keys(nextOrder).length) {
+    next[orderId] = nextOrder
+  } else {
+    delete next[orderId]
+  }
+  saveReconnectBlocks(next)
+}
+
+function isReconnectRequiredResult(value: { needsReconnect?: boolean; reason?: string } | undefined) {
+  return value?.needsReconnect === true || /needs reconnect|reconnect/i.test(value?.reason || '')
 }
 
 export function DashboardPrintWatcher() {
@@ -164,9 +219,9 @@ export function DashboardPrintWatcher() {
           }
 
           const jobs = [
-            roles.cashier === true || !cashierEnabled ? null : { role: 'cashier' as const, print: () => printerManager.printCashierReceipt(payload) },
-            roles.kitchen === true || !kitchenEnabled ? null : { role: 'kitchen' as const, print: () => printerManager.printKitchenTicket(payload) },
-          ].filter(Boolean) as Array<{ role: keyof AutoPrintedOrderRoles; print: () => Promise<{ skipped?: boolean; reason?: string } | unknown> }>
+            roles.cashier === true || !cashierEnabled || isReconnectBlocked(order.id, 'cashier', settings) ? null : { role: 'cashier' as const, print: () => printerManager.printCashierReceipt(payload) },
+            roles.kitchen === true || !kitchenEnabled || isReconnectBlocked(order.id, 'kitchen', settings) ? null : { role: 'kitchen' as const, print: () => printerManager.printKitchenTicket(payload) },
+          ].filter(Boolean) as Array<{ role: keyof AutoPrintedOrderRoles; print: () => Promise<{ skipped?: boolean; needsReconnect?: boolean; reason?: string } | unknown> }>
 
           for (const job of jobs) {
             const jobKey = `${order.id}:${job.role}`
@@ -175,12 +230,18 @@ export function DashboardPrintWatcher() {
 
             job.print()
               .then((result) => {
-                const value = result as { skipped?: boolean; reason?: string } | undefined
+                const value = result as { skipped?: boolean; needsReconnect?: boolean; reason?: string } | undefined
                 if (value?.skipped === true) {
+                  if (isReconnectRequiredResult(value)) {
+                    blockUntilPrinterReconnect(order.id, job.role, settings)
+                    console.warn(`[DashboardPrintWatcher] ${job.role} print for app order ${order.id} is paused until the printer is reconnected.`)
+                    return
+                  }
                   markOrderRolePrinted(order.id, job.role)
                   console.warn(`[DashboardPrintWatcher] ${job.role} print for app order ${order.id} was skipped: ${value.reason || 'printer is not ready'}`)
                   return
                 }
+                clearReconnectBlock(order.id, job.role)
                 markOrderRolePrinted(order.id, job.role)
                 console.info(`[DashboardPrintWatcher] App order ${order.id} printed on ${job.role}.`)
               })
@@ -210,7 +271,7 @@ export function DashboardPrintWatcher() {
       active = false
       window.clearInterval(interval)
     }
-  }, [createPrintPayload, dashboardRole, settings.printers])
+  }, [createPrintPayload, dashboardRole, settings])
 
   return null
 }
