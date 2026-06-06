@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useLanguage } from '@/components/language-provider'
@@ -20,11 +20,14 @@ export default function DashboardPage() {
   const [orders, setOrders] = useState<TrackedOrder[]>([])
   const [customers, setCustomers] = useState<DashboardCustomer[]>([])
   const [loading, setLoading] = useState(true)
+  const loadingDashboard = useRef(false)
 
   useEffect(() => {
     let active = true
 
     async function loadDashboardData() {
+      if (loadingDashboard.current) return
+      loadingDashboard.current = true
       try {
         const [ordersResponse, customersResponse] = await Promise.all([
           fetch('/api/pos/orders', { cache: 'no-store' }),
@@ -37,6 +40,7 @@ export default function DashboardPage() {
         setOrders(Array.isArray(ordersData.orders) ? ordersData.orders : [])
         setCustomers(Array.isArray(customersData.customers) ? customersData.customers : [])
       } finally {
+        loadingDashboard.current = false
         if (active) setLoading(false)
       }
     }

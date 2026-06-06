@@ -23,9 +23,32 @@ type AppUserRow = {
   email?: string | null
 }
 
+const ACCESS_CACHE_MS = 10000
+const accessCache = new Map<string, { data: DashboardAccess; at: number }>()
+
 export function getRequestUserEmail(request: NextRequest) {
   const cookie = request.cookies.get('app_user_email')?.value
   return cookie ? normalizeEmail(decodeURIComponent(cookie)) : null
+}
+
+function getAccessCacheKey(request: NextRequest) {
+  return request.cookies
+    .getAll()
+    .filter((cookie) => cookie.name === 'app_user_email' || cookie.name.includes('auth') || cookie.name.includes('sb-'))
+    .map((cookie) => `${cookie.name}=${cookie.value}`)
+    .sort()
+    .join(';')
+}
+
+function getCachedAccess(key: string) {
+  const cached = accessCache.get(key)
+  if (!cached || Date.now() - cached.at > ACCESS_CACHE_MS) return null
+  return cached.data
+}
+
+function setCachedAccess(key: string, data: DashboardAccess) {
+  if (!key) return
+  accessCache.set(key, { data, at: Date.now() })
 }
 
 async function getSupabaseSessionUser(request: NextRequest) {
@@ -58,12 +81,18 @@ function roleAccess(userId: string | null, email: string, role: string | null, n
 }
 
 export async function getRequestDashboardAccess(request: NextRequest): Promise<DashboardAccess> {
+  const cacheKey = getAccessCacheKey(request)
+  const cached = getCachedAccess(cacheKey)
+  if (cached) return cached
+
   const sessionUser = await getSupabaseSessionUser(request)
   const cookieEmail = getRequestUserEmail(request)
   const email = normalizeEmail(sessionUser?.email || cookieEmail || '')
 
   if (!email) {
-    return { allowed: false, userId: null, email: null, name: null, role: null }
+    const denied = { allowed: false, userId: null, email: null, name: null, role: null }
+    setCachedAccess(cacheKey, denied)
+    return denied
   }
 
   try {
@@ -91,23 +120,34 @@ export async function getRequestDashboardAccess(request: NextRequest): Promise<D
       const rows = Array.isArray(teamRows) ? (teamRows as TeamRoleRow[]) : []
       const activeRow = rows.find((row) => row.status === 'active' && roleAccess(String(row.user_id), email, row.role))
       const activeAccess = activeRow ? roleAccess(String(activeRow.user_id), email, activeRow.role, getTeamUserName(activeRow)) : null
-      if (activeAccess) return activeAccess
+      if (activeAccess) {
+        setCachedAccess(cacheKey, activeAccess)
+        return activeAccess
+      }
 
       if (rows.length > 0) {
-        return { allowed: false, userId: sessionUser?.id || Array.from(userIds)[0] || null, email, name: null, role: null }
+        const denied = { allowed: false, userId: sessionUser?.id || Array.from(userIds)[0] || null, email, name: null, role: null }
+        setCachedAccess(cacheKey, denied)
+        return denied
       }
     }
   } catch {
     if (!canAccessDashboardByEmail(email)) {
-      return { allowed: false, userId: sessionUser?.id || null, email, name: null, role: null }
+      const denied = { allowed: false, userId: sessionUser?.id || null, email, name: null, role: null }
+      setCachedAccess(cacheKey, denied)
+      return denied
     }
   }
 
   if (canAccessDashboardByEmail(email)) {
-    return { allowed: true, userId: sessionUser?.id || null, email, name: sessionUser?.user_metadata?.name || null, role: 'super_admin' }
+    const access = { allowed: true, userId: sessionUser?.id || null, email, name: sessionUser?.user_metadata?.name || null, role: 'super_admin' }
+    setCachedAccess(cacheKey, access)
+    return access
   }
 
-  return { allowed: false, userId: sessionUser?.id || null, email, name: null, role: null }
+  const denied = { allowed: false, userId: sessionUser?.id || null, email, name: null, role: null }
+  setCachedAccess(cacheKey, denied)
+  return denied
 }
 
 export async function canRequestAccessDashboard(request: NextRequest) {

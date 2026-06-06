@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, BarChart3, CalendarDays, CheckCircle2, Printer, ReceiptText, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -9,6 +9,9 @@ import { Label } from '@/components/ui/label'
 import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN, ORDER_STATUS_LABELS, ORDER_STATUS_LABELS_EN, PAYMENT_METHOD_LABELS, PAYMENT_METHOD_LABELS_EN } from '@/lib/constants'
 import { TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
+import { useAppStore } from '@/lib/app-store'
+import { createClosingReceiptPayload } from '@/lib/closing-print'
+import { printerManager, syncPrinterManagerSettings } from '@/lib/printer'
 
 interface Customer {
   id?: string
@@ -98,20 +101,12 @@ function money(value: number, currency: string) {
   return `${Number(value || 0).toFixed(2)} ${currency}`
 }
 
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
-}
-
 export default function DashboardReportsPage() {
   const { language } = useLanguage()
   const isArabic = language === 'ar'
   const currency = isArabic ? CURRENCY : CURRENCY_EN
   const locale = isArabic ? 'ar-EG' : 'en-US'
+  const settings = useAppStore((state) => state.settings)
   const todayKey = new Date().toISOString().slice(0, 10)
   const [orders, setOrders] = useState<TrackedOrder[]>([])
   const [expenses, setExpenses] = useState<Expense[]>([])
@@ -119,10 +114,14 @@ export default function DashboardReportsPage() {
   const [loading, setLoading] = useState(true)
   const [closingDate, setClosingDate] = useState(todayKey)
   const [closingOpen, setClosingOpen] = useState(false)
+  const [printStatus, setPrintStatus] = useState('')
+  const loadingReports = useRef(false)
 
   useEffect(() => {
     let mounted = true
     async function loadReports() {
+      if (loadingReports.current) return
+      loadingReports.current = true
       try {
         const [ordersResponse, customersResponse, expensesResponse] = await Promise.all([
           fetch('/api/pos/orders', { cache: 'no-store' }),
@@ -142,6 +141,7 @@ export default function DashboardReportsPage() {
         setCustomers([])
         setExpenses([])
       } finally {
+        loadingReports.current = false
         if (mounted) setLoading(false)
       }
     }
@@ -208,89 +208,40 @@ export default function DashboardReportsPage() {
     return labels[method as keyof typeof PAYMENT_METHOD_LABELS] || method
   }
 
-  const printDailyClosing = () => {
-    const printWindow = window.open('', '_blank', 'width=720,height=860')
-    if (!printWindow) return
-    const title = isArabic ? 'تقفيل يومي' : 'Daily Closing'
-    const rows = closingSummary.orders.map((order) => `
-      <tr>
-        <td>${escapeHtml(order.id)}</td>
-        <td>${escapeHtml(order.customer || '-')}</td>
-        <td>${escapeHtml(paymentLabel(order.payment?.method || 'cash'))}</td>
-        <td>${money(Number(order.total || 0), currency)}</td>
-      </tr>
-    `).join('')
-    const paymentRows = Object.entries(paymentBreakdown).map(([method, total]) => `
-      <div class="line"><span>${escapeHtml(paymentLabel(method))}</span><strong>${money(total, currency)}</strong></div>
-    `).join('')
-    const expenseRows = closingSummary.expenses.map((expense) => `
-      <div class="line"><span>${escapeHtml(expense.name)}</span><strong>${money(Number(expense.amount || 0), currency)}</strong></div>
-    `).join('')
+  const printDailyClosing = async () => {
+    setPrintStatus('')
+    const cashierPrinter = settings.printers.cashier
+    if (!cashierPrinter?.isEnabled) {
+      setPrintStatus(isArabic ? 'فعّل طابعة الكاشير من الإعدادات قبل طباعة التقفيل.' : 'Enable the cashier printer in settings before printing the closing report.')
+      return
+    }
 
-    printWindow.document.write(`
-      <!doctype html>
-      <html dir="${isArabic ? 'rtl' : 'ltr'}" lang="${isArabic ? 'ar' : 'en'}">
-        <head>
-          <meta charset="utf-8" />
-          <title>${escapeHtml(title)} ${escapeHtml(closingDate)}</title>
-          <style>
-            * { box-sizing: border-box; }
-            body { margin: 0; padding: 22px; font-family: Arial, sans-serif; color: #111827; background: #fff; }
-            h1 { margin: 0; font-size: 24px; }
-            .muted { color: #64748b; font-size: 12px; }
-            .header { border-bottom: 2px solid #111827; padding-bottom: 12px; margin-bottom: 14px; }
-            .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0; }
-            .box { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; }
-            .label { color: #64748b; font-size: 12px; }
-            .value { margin-top: 5px; font-size: 18px; font-weight: 800; }
-            .line { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid #eef2f7; padding: 7px 0; }
-            table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
-            th, td { border-bottom: 1px solid #e5e7eb; padding: 7px; text-align: ${isArabic ? 'right' : 'left'}; }
-            @media print { body { padding: 10mm; } }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <h1>${escapeHtml(title)}</h1>
-            <p class="muted">${escapeHtml(closingDate)} - ${new Date().toLocaleString(locale)}</p>
-          </div>
-          <div class="grid">
-            <div class="box"><div class="label">${isArabic ? 'إجمالي المبيعات' : 'Sales total'}</div><div class="value">${money(closingSummary.revenue, currency)}</div></div>
-            <div class="box"><div class="label">${isArabic ? 'المصروفات' : 'Expenses'}</div><div class="value">${money(closingSummary.expenseTotal, currency)}</div></div>
-            <div class="box"><div class="label">${isArabic ? 'الصافي' : 'Net'}</div><div class="value">${money(closingSummary.net, currency)}</div></div>
-          </div>
-          <div class="box">
-            <h2>${isArabic ? 'طرق الدفع' : 'Payment methods'}</h2>
-            ${paymentRows || `<p class="muted">${isArabic ? 'لا توجد مدفوعات.' : 'No payments.'}</p>`}
-          </div>
-          <div class="box" style="margin-top: 10px;">
-            <h2>${isArabic ? 'المصروفات' : 'Expenses'}</h2>
-            ${expenseRows || `<p class="muted">${isArabic ? 'لا توجد مصروفات.' : 'No expenses.'}</p>`}
-          </div>
-          <div class="box" style="margin-top: 10px;">
-            <h2>${isArabic ? 'الطلبات' : 'Orders'}</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th>${isArabic ? 'رقم الطلب' : 'Order'}</th>
-                  <th>${isArabic ? 'العميل' : 'Customer'}</th>
-                  <th>${isArabic ? 'الدفع' : 'Payment'}</th>
-                  <th>${isArabic ? 'الإجمالي' : 'Total'}</th>
-                </tr>
-              </thead>
-              <tbody>${rows || ''}</tbody>
-            </table>
-          </div>
-          <script>
-            window.onload = () => {
-              window.print();
-              setTimeout(() => window.close(), 500);
-            };
-          </script>
-        </body>
-      </html>
-    `)
-    printWindow.document.close()
+    syncPrinterManagerSettings(settings.printers)
+    try {
+      const result = await printerManager.printCashierReceipt(createClosingReceiptPayload({
+        title: isArabic ? 'تقفيل يومي' : 'Daily Closing',
+        dateLabel: closingDate,
+        orders: closingSummary.orders,
+        expenses: closingSummary.expenses,
+        revenue: closingSummary.revenue,
+        expenseTotal: closingSummary.expenseTotal,
+        net: closingSummary.net,
+        paymentBreakdown,
+        paymentLabel,
+        currency,
+        isArabic,
+        invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
+        logoUrl: settings.invoiceLogo || settings.heroImage,
+      })) as { skipped?: boolean; reason?: string }
+
+      if (result?.skipped) {
+        setPrintStatus(result.reason || (isArabic ? 'لم يتم إرسال التقفيل لأن الطابعة غير مكتملة الإعداد.' : 'Closing report was not sent because the printer is not fully configured.'))
+        return
+      }
+      setPrintStatus(isArabic ? 'تم إرسال التقفيل إلى طابعة الكاشير.' : 'Closing report sent to the cashier printer.')
+    } catch (error) {
+      setPrintStatus(error instanceof Error ? error.message : (isArabic ? 'تعذر طباعة التقفيل.' : 'Could not print the closing report.'))
+    }
   }
 
   return (
@@ -412,6 +363,7 @@ export default function DashboardReportsPage() {
               </div>
             </div>
             <div className="space-y-4 p-4">
+              {printStatus && <p className="rounded-md bg-slate-100 p-3 text-sm dark:bg-slate-900">{printStatus}</p>}
               <div className="grid gap-3 md:grid-cols-3">
                 <SummaryPanel label={isArabic ? 'إجمالي المبيعات' : 'Sales Total'} value={money(closingSummary.revenue, currency)} />
                 <SummaryPanel label={isArabic ? 'المصروفات' : 'Expenses'} value={money(closingSummary.expenseTotal, currency)} />

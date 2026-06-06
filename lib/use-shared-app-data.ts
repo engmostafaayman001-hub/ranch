@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AppSettings, MenuCategory, MenuProduct, useAppStore } from '@/lib/app-store'
 
 type SharedAppData = {
@@ -14,10 +14,13 @@ export function useSharedAppData(options: { poll?: boolean } = {}) {
   const setSettings = useAppStore((state) => state.setSettings)
   const poll = options.poll ?? true
   const [loading, setLoading] = useState(true)
+  const loadingRef = useRef(false)
 
   useEffect(() => {
     let active = true
     const load = async () => {
+      if (loadingRef.current) return
+      loadingRef.current = true
       try {
         const response = await fetch('/api/app-data', { cache: 'no-store' })
         const data = (await response.json().catch(() => ({}))) as SharedAppData
@@ -30,6 +33,7 @@ export function useSharedAppData(options: { poll?: boolean } = {}) {
       } catch {
         // Keep local persisted data if the shared source is unavailable.
       } finally {
+        loadingRef.current = false
         if (active) setLoading(false)
       }
     }

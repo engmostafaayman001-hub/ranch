@@ -7,6 +7,13 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 const DATA_DIR = process.env.VERCEL ? '/tmp/ranch-data' : join(process.cwd(), 'data')
 const NOTIFICATIONS_FILE = join(DATA_DIR, 'notifications.json')
 const NOTIFICATIONS_KEY = 'notifications'
+const NOTIFICATIONS_CACHE_MS = 10000
+const SUPABASE_READ_TIMEOUT_MS = 2000
+const SUPABASE_COOLDOWN_MS = 45000
+
+let notificationsCache: { data: AppNotification[]; at: number } | null = null
+let notificationsReadPromise: Promise<AppNotification[]> | null = null
+let supabaseNotificationsCooldownUntil = 0
 
 function canUseSupabaseRuntimeTables() {
   return Boolean(
@@ -25,25 +32,71 @@ async function ensureDataFile() {
   }
 }
 
-export async function readServerNotifications(): Promise<AppNotification[]> {
-  if (canUseSupabaseRuntimeTables()) {
-    const supabase = createSupabaseAdminClient()
-    const { data, error } = await supabase
-      .from('app_data')
-      .select('data')
-      .eq('key', NOTIFICATIONS_KEY)
-      .maybeSingle()
-    if (!error && Array.isArray(data?.data)) return data.data as AppNotification[]
-  }
+function setNotificationsCache(notifications: AppNotification[]) {
+  notificationsCache = { data: notifications, at: Date.now() }
+}
 
+function isFreshNotificationsCache() {
+  return notificationsCache && Date.now() - notificationsCache.at < NOTIFICATIONS_CACHE_MS
+}
+
+function withTimeout<T>(promise: PromiseLike<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new Error(`Supabase notifications read timed out after ${ms}ms`)), ms)
+    }),
+  ])
+}
+
+async function readNotificationsFile() {
   await ensureDataFile()
   try {
     const raw = await readFile(NOTIFICATIONS_FILE, 'utf8')
     const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
+    return Array.isArray(parsed) ? parsed as AppNotification[] : []
   } catch {
     return []
   }
+}
+
+async function readServerNotificationsFresh(): Promise<AppNotification[]> {
+  if (canUseSupabaseRuntimeTables() && Date.now() >= supabaseNotificationsCooldownUntil) {
+    const supabase = createSupabaseAdminClient()
+    try {
+      const { data, error } = await withTimeout(
+        supabase
+          .from('app_data')
+          .select('data')
+          .eq('key', NOTIFICATIONS_KEY)
+          .maybeSingle(),
+        SUPABASE_READ_TIMEOUT_MS
+      )
+      if (!error && Array.isArray(data?.data)) {
+        const notifications = data.data as AppNotification[]
+        setNotificationsCache(notifications)
+        return notifications
+      }
+    } catch (error) {
+      console.warn('[server-notifications] Falling back after slow Supabase read:', error instanceof Error ? error.message : error)
+      supabaseNotificationsCooldownUntil = Date.now() + SUPABASE_COOLDOWN_MS
+    }
+  }
+
+  if (notificationsCache) return notificationsCache.data
+  const notifications = await readNotificationsFile()
+  setNotificationsCache(notifications)
+  return notifications
+}
+
+export async function readServerNotifications(): Promise<AppNotification[]> {
+  if (isFreshNotificationsCache()) return notificationsCache!.data
+  if (notificationsReadPromise) return notificationsReadPromise
+
+  notificationsReadPromise = readServerNotificationsFresh().finally(() => {
+    notificationsReadPromise = null
+  })
+  return notificationsReadPromise
 }
 
 async function writeServerNotifications(notifications: AppNotification[]) {
@@ -54,11 +107,15 @@ async function writeServerNotifications(notifications: AppNotification[]) {
       data: notifications,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'key' })
-    if (!error) return
+    if (!error) {
+      setNotificationsCache(notifications)
+      return
+    }
   }
 
   await ensureDataFile()
   await writeFile(NOTIFICATIONS_FILE, JSON.stringify(notifications, null, 2), 'utf8')
+  setNotificationsCache(notifications)
 }
 
 export async function createServerNotification(input: Pick<AppNotification, 'title' | 'message' | 'code' | 'discountType' | 'discountValue' | 'minSubtotal' | 'active' | 'expiresAt'>) {

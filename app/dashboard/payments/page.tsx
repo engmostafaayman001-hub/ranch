@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, Clock3, CreditCard, ExternalLink, ReceiptText, Wallet, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN, PAYMENT_METHOD_LABELS, PAYMENT_METHOD_LABELS_EN } from '@/lib/constants'
 import { PaymentStatus, TrackedOrder } from '@/lib/order-tracking'
+import { openReceiptViewer } from '@/lib/receipt-viewer'
 
 const statusStyles: Record<PaymentStatus, string> = {
   cash_on_delivery: 'bg-amber-600 text-white hover:bg-amber-600',
@@ -24,17 +25,21 @@ export default function DashboardPaymentsPage() {
   const locale = isArabic ? 'ar-EG' : 'en-US'
   const [orders, setOrders] = useState<TrackedOrder[]>([])
   const [loading, setLoading] = useState(true)
+  const loadingPayments = useRef(false)
 
   useEffect(() => {
     let mounted = true
     async function loadPayments() {
+      if (loadingPayments.current) return
+      loadingPayments.current = true
       try {
-        const response = await fetch('/api/pos/orders', { cache: 'no-store' })
+        const response = await fetch('/api/pos/orders?includeReceipts=1', { cache: 'no-store' })
         const data = await response.json().catch(() => ({}))
         if (mounted) setOrders(Array.isArray(data.orders) ? data.orders : [])
       } catch {
         if (mounted) setOrders([])
       } finally {
+        loadingPayments.current = false
         if (mounted) setLoading(false)
       }
     }
@@ -175,11 +180,9 @@ export default function DashboardPaymentsPage() {
                       <td className="py-3 font-semibold">{Number(order.total || 0).toFixed(2)} {currency}</td>
                       <td className="py-3">
                         {order.payment?.receiptDataUrl ? (
-                          <Button asChild size="sm" variant="outline">
-                            <a href={order.payment.receiptDataUrl} target="_blank" rel="noreferrer">
-                              <ExternalLink className="me-2 h-4 w-4" />
-                              {isArabic ? 'فتح الإيصال' : 'Open Receipt'}
-                            </a>
+                          <Button type="button" size="sm" variant="outline" onClick={() => openReceiptViewer(order.payment?.receiptDataUrl, `${isArabic ? 'إيصال الطلب' : 'Order receipt'} ${order.id}`)}>
+                            <ExternalLink className="me-2 h-4 w-4" />
+                            {isArabic ? 'فتح الإيصال' : 'Open Receipt'}
                           </Button>
                         ) : (
                           <span className="inline-flex items-center gap-2 text-slate-500">

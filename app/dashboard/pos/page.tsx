@@ -1,17 +1,18 @@
 'use client'
 
-import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { Printer, Minus, Plus, Search, ShoppingCart, Trash2 } from 'lucide-react'
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { Banknote, CreditCard, Printer, Minus, Plus, Search, ShoppingCart, Smartphone, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useLanguage } from '@/components/language-provider'
-import { CURRENCY, CURRENCY_EN, PAYMENT_METHODS, PAYMENT_METHOD_LABELS, PAYMENT_METHOD_LABELS_EN } from '@/lib/constants'
-import { MenuProduct, useAppStore } from '@/lib/app-store'
+import { CURRENCY, CURRENCY_EN, PAYMENT_METHOD_OPTIONS, PAYMENT_METHODS, PAYMENT_METHOD_LABELS, PAYMENT_METHOD_LABELS_EN } from '@/lib/constants'
+import { AppSettings, MenuProduct, useAppStore } from '@/lib/app-store'
 import { isDisplayableImage } from '@/lib/client-images'
-import { qrImage } from '@/lib/order-print'
 import { TrackedOrder } from '@/lib/order-tracking'
+import { printerManager, syncPrinterManagerSettings } from '@/lib/printer'
+import { createClosingReceiptPayload } from '@/lib/closing-print'
 import { useSharedAppData } from '@/lib/use-shared-app-data'
 
 type PosLine = {
@@ -51,6 +52,7 @@ export default function DashboardPosPage() {
   const [dailyExpenses, setDailyExpenses] = useState<Expense[]>([])
   const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHODS.CASH)
   const [orderType, setOrderType] = useState<PosOrderType>('dine_in')
+  const loadingDailyClosing = useRef(false)
   const [customer, setCustomer] = useState({
     name: isArabic ? 'عميل مطعم' : 'Restaurant Customer',
     phone: '',
@@ -59,6 +61,15 @@ export default function DashboardPosPage() {
   })
 
   const methodLabels = isArabic ? PAYMENT_METHOD_LABELS : PAYMENT_METHOD_LABELS_EN
+  const posPaymentLabel = (method: string) => {
+    if (method === PAYMENT_METHODS.CASH) return isArabic ? 'نقدي' : 'Cash'
+    return methodLabels[method as keyof typeof PAYMENT_METHOD_LABELS] || method
+  }
+  const posPaymentHint = (method: string, fallback: string) => {
+    if (method === PAYMENT_METHODS.CASH) return isArabic ? 'تحصيل نقدي مباشر من العميل.' : 'Direct cash payment from the customer.'
+    return fallback
+  }
+  const posPaymentLabels = { ...methodLabels, [PAYMENT_METHODS.CASH]: posPaymentLabel(PAYMENT_METHODS.CASH) }
   const orderTypeLabel = ORDER_TYPE_LABELS[orderType][isArabic ? 'ar' : 'en']
   const orderAddress = orderType === 'delivery' && customer.deliveryAddress.trim()
     ? `${orderTypeLabel} - ${customer.deliveryAddress.trim()}`
@@ -83,6 +94,8 @@ export default function DashboardPosPage() {
   useEffect(() => {
     let active = true
     const loadDailyClosingData = async () => {
+      if (loadingDailyClosing.current) return
+      loadingDailyClosing.current = true
       try {
         const [ordersResponse, expensesResponse] = await Promise.all([
           fetch('/api/pos/orders', { cache: 'no-store' }),
@@ -97,6 +110,8 @@ export default function DashboardPosPage() {
         if (!active) return
         setDailyOrders([])
         setDailyExpenses([])
+      } finally {
+        loadingDailyClosing.current = false
       }
     }
 
@@ -202,21 +217,37 @@ export default function DashboardPosPage() {
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.message || data.error || 'Could not create sale')
       setMessage(isArabic ? `تم البيع وإنشاء الطلب: ${data.order?.id || ''}` : `Sale completed and order created: ${data.order?.id || ''}`)
-      const printer = settings.printers.cashier
-      printReceipt({
+      syncPrinterManagerSettings(settings.printers)
+      const receiptPayload = {
         orderId: data.order?.id || '',
-        sale: saleSnapshot,
-        isArabic,
+        orderType: orderTypeLabel,
+        tableNumber: orderType === 'dine_in' ? customer.deliveryAddress || '1' : undefined,
+        createdAt: data.order?.createdAt || new Date().toISOString(),
+        customer: saleSnapshot.customer,
+        lines: saleSnapshot.items,
+        subtotal: saleSnapshot.subtotal,
+        tax: saleSnapshot.tax,
+        discountAmount: saleSnapshot.discountAmount,
+        total: saleSnapshot.total,
+        paymentMethod: posPaymentLabel(paymentMethod),
         currency,
-        paymentMethod: methodLabels[paymentMethod as keyof typeof PAYMENT_METHOD_LABELS] || paymentMethod,
-        printerMethod: printerMethodLabel(printer.method, isArabic),
-        printerName: printer.name,
-        paperWidth: printer.paperWidth || '80mm',
         invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
         invoiceQrUrl: settings.invoiceQrUrl,
         invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
-        printsQr: printer.printsQr,
-      })
+        logoUrl: settings.invoiceLogo || settings.heroImage,
+        isArabic,
+      }
+      const printResults = await Promise.allSettled([
+        printerManager.printCashierReceipt(receiptPayload),
+        printerManager.printKitchenTicket(receiptPayload),
+        ...(orderType === 'dine_in' ? [printerManager.printHallTicket(receiptPayload)] : []),
+      ])
+      const failedPrints = printResults.filter((result) => result.status === 'rejected')
+      if (failedPrints.length) {
+        setMessage(isArabic
+          ? `تم البيع وإنشاء الطلب، لكن فشل إرسال ${failedPrints.length} أمر طباعة. راجع إعدادات الطابعات.`
+          : `Sale completed, but ${failedPrints.length} print job(s) failed. Check printer settings.`)
+      }
       setLines([])
       setDiscountCode('')
       setDiscountAmount(0)
@@ -235,7 +266,7 @@ export default function DashboardPosPage() {
           <h2 className="text-xl font-bold">{isArabic ? 'نقطة البيع' : 'Point of Sale'}</h2>
           <p className="text-sm text-slate-500">{isArabic ? 'إتمام البيع وطباعة التقفيل اليومي من نفس الشاشة.' : 'Complete sales and print the daily closing from the same screen.'}</p>
         </div>
-        <Button type="button" variant="outline" className="gap-2" onClick={() => printPosDailyClosing({ orders: dailyOrders, expenses: dailyExpenses, isArabic, currency, paymentLabels: methodLabels })}>
+        <Button type="button" variant="outline" className="gap-2" onClick={() => printPosDailyClosing({ orders: dailyOrders, expenses: dailyExpenses, isArabic, currency, paymentLabels: posPaymentLabels, settings, setMessage })}>
           <Printer className="h-4 w-4" />
           {isArabic ? 'طباعة تقفيل اليوم' : 'Print Daily Closing'}
         </Button>
@@ -331,12 +362,27 @@ export default function DashboardPosPage() {
             </div>
 
             <div>
-              <Label htmlFor="payment-method">{isArabic ? 'طريقة الدفع' : 'Payment method'}</Label>
-              <select id="payment-method" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950">
-                {Object.values(PAYMENT_METHODS).map((method) => (
-                  <option key={method} value={method}>{methodLabels[method as keyof typeof PAYMENT_METHOD_LABELS]}</option>
-                ))}
-              </select>
+              <Label>{isArabic ? 'طريقة الدفع' : 'Payment method'}</Label>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {PAYMENT_METHOD_OPTIONS.map((option) => {
+                  const selected = paymentMethod === option.value
+                  const Icon = option.value === PAYMENT_METHODS.CASH ? Banknote : option.value === PAYMENT_METHODS.CARD ? CreditCard : Smartphone
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setPaymentMethod(option.value)}
+                      className={`rounded-md border p-3 text-start transition ${selected ? 'border-red-500 bg-red-50 ring-1 ring-red-500 dark:bg-red-950/30' : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950'}`}
+                    >
+                      <span className="flex items-center gap-2 text-sm font-semibold">
+                        <Icon className="h-4 w-4 text-red-600" />
+                        {posPaymentLabel(option.value)}
+                      </span>
+                      <span className="mt-1 block text-xs text-slate-500">{posPaymentHint(option.value, isArabic ? option.arHint : option.enHint)}</span>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
 
             <div className="space-y-2 rounded-md bg-slate-50 p-3 text-sm dark:bg-slate-900">
@@ -359,27 +405,22 @@ export default function DashboardPosPage() {
   )
 }
 
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
-}
-
-function printPosDailyClosing({
+async function printPosDailyClosing({
   orders,
   expenses,
   isArabic,
   currency,
   paymentLabels,
+  settings,
+  setMessage,
 }: {
   orders: TrackedOrder[]
   expenses: Expense[]
   isArabic: boolean
   currency: string
   paymentLabels: Record<string, string>
+  settings: AppSettings
+  setMessage: (message: string) => void
 }) {
   const today = new Date()
   const start = new Date(today)
@@ -401,201 +442,41 @@ function printPosDailyClosing({
     totals[method] = (totals[method] || 0) + Number(order.total || 0)
     return totals
   }, {})
-  const title = isArabic ? 'تقفيل يومي - نقطة البيع' : 'Daily Closing - POS'
-  const money = (value: number) => `${Number(value || 0).toFixed(2)} ${currency}`
-  const paymentRows = Object.entries(payments).map(([method, total]) => `
-    <div class="line"><span>${escapeHtml(paymentLabels[method] || method)}</span><strong>${money(total)}</strong></div>
-  `).join('')
-  const expenseRows = dayExpenses.map((expense) => `
-    <div class="line"><span>${escapeHtml(expense.name)}</span><strong>${money(Number(expense.amount || 0))}</strong></div>
-  `).join('')
-  const orderRows = dayOrders.map((order) => `
-    <tr>
-      <td>${escapeHtml(order.id)}</td>
-      <td>${escapeHtml(order.customer || '-')}</td>
-      <td>${escapeHtml(paymentLabels[order.payment?.method || 'cash'] || order.payment?.method || 'cash')}</td>
-      <td>${money(Number(order.total || 0))}</td>
-    </tr>
-  `).join('')
-  const printWindow = window.open('', '_blank', 'width=720,height=860')
-  if (!printWindow) return
-  printWindow.document.write(`
-    <!doctype html>
-    <html dir="${isArabic ? 'rtl' : 'ltr'}" lang="${isArabic ? 'ar' : 'en'}">
-      <head>
-        <meta charset="utf-8" />
-        <title>${escapeHtml(title)}</title>
-        <style>
-          * { box-sizing: border-box; }
-          body { margin: 0; padding: 20px; font-family: Arial, sans-serif; color: #111827; background: #fff; }
-          h1 { margin: 0; font-size: 24px; }
-          h2 { font-size: 16px; margin: 0 0 8px; }
-          .muted { color: #64748b; font-size: 12px; }
-          .header { border-bottom: 2px solid #111827; padding-bottom: 12px; margin-bottom: 14px; }
-          .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0; }
-          .box { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; margin-top: 10px; }
-          .label { color: #64748b; font-size: 12px; }
-          .value { margin-top: 5px; font-size: 18px; font-weight: 800; }
-          .line { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid #eef2f7; padding: 7px 0; }
-          table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
-          th, td { border-bottom: 1px solid #e5e7eb; padding: 7px; text-align: ${isArabic ? 'right' : 'left'}; }
-          @media print { body { padding: 10mm; } }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <h1>${escapeHtml(title)}</h1>
-          <p class="muted">${new Date().toLocaleString(isArabic ? 'ar-EG' : 'en-US')}</p>
-        </div>
-        <div class="grid">
-          <div class="box"><div class="label">${isArabic ? 'إجمالي المبيعات' : 'Sales total'}</div><div class="value">${money(revenue)}</div></div>
-          <div class="box"><div class="label">${isArabic ? 'المصروفات' : 'Expenses'}</div><div class="value">${money(expenseTotal)}</div></div>
-          <div class="box"><div class="label">${isArabic ? 'الصافي' : 'Net'}</div><div class="value">${money(net)}</div></div>
-        </div>
-        <div class="box"><h2>${isArabic ? 'طرق الدفع' : 'Payment methods'}</h2>${paymentRows || `<p class="muted">${isArabic ? 'لا توجد مدفوعات.' : 'No payments.'}</p>`}</div>
-        <div class="box"><h2>${isArabic ? 'المصروفات' : 'Expenses'}</h2>${expenseRows || `<p class="muted">${isArabic ? 'لا توجد مصروفات.' : 'No expenses.'}</p>`}</div>
-        <div class="box">
-          <h2>${isArabic ? 'طلبات اليوم' : 'Today orders'}</h2>
-          <table>
-            <thead><tr><th>${isArabic ? 'الطلب' : 'Order'}</th><th>${isArabic ? 'العميل' : 'Customer'}</th><th>${isArabic ? 'الدفع' : 'Payment'}</th><th>${isArabic ? 'الإجمالي' : 'Total'}</th></tr></thead>
-            <tbody>${orderRows}</tbody>
-          </table>
-        </div>
-        <script>
-          window.onload = () => {
-            window.print();
-            setTimeout(() => window.close(), 500);
-          };
-        </script>
-      </body>
-    </html>
-  `)
-  printWindow.document.close()
-}
-
-function printReceipt(options: {
-  orderId: string
-  sale: {
-    customer: { name: string; phone: string; address: string; notes: string }
-    orderType: string
-    items: { name: string; quantity: number; price: number }[]
-    subtotal: number
-    tax: number
-    discountAmount: number
-    total: number
+  const cashierPrinter = settings.printers.cashier
+  if (!cashierPrinter?.isEnabled) {
+    setMessage(isArabic ? 'فعّل طابعة الكاشير من الإعدادات قبل طباعة تقفيل اليوم.' : 'Enable the cashier printer in settings before printing the daily closing.')
+    return
   }
-  isArabic: boolean
-  currency: string
-  paymentMethod: string
-  printerMethod: string
-  printerName: string
-  paperWidth: string
-  invoiceName: string
-  invoiceQrUrl: string
-  invoiceMessage: string
-  printsQr: boolean
-}) {
-  const { orderId, sale, isArabic, currency, paymentMethod, printerMethod, printerName, invoiceName, invoiceQrUrl, invoiceMessage, printsQr } = options
-  const direction = isArabic ? 'rtl' : 'ltr'
-  const width = options.paperWidth === '58mm' ? '58mm' : '80mm'
-  const qrSrc = printsQr ? qrImage(invoiceQrUrl) : ''
-  const rows = sale.items.map((item) => `
-    <tr>
-      <td>${escapeHtml(item.name)}</td>
-      <td>${item.quantity}</td>
-      <td>${item.price.toFixed(2)} ${currency}</td>
-      <td>${(item.price * item.quantity).toFixed(2)} ${currency}</td>
-    </tr>
-  `).join('')
-  const notes = sale.customer.notes
-    ? `<div class="note"><strong>${isArabic ? 'الملاحظات' : 'Notes'}:</strong> ${escapeHtml(sale.customer.notes)}</div>`
-    : ''
-  const receiptWindow = window.open('', '_blank', 'width=420,height=720')
-  if (!receiptWindow) return
-  receiptWindow.document.write(`
-    <!doctype html>
-    <html dir="${direction}" lang="${isArabic ? 'ar' : 'en'}">
-      <head>
-        <meta charset="utf-8" />
-        <title>${isArabic ? 'فاتورة بيع' : 'Sale Receipt'} ${escapeHtml(orderId)}</title>
-        <style>
-          * { box-sizing: border-box; }
-          body { font-family: Arial, sans-serif; margin: 0; padding: 18px; color: #111827; background: #fff; }
-          .receipt { max-width: ${width}; margin: 0 auto; }
-          .brand { text-align: center; border-bottom: 1px dashed #cbd5e1; padding-bottom: 10px; margin-bottom: 10px; }
-          h1 { margin: 0 0 4px; font-size: 22px; text-align: center; }
-          .muted { color: #64748b; font-size: 12px; text-align: center; margin-bottom: 14px; }
-          .meta, .totals, .note { border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; margin: 10px 0; font-size: 13px; }
-          table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 12px; }
-          th, td { border-bottom: 1px solid #e2e8f0; padding: 7px 4px; text-align: ${isArabic ? 'right' : 'left'}; }
-          .line { display: flex; justify-content: space-between; gap: 12px; margin: 6px 0; }
-          .total { font-weight: 800; font-size: 16px; border-top: 1px solid #e2e8f0; padding-top: 8px; }
-          .qr { display: flex; justify-content: center; margin: 12px 0 6px; }
-          .qr img { width: 100px; height: 100px; }
-          .message { border-top: 1px dashed #cbd5e1; margin-top: 12px; padding-top: 10px; text-align: center; font-size: 12px; color: #334155; }
-          @media print { @page { size: ${width} auto; margin: 4mm; } body { padding: 0; } .receipt { max-width: none; } }
-        </style>
-      </head>
-      <body>
-        <div class="receipt">
-          <div class="brand">
-            <h1>${escapeHtml(invoiceName || (isArabic ? 'فاتورة بيع' : 'Sale Receipt'))}</h1>
-            <div class="muted">${isArabic ? 'فاتورة بيع' : 'Sale Receipt'}</div>
-          </div>
-          <div class="muted">${escapeHtml(orderId)} - ${new Date().toLocaleString(isArabic ? 'ar-EG' : 'en-US')}</div>
-          <div class="meta">
-            <div>${isArabic ? 'العميل' : 'Customer'}: ${escapeHtml(sale.customer.name || '-')}</div>
-            <div>${isArabic ? 'الهاتف' : 'Phone'}: ${escapeHtml(sale.customer.phone || '-')}</div>
-            <div>${isArabic ? 'نوع الطلب' : 'Order type'}: ${escapeHtml(sale.orderType)}</div>
-            <div>${isArabic ? 'المكان' : 'Place'}: ${escapeHtml(sale.customer.address || '-')}</div>
-            <div>${isArabic ? 'الدفع' : 'Payment'}: ${escapeHtml(paymentMethod)}</div>
-          </div>
-          ${notes}
-          <table>
-            <thead>
-              <tr>
-                <th>${isArabic ? 'الصنف' : 'Item'}</th>
-                <th>${isArabic ? 'كمية' : 'Qty'}</th>
-                <th>${isArabic ? 'سعر' : 'Price'}</th>
-                <th>${isArabic ? 'إجمالي' : 'Total'}</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
-          <div class="totals">
-            <div class="line"><span>${isArabic ? 'المجموع' : 'Subtotal'}</span><span>${sale.subtotal.toFixed(2)} ${currency}</span></div>
-            <div class="line"><span>${isArabic ? 'الضريبة' : 'Tax'}</span><span>${sale.tax.toFixed(2)} ${currency}</span></div>
-            <div class="line"><span>${isArabic ? 'الخصم' : 'Discount'}</span><span>-${sale.discountAmount.toFixed(2)} ${currency}</span></div>
-            <div class="line total"><span>${isArabic ? 'الإجمالي' : 'Total'}</span><span>${sale.total.toFixed(2)} ${currency}</span></div>
-          </div>
-          ${qrSrc ? `<div class="qr"><img src="${qrSrc}" alt="QR" /></div>` : ''}
-          ${invoiceMessage ? `<div class="message">${escapeHtml(invoiceMessage)}</div>` : ''}
-          <div class="muted">${escapeHtml(printerName || '')}${printerName ? ' - ' : ''}${isArabic ? 'طريقة الطباعة' : 'Printer method'}: ${escapeHtml(printerMethod)}</div>
-        </div>
-        <script>
-          window.onload = () => {
-            window.print();
-            setTimeout(() => window.close(), 500);
-          };
-        </script>
-      </body>
-    </html>
-  `)
-  receiptWindow.document.close()
+
+  syncPrinterManagerSettings(settings.printers)
+  try {
+    const result = await printerManager.printCashierReceipt(createClosingReceiptPayload({
+      title: isArabic ? 'تقفيل يومي - نقطة البيع' : 'Daily Closing - POS',
+      dateLabel: today.toISOString().slice(0, 10),
+      orders: dayOrders,
+      expenses: dayExpenses,
+      revenue,
+      expenseTotal,
+      net,
+      paymentBreakdown: payments,
+      paymentLabel: (method) => paymentLabels[method] || method,
+      currency,
+      isArabic,
+      invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
+      logoUrl: settings.invoiceLogo || settings.heroImage,
+    })) as { skipped?: boolean; reason?: string }
+    if (result?.skipped) {
+      setMessage(result.reason || (isArabic ? 'لم يتم إرسال التقفيل لأن الطابعة غير مكتملة الإعداد.' : 'Closing report was not sent because the printer is not fully configured.'))
+      return
+    }
+    setMessage(isArabic ? 'تم إرسال تقفيل اليوم إلى طابعة الكاشير.' : 'Daily closing sent to the cashier printer.')
+  } catch (error) {
+    setMessage(error instanceof Error ? error.message : (isArabic ? 'تعذر طباعة تقفيل اليوم.' : 'Could not print the daily closing.'))
+  }
 }
 
 function Line({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return <div className={`flex justify-between ${strong ? 'text-lg font-bold' : ''}`}><span>{label}</span><span>{value}</span></div>
-}
-
-function printerMethodLabel(method: string | undefined, isArabic: boolean) {
-  const labels: Record<string, { ar: string; en: string }> = {
-    browser: { ar: 'طباعة المتصفح', en: 'Browser print' },
-    usb: { ar: 'USB', en: 'USB' },
-    bluetooth: { ar: 'Bluetooth', en: 'Bluetooth' },
-    network: { ar: 'شبكة / IP', en: 'Network / IP' },
-  }
-  return labels[method || 'browser']?.[isArabic ? 'ar' : 'en'] || method || labels.browser[isArabic ? 'ar' : 'en']
 }
 
 function Field({ id, label, value, onChange, type = 'text' }: { id: string; label: string; value: string; onChange: (value: string) => void; type?: string }) {

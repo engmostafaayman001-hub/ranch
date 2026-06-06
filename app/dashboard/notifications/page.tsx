@@ -1,14 +1,14 @@
 'use client'
 
 import { FormEvent, useEffect, useState } from 'react'
-import { Copy } from 'lucide-react'
+import { Check, Copy } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useLanguage } from '@/components/language-provider'
-import { AppNotification } from '@/lib/notifications'
+import { AppNotification, getReadNotificationIds, markNotificationsRead } from '@/lib/notifications'
 
 const emptyForm = {
   title: '',
@@ -28,6 +28,7 @@ export default function DashboardNotificationsPage() {
   const [status, setStatus] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [notifications, setNotifications] = useState<AppNotification[]>([])
+  const [readIds, setReadIds] = useState<string[]>([])
   const [form, setForm] = useState(emptyForm)
 
   const loadNotifications = async () => {
@@ -38,6 +39,7 @@ export default function DashboardNotificationsPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      setReadIds(getReadNotificationIds())
       loadNotifications().catch(() => setNotifications([]))
     }, 0)
     return () => window.clearTimeout(timer)
@@ -77,6 +79,12 @@ export default function DashboardNotificationsPage() {
   const copyCode = async (code: string) => {
     await navigator.clipboard.writeText(code)
     setStatus(isArabic ? `تم نسخ الكود ${code}` : `Code ${code} copied`)
+  }
+
+  const markRead = (id: string) => {
+    markNotificationsRead([id])
+    setReadIds(getReadNotificationIds())
+    setStatus(isArabic ? 'تم وضع الإشعار كمقروء.' : 'Notification marked as read.')
   }
 
   return (
@@ -140,20 +148,33 @@ export default function DashboardNotificationsPage() {
             <p className="py-8 text-center text-slate-500">{isArabic ? 'لا توجد عروض أو إشعارات محفوظة بعد.' : 'No saved offers or notifications yet.'}</p>
           ) : (
             <div className="space-y-3">
-              {notifications.map((notification) => (
-                <div key={notification.id} className="rounded-md border p-4 dark:border-slate-800">
+              {notifications.map((notification) => {
+                const isRead = readIds.includes(notification.id)
+                return (
+                <div key={notification.id} className={`rounded-md border p-4 dark:border-slate-800 ${isRead ? 'bg-slate-50/70 dark:bg-slate-900/40' : 'bg-white dark:bg-slate-950'}`}>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <p className="font-semibold">{notification.title}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold">{notification.title}</p>
+                        {isRead && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">{isArabic ? 'مقروء' : 'Read'}</span>}
+                      </div>
                       <p className="mt-1 text-sm text-slate-500">{notification.message}</p>
                       <p className="mt-2 text-xs text-slate-500">{new Date(notification.createdAt).toLocaleString(isArabic ? 'ar-EG' : 'en-US')}</p>
                     </div>
-                    {notification.code && (
-                      <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => copyCode(notification.code!)}>
-                        <Copy className="h-4 w-4" />
-                        {notification.code}
-                      </Button>
-                    )}
+                    <div className="flex flex-wrap gap-2">
+                      {!isRead && (
+                        <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => markRead(notification.id)}>
+                          <Check className="h-4 w-4" />
+                          {isArabic ? 'كمقروء' : 'Mark read'}
+                        </Button>
+                      )}
+                      {notification.code && (
+                        <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => copyCode(notification.code!)}>
+                          <Copy className="h-4 w-4" />
+                          {notification.code}
+                        </Button>
+                      )}
+                    </div>
                   </div>
                   {notification.code && (
                     <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
@@ -163,7 +184,7 @@ export default function DashboardNotificationsPage() {
                     </div>
                   )}
                 </div>
-              ))}
+              )})}
             </div>
           )}
         </CardContent>

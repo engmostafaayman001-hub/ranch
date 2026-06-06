@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CreditCard, ExternalLink, Printer, ReceiptText, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -14,9 +14,10 @@ import {
   PAYMENT_METHOD_LABELS,
   PAYMENT_METHOD_LABELS_EN,
 } from '@/lib/constants'
-import { useAppStore } from '@/lib/app-store'
-import { printTrackedOrderReceipt } from '@/lib/order-print'
+import { PrinterRole, useAppStore } from '@/lib/app-store'
 import { TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
+import { printerManager, syncPrinterManagerSettings, trackedOrderToReceiptPayload } from '@/lib/printer'
+import { openReceiptViewer } from '@/lib/receipt-viewer'
 
 const statuses: TrackingStatus[] = ['placed', 'confirmed', 'preparing', 'ready_for_delivery', 'out_for_delivery', 'delivered', 'received', 'cancelled']
 
@@ -31,9 +32,12 @@ export default function DashboardOrdersPage() {
   const [message, setMessage] = useState('')
   const [driverSelections, setDriverSelections] = useState<Record<string, string>>({})
   const [dashboardRole, setDashboardRole] = useState<string | null>(null)
+  const loadingOrders = useRef(false)
   const isDeliveryUser = dashboardRole === 'delivery'
 
   const loadOrders = async () => {
+    if (loadingOrders.current) return
+    loadingOrders.current = true
     try {
       const response = await fetch('/api/pos/orders', { cache: 'no-store' })
       const data = await response.json().catch(() => ({}))
@@ -41,6 +45,7 @@ export default function DashboardOrdersPage() {
     } catch {
       setOrders([])
     } finally {
+      loadingOrders.current = false
       setLoading(false)
     }
   }
@@ -160,25 +165,59 @@ export default function DashboardOrdersPage() {
     return labels[status || ''] || status || (isArabic ? 'غير محدد' : 'Not specified')
   }
 
-  const printOrder = (order: TrackedOrder) => {
-    const printer = settings.printers.cashier
-    const opened = printTrackedOrderReceipt(order, {
-      isArabic,
-      currency,
-      title: isArabic ? 'فاتورة طلب التطبيق' : 'App Order Receipt',
-      printerMethod: printerMethodLabel(printer.method, isArabic),
-      printerName: printer.name,
-      paperWidth: printer.paperWidth,
-      invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
-      invoiceQrUrl: settings.invoiceQrUrl,
-      invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
-      printsMainInvoice: printer.printsMainInvoice,
-      printsQr: printer.printsQr,
-    })
-    if (!opened) setMessage(isArabic ? 'المتصفح منع نافذة الطباعة. اسمح بالنوافذ المنبثقة ثم حاول مرة أخرى.' : 'The browser blocked the print window. Allow popups and try again.')
+  const createPrintPayload = useCallback((order: TrackedOrder) => trackedOrderToReceiptPayload(order, {
+    isArabic,
+    currency,
+    invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
+    invoiceQrUrl: settings.invoiceQrUrl,
+    invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
+    logoUrl: settings.invoiceLogo || settings.heroImage,
+  }), [currency, isArabic, settings.heroImage, settings.invoiceLogo, settings.invoiceNameAr, settings.invoiceNameEn, settings.invoiceQrUrl, settings.invoiceWelcomeAr, settings.invoiceWelcomeEn])
+
+  const isPrinterAvailable = (role: PrinterRole) => {
+    const printer = settings.printers[role]
+    return printer?.isEnabled === true
   }
 
-  const appOrders = orders.filter((order) => order.source !== 'restaurant_pos')
+  const printOrder = async (order: TrackedOrder, role: PrinterRole) => {
+    syncPrinterManagerSettings(settings.printers)
+    try {
+      const payload = createPrintPayload(order)
+      if (role === 'cashier') await printerManager.printCashierReceipt(payload)
+      if (role === 'kitchen') await printerManager.printKitchenTicket(payload)
+      if (role === 'hall') await printerManager.printHallTicket(payload)
+      const label = role === 'cashier'
+        ? (isArabic ? 'فاتورة الكاشير' : 'cashier receipt')
+        : role === 'kitchen'
+          ? (isArabic ? 'فاتورة المطبخ' : 'kitchen ticket')
+          : (isArabic ? 'فاتورة الصالة' : 'hall ticket')
+      setMessage(isArabic ? `تم إرسال ${label} للطابعة.` : `${label} sent to printer.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : (isArabic ? 'تعذر إرسال أمر الطباعة للطابعة.' : 'Could not send print job to printer.'))
+    }
+  }
+
+  const openOrderReceipt = async (order: TrackedOrder) => {
+    if (order.payment?.receiptDataUrl) {
+      openReceiptViewer(order.payment.receiptDataUrl, `${isArabic ? 'إيصال الطلب' : 'Order receipt'} ${order.id}`)
+      return
+    }
+
+    setMessage('')
+    try {
+      const response = await fetch(`/api/pos/orders?orderId=${encodeURIComponent(order.id)}&includeReceipts=1`, { cache: 'no-store' })
+      const data = await response.json().catch(() => ({}))
+      const receipt = Array.isArray(data.orders) ? data.orders[0]?.payment?.receiptDataUrl : undefined
+      if (!receipt) {
+        setMessage(isArabic ? 'لا يوجد ملف إيصال محفوظ لهذا الطلب.' : 'No receipt file is saved for this order.')
+        return
+      }
+      openReceiptViewer(receipt, `${isArabic ? 'إيصال الطلب' : 'Order receipt'} ${order.id}`)
+    } catch {
+      setMessage(isArabic ? 'تعذر تحميل الإيصال.' : 'Could not load the receipt.')
+    }
+  }
+  const appOrders = useMemo(() => orders.filter((order) => order.source !== 'restaurant_pos'), [orders])
 
   return (
     <div className="space-y-6">
@@ -215,9 +254,17 @@ export default function DashboardOrdersPage() {
                     </div>
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
-                    {!isDeliveryUser && <Button size="sm" variant="outline" className="gap-2" onClick={() => printOrder(order)}>
+                    {!isDeliveryUser && <Button size="sm" variant="outline" className="gap-2" disabled={!isPrinterAvailable('cashier')} title={!isPrinterAvailable('cashier') ? (isArabic ? 'فعّل طابعة الكاشير من الإعدادات' : 'Enable cashier printer in settings') : undefined} onClick={() => printOrder(order, 'cashier')}>
                       <Printer className="h-4 w-4" />
-                      {isArabic ? 'طباعة' : 'Print'}
+                      {isArabic ? 'فاتورة الكاشير' : 'Cashier'}
+                    </Button>}
+                    {!isDeliveryUser && <Button size="sm" variant="outline" className="gap-2" disabled={!isPrinterAvailable('kitchen')} title={!isPrinterAvailable('kitchen') ? (isArabic ? 'فعّل طابعة المطبخ من الإعدادات' : 'Enable kitchen printer in settings') : undefined} onClick={() => printOrder(order, 'kitchen')}>
+                      <ReceiptText className="h-4 w-4" />
+                      {isArabic ? 'فاتورة المطبخ' : 'Kitchen'}
+                    </Button>}
+                    {!isDeliveryUser && <Button size="sm" variant="outline" className="gap-2" disabled={!isPrinterAvailable('hall')} title={!isPrinterAvailable('hall') ? (isArabic ? 'فعّل طابعة الصالة من الإعدادات' : 'Enable hall printer in settings') : undefined} onClick={() => printOrder(order, 'hall')}>
+                      <ReceiptText className="h-4 w-4" />
+                      {isArabic ? 'فاتورة الصالة' : 'Hall'}
                     </Button>}
                     {statuses.map((status) => (
                       <Button key={status} size="sm" variant={order.status === status ? 'default' : 'outline'} onClick={() => updateStatus(order.id, status)}>
@@ -242,12 +289,10 @@ export default function DashboardOrdersPage() {
                         </p>
                       )}
                     </div>
-                    {order.payment?.receiptDataUrl ? (
-                      <Button asChild type="button" variant="outline">
-                        <a href={order.payment.receiptDataUrl} target="_blank" rel="noreferrer">
-                          <ExternalLink className="me-2 h-4 w-4" />
-                          {isArabic ? 'فتح الإيصال' : 'Open Receipt'}
-                        </a>
+                    {order.payment?.receiptDataUrl || order.payment?.receiptName || order.payment?.receiptUploadedAt ? (
+                      <Button type="button" variant="outline" onClick={() => openOrderReceipt(order)}>
+                        <ExternalLink className="me-2 h-4 w-4" />
+                        {isArabic ? 'فتح الإيصال' : 'Open Receipt'}
                       </Button>
                     ) : (
                       <span className="inline-flex items-center gap-2 self-center text-sm text-slate-500">
@@ -282,14 +327,4 @@ export default function DashboardOrdersPage() {
       </Card>
     </div>
   )
-}
-
-function printerMethodLabel(method: string | undefined, isArabic: boolean) {
-  const labels: Record<string, { ar: string; en: string }> = {
-    browser: { ar: 'طباعة المتصفح', en: 'Browser print' },
-    usb: { ar: 'USB', en: 'USB' },
-    bluetooth: { ar: 'Bluetooth', en: 'Bluetooth' },
-    network: { ar: 'شبكة / IP', en: 'Network / IP' },
-  }
-  return labels[method || 'browser']?.[isArabic ? 'ar' : 'en'] || method || labels.browser[isArabic ? 'ar' : 'en']
 }

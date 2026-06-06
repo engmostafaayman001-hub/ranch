@@ -5,6 +5,13 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 
 const DATA_DIR = process.env.VERCEL ? '/tmp/ranch-data' : join(process.cwd(), 'data')
 const ORDERS_FILE = join(DATA_DIR, 'orders.json')
+const ORDERS_CACHE_MS = 7000
+const SUPABASE_READ_TIMEOUT_MS = 2500
+const SUPABASE_COOLDOWN_MS = 60000
+
+let ordersCache: { data: TrackedOrder[]; at: number } | null = null
+let ordersReadPromise: Promise<TrackedOrder[]> | null = null
+let supabaseOrdersCooldownUntil = 0
 
 function canUseSupabaseRuntimeTables() {
   return Boolean(
@@ -27,26 +34,81 @@ async function ensureDataFile() {
   }
 }
 
-export async function readServerOrders(): Promise<TrackedOrder[]> {
-  if (canUseSupabaseRuntimeTables()) {
-    const supabase = createSupabaseAdminClient()
-    const { data, error } = await supabase
-      .from('app_orders')
-      .select('data')
-      .order('created_at', { ascending: false })
+function isFreshCache() {
+  return ordersCache && Date.now() - ordersCache.at < ORDERS_CACHE_MS
+}
 
-    if (!error && Array.isArray(data)) {
-      return data.map(normalizeOrder)
-    }
-  }
+function setOrdersCache(orders: TrackedOrder[]) {
+  ordersCache = { data: orders, at: Date.now() }
+}
 
+function withTimeout<T>(promise: PromiseLike<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new Error(`Supabase orders read timed out after ${ms}ms`)), ms)
+    }),
+  ])
+}
+
+async function readOrdersFile() {
   await ensureDataFile()
   try {
     const raw = await readFile(ORDERS_FILE, 'utf8')
     const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
+    return Array.isArray(parsed) ? parsed as TrackedOrder[] : []
   } catch {
     return []
+  }
+}
+
+async function readServerOrdersFresh(): Promise<TrackedOrder[]> {
+  if (canUseSupabaseRuntimeTables() && Date.now() >= supabaseOrdersCooldownUntil) {
+    const supabase = createSupabaseAdminClient()
+    try {
+      const { data, error } = await withTimeout(
+        supabase
+          .from('app_orders')
+          .select('data')
+          .order('created_at', { ascending: false }),
+        SUPABASE_READ_TIMEOUT_MS
+      )
+
+      if (!error && Array.isArray(data)) {
+        const orders = data.map(normalizeOrder)
+        setOrdersCache(orders)
+        return orders
+      }
+    } catch (error) {
+      console.warn('[server-orders] Falling back after slow Supabase read:', error instanceof Error ? error.message : error)
+      supabaseOrdersCooldownUntil = Date.now() + SUPABASE_COOLDOWN_MS
+    }
+  }
+
+  if (ordersCache) return ordersCache.data
+  const orders = await readOrdersFile()
+  setOrdersCache(orders)
+  return orders
+}
+
+export async function readServerOrders(): Promise<TrackedOrder[]> {
+  if (isFreshCache()) return ordersCache!.data
+  if (ordersReadPromise) return ordersReadPromise
+
+  ordersReadPromise = readServerOrdersFresh().finally(() => {
+    ordersReadPromise = null
+  })
+  return ordersReadPromise
+}
+
+export function stripHeavyOrderFields(order: TrackedOrder, options: { includeReceipts?: boolean } = {}) {
+  if (options.includeReceipts || !order.payment?.receiptDataUrl) return order
+  return {
+    ...order,
+    payment: {
+      ...order.payment,
+      receiptDataUrl: undefined,
+    },
   }
 }
 
@@ -63,11 +125,15 @@ export async function writeServerOrders(orders: TrackedOrder[]) {
       updated_at: new Date().toISOString(),
     }))
     const { error } = await supabase.from('app_orders').upsert(rows, { onConflict: 'id' })
-    if (!error) return
+    if (!error) {
+      setOrdersCache(orders)
+      return
+    }
   }
 
   await ensureDataFile()
   await writeFile(ORDERS_FILE, JSON.stringify(orders, null, 2), 'utf8')
+  setOrdersCache(orders)
 }
 
 export async function upsertServerOrder(order: TrackedOrder) {
@@ -83,7 +149,11 @@ export async function upsertServerOrder(order: TrackedOrder) {
       updated_at: new Date().toISOString(),
     }, { onConflict: 'id' })
 
-    if (!error) return order
+    if (!error) {
+      const current = ordersCache?.data || []
+      setOrdersCache([order, ...current.filter((item) => item.id !== order.id)])
+      return order
+    }
   }
 
   const orders = await readServerOrders()
@@ -96,7 +166,10 @@ export async function deleteServerOrder(orderId: string) {
   if (canUseSupabaseRuntimeTables()) {
     const supabase = createSupabaseAdminClient()
     const { error } = await supabase.from('app_orders').delete().eq('id', orderId)
-    if (!error) return true
+    if (!error) {
+      if (ordersCache) setOrdersCache(ordersCache.data.filter((order) => order.id.toLowerCase() !== orderId.toLowerCase()))
+      return true
+    }
   }
 
   const orders = await readServerOrders()

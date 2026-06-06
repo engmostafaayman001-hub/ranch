@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { Banknote, CreditCard, Smartphone } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { FileInput } from '@/components/ui/file-input'
@@ -10,7 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Logo } from '@/components/logo'
 import { useLanguage } from '@/components/language-provider'
-import { CURRENCY, CURRENCY_EN, PAYMENT_METHOD_LABELS, PAYMENT_METHOD_LABELS_EN, PAYMENT_METHODS, ROUTES } from '@/lib/constants'
+import { CURRENCY, CURRENCY_EN, PAYMENT_METHOD_OPTIONS, PAYMENT_METHODS, ROUTES } from '@/lib/constants'
 import { useAppStore } from '@/lib/app-store'
 import { createTrackedOrder, PaymentStatus, TrackingStatus } from '@/lib/order-tracking'
 import { useAuthStore } from '@/lib/store'
@@ -67,7 +68,8 @@ export default function CheckoutPage() {
   const deliveryFee = subtotal > 0 ? settings.deliveryFee : 0
   const discountAmount = Math.min(subtotal, appliedDiscount?.discountAmount || 0)
   const total = Math.max(0, subtotal + tax + deliveryFee - discountAmount)
-  const requiresReceipt = formData.paymentMethod !== PAYMENT_METHODS.CASH
+  const selectedPaymentOption = PAYMENT_METHOD_OPTIONS.find((option) => option.value === formData.paymentMethod) || PAYMENT_METHOD_OPTIONS[0]
+  const requiresReceipt = selectedPaymentOption.requiresReceipt
   const paymentTransferNumber =
     formData.paymentMethod === PAYMENT_METHODS.VODAFONE_CASH
       ? settings.vodafoneCashNumber || '01090886364'
@@ -78,7 +80,12 @@ export default function CheckoutPage() {
   const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = event.target
     setFormData({ ...formData, [name]: value })
-    if (name === 'paymentMethod' && value === PAYMENT_METHODS.CASH) setReceipt(null)
+    if (name === 'paymentMethod' && !PAYMENT_METHOD_OPTIONS.find((option) => option.value === value)?.requiresReceipt) setReceipt(null)
+  }
+
+  const selectPaymentMethod = (value: string) => {
+    setFormData((current) => ({ ...current, paymentMethod: value }))
+    if (!PAYMENT_METHOD_OPTIONS.find((option) => option.value === value)?.requiresReceipt) setReceipt(null)
   }
 
   const handleReceiptUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -171,7 +178,7 @@ export default function CheckoutPage() {
       const now = new Date()
       const orderId = `ORD${String(now.getTime()).slice(-6)}`
       const address = `${formData.address}, ${formData.city}`
-      const paymentStatus: PaymentStatus = formData.paymentMethod === PAYMENT_METHODS.CASH ? 'cash_on_delivery' : 'receipt_uploaded'
+      const paymentStatus: PaymentStatus = requiresReceipt ? 'receipt_uploaded' : formData.paymentMethod === PAYMENT_METHODS.CASH ? 'cash_on_delivery' : 'pending'
 
       const customerResponse = await fetch('/api/customers', {
         method: 'POST',
@@ -187,6 +194,7 @@ export default function CheckoutPage() {
 
       const payload = {
         id: orderId,
+        source: 'app',
         customer: formData.fullName,
         customerEmail: user.email,
         phone: formData.phone,
@@ -327,12 +335,27 @@ export default function CheckoutPage() {
                 <CardHeader><CardTitle>{isArabic ? 'الدفع والإيصال' : 'Payment and Receipt'}</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
                   <div>
-                    <Label htmlFor="paymentMethod">{isArabic ? 'طريقة الدفع' : 'Payment Method'}</Label>
-                    <select id="paymentMethod" name="paymentMethod" value={formData.paymentMethod} onChange={handleChange} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950">
-                      {Object.entries(PAYMENT_METHODS).map(([, value]) => (
-                        <option key={value} value={value}>{(isArabic ? PAYMENT_METHOD_LABELS : PAYMENT_METHOD_LABELS_EN)[value as keyof typeof PAYMENT_METHOD_LABELS]}</option>
-                      ))}
-                    </select>
+                    <Label>{isArabic ? 'طريقة الدفع' : 'Payment Method'}</Label>
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                      {PAYMENT_METHOD_OPTIONS.map((option) => {
+                        const selected = formData.paymentMethod === option.value
+                        const Icon = option.value === PAYMENT_METHODS.CASH ? Banknote : option.value === PAYMENT_METHODS.CARD ? CreditCard : Smartphone
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => selectPaymentMethod(option.value)}
+                            className={`rounded-md border p-3 text-start transition ${selected ? 'border-red-500 bg-red-50 ring-1 ring-red-500 dark:bg-red-950/30' : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950'}`}
+                          >
+                            <span className="flex items-center gap-2 font-semibold">
+                              <Icon className="h-4 w-4 text-red-600" />
+                              {isArabic ? option.ar : option.en}
+                            </span>
+                            <span className="mt-1 block text-xs text-slate-500">{isArabic ? option.arHint : option.enHint}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
                   </div>
 
                   {requiresReceipt ? (
@@ -349,7 +372,9 @@ export default function CheckoutPage() {
                     </div>
                   ) : (
                     <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-200">
-                      {isArabic ? 'سيتم تحصيل الدفع عند الاستلام.' : 'Payment will be collected on delivery.'}
+                      {formData.paymentMethod === PAYMENT_METHODS.CASH
+                        ? (isArabic ? 'سيتم تحصيل الدفع نقدا عند الاستلام.' : 'Cash will be collected on delivery.')
+                        : (isArabic ? 'سيتم تحصيل الدفع بالكارت عند الاستلام أو داخل المطعم.' : 'Card payment will be collected on delivery or in-store.')}
                     </p>
                   )}
 

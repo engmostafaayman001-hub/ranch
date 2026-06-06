@@ -1,0 +1,98 @@
+import type { ReceiptPayload } from '@/lib/printer'
+import type { TrackedOrder } from '@/lib/order-tracking'
+
+type ClosingExpense = {
+  id: string
+  name: string
+  amount: number
+  date?: string
+  note?: string
+}
+
+type ClosingPrintInput = {
+  title: string
+  dateLabel: string
+  orders: TrackedOrder[]
+  expenses: ClosingExpense[]
+  revenue: number
+  expenseTotal: number
+  net: number
+  paymentBreakdown: Record<string, number>
+  paymentLabel: (method: string) => string
+  currency: string
+  isArabic: boolean
+  invoiceName?: string
+  logoUrl?: string
+}
+
+export function createClosingReceiptPayload(input: ClosingPrintInput): ReceiptPayload {
+  const paymentCounts = input.orders.reduce<Record<string, number>>((totals, order) => {
+    const method = order.payment?.method || 'cash'
+    totals[method] = (totals[method] || 0) + 1
+    return totals
+  }, {})
+  const paymentEntries = Object.entries(input.paymentBreakdown)
+    .sort(([, firstTotal], [, secondTotal]) => Number(secondTotal || 0) - Number(firstTotal || 0))
+  const paymentLines = paymentEntries.map(([method, total]) => ({
+    name: `${input.paymentLabel(method)} (${paymentCounts[method] || 0} ${input.isArabic ? 'طلب' : 'orders'})`,
+    quantity: 1,
+    price: Number(total || 0),
+  }))
+  const expenseLines = input.expenses.map((expense) => ({
+    name: expense.name,
+    quantity: 1,
+    price: Number(expense.amount || 0),
+    notes: expense.note,
+  }))
+  const orderLines = input.orders.map((order) => ({
+    name: `${input.isArabic ? 'طلب' : 'Order'} ${order.id} - ${order.customer || '-'}`,
+    quantity: 1,
+    price: Number(order.total || 0),
+  }))
+
+  return {
+    orderId: `CLOSE-${input.dateLabel}`,
+    orderType: input.title,
+    createdAt: new Date().toISOString(),
+    customer: {
+      name: input.title,
+      address: input.dateLabel,
+      notes: [
+        `${input.isArabic ? 'عدد الطلبات' : 'Orders'}: ${input.orders.length}`,
+        `${input.isArabic ? 'طرق الدفع' : 'Payment methods'}: ${paymentEntries.length}`,
+        `${input.isArabic ? 'عدد المصروفات' : 'Expenses'}: ${input.expenses.length}`,
+      ].join(' | '),
+    },
+    lines: [
+      { kind: 'section', hidePrice: true, name: input.isArabic ? 'ملخص التقفيل' : 'Closing Summary', quantity: 0 },
+      { name: input.isArabic ? 'إجمالي المبيعات' : 'Sales total', quantity: 1, price: input.revenue },
+      { name: input.isArabic ? 'إجمالي المصروفات' : 'Expenses total', quantity: 1, price: input.expenseTotal },
+      { name: input.isArabic ? 'الصافي' : 'Net', quantity: 1, price: input.net },
+      { name: `${input.isArabic ? 'عدد الطلبات' : 'Orders count'}: ${input.orders.length}`, quantity: 1, hidePrice: true },
+      { kind: 'section', hidePrice: true, name: input.isArabic ? 'طرق الدفع' : 'Payment Methods', quantity: 0 },
+      ...(paymentLines.length ? paymentLines : [{ name: input.isArabic ? 'لا توجد مدفوعات' : 'No payments', quantity: 1, hidePrice: true }]),
+      { kind: 'section', hidePrice: true, name: input.isArabic ? 'المصروفات' : 'Expenses', quantity: 0 },
+      ...(expenseLines.length ? expenseLines : [{ name: input.isArabic ? 'لا توجد مصروفات' : 'No expenses', quantity: 1, hidePrice: true }]),
+      { kind: 'section', hidePrice: true, name: input.isArabic ? 'الطلبات' : 'Orders', quantity: 0 },
+      ...(orderLines.length ? orderLines : [{ name: input.isArabic ? 'لا توجد طلبات' : 'No orders', quantity: 1, hidePrice: true }]),
+    ],
+    subtotal: input.revenue,
+    tax: 0,
+    discountAmount: input.expenseTotal,
+    total: input.net,
+    paymentMethod: paymentEntries.length
+      ? paymentEntries.map(([method]) => input.paymentLabel(method)).join(' / ')
+      : (input.isArabic ? 'لا توجد مدفوعات' : 'No payments'),
+    currency: input.currency,
+    invoiceName: input.invoiceName || input.title,
+    invoiceMessage: input.isArabic ? 'تمت طباعة التقفيل من Baseeta POS' : 'Printed from Baseeta POS',
+    logoUrl: input.logoUrl,
+    isArabic: input.isArabic,
+    summaryLabels: {
+      subtotal: input.isArabic ? 'المبيعات' : 'Sales',
+      tax: input.isArabic ? 'الضريبة' : 'Tax',
+      discount: input.isArabic ? 'المصروفات' : 'Expenses',
+      total: input.isArabic ? 'الصافي' : 'Net',
+    },
+  }
+}

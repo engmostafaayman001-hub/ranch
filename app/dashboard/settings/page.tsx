@@ -1,6 +1,7 @@
-﻿'use client'
+'use client'
 
 import { ChangeEvent, useState } from 'react'
+import { AlertCircle, Bluetooth, CheckCircle2, ClipboardCheck, PrinterCheck, QrCode, ReceiptText, Usb, Utensils, Wifi } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { FileInput } from '@/components/ui/file-input'
@@ -10,7 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useLanguage } from '@/components/language-provider'
 import { PrinterConnection, PrinterRole, useAppStore } from '@/lib/app-store'
 import { imageFileToOptimizedDataUrl, isAcceptedImageFile } from '@/lib/client-images'
-import { printPrinterTest } from '@/lib/order-print'
+import { printerManager, syncPrinterManagerSettings } from '@/lib/printer'
 import { saveSharedSettings, useSharedAppData } from '@/lib/use-shared-app-data'
 
 export default function DashboardSettingsPage() {
@@ -19,7 +20,7 @@ export default function DashboardSettingsPage() {
   const { settings, updateSettings } = useAppStore()
   const [saveStatus, setSaveStatus] = useState('')
   const [offerImageStatus, setOfferImageStatus] = useState('')
-  const [printerStatus, setPrinterStatus] = useState('')
+  const [printerStatus, setPrinterStatus] = useState<Partial<Record<PrinterRole, string>>>({})
   const [activeSection, setActiveSection] = useState<'general' | 'orders' | 'payments' | 'invoice' | 'printers'>('general')
   const isArabic = language === 'ar'
 
@@ -70,6 +71,24 @@ export default function DashboardSettingsPage() {
     updateSettings({ offerImages: (settings.offerImages || []).filter((_, itemIndex) => itemIndex !== index) })
   }
 
+  const handleInvoiceLogoFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    if (!isAcceptedImageFile(file)) {
+      setOfferImageStatus(isArabic ? 'اختر ملف صورة للوجو.' : 'Choose an image file for the logo.')
+      return
+    }
+
+    setOfferImageStatus(isArabic ? 'جاري تجهيز لوجو الفاتورة...' : 'Preparing invoice logo...')
+    try {
+      const logo = await imageFileToOptimizedDataUrl(file, { maxSize: 700, quality: 0.9 })
+      updateSettings({ invoiceLogo: logo })
+      setOfferImageStatus(isArabic ? 'تم تحديث لوجو الفاتورة.' : 'Invoice logo updated.')
+    } catch {
+      setOfferImageStatus(isArabic ? 'تعذر رفع لوجو الفاتورة.' : 'Could not upload invoice logo.')
+    }
+  }
+
   const handleSave = async () => {
     try {
       const data = await saveSharedSettings(settings)
@@ -82,30 +101,38 @@ export default function DashboardSettingsPage() {
   }
 
   const updatePrinter = (role: PrinterRole, updates: Partial<PrinterConnection>) => {
+    const printers = {
+      ...settings.printers,
+      [role]: { ...settings.printers[role], ...updates },
+    }
     updateSettings({
       printers: {
-        ...settings.printers,
-        [role]: { ...settings.printers[role], ...updates },
+        ...printers,
       },
     })
+    syncPrinterManagerSettings(printers)
   }
 
-  const testPrinter = (role: PrinterRole) => {
-    const printer = settings.printers[role]
-    const opened = printPrinterTest({
-      isArabic,
-      printerMethod: printerMethodLabel(printer.method, isArabic),
-      paperWidth: printer.paperWidth || '80mm',
-      printerName: printer.name || printer.ip,
-      invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
-      invoiceQrUrl: settings.invoiceQrUrl,
-      invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
-      printsMainInvoice: printer.printsMainInvoice,
-      printsQr: printer.printsQr,
-    })
-    setPrinterStatus(opened
-      ? (isArabic ? 'تم فتح فاتورة اختبار. اختر الطابعة المناسبة من نافذة الطباعة للتأكد من الاتصال.' : 'Test receipt opened. Choose the target printer in the print dialog to confirm connection.')
-      : (isArabic ? 'المتصفح منع نافذة الطباعة. اسمح بالنوافذ المنبثقة ثم حاول مرة أخرى.' : 'The browser blocked the print window. Allow popups and try again.'))
+  const testPrinter = async (role: PrinterRole, kind: 'connection' | 'arabic' | 'qr' | 'kitchen' | 'hall' = 'arabic') => {
+    syncPrinterManagerSettings(settings.printers)
+    setPrinterStatus((current) => ({ ...current, [role]: isArabic ? 'جاري اختبار الطابعة...' : 'Testing printer...' }))
+    try {
+      if (kind === 'connection') {
+        await printerManager.testConnection(role)
+      } else {
+        await printerManager.printTest(role, kind === 'kitchen' ? 'kitchen' : kind === 'hall' ? 'hall' : 'diagnostic', {
+          invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
+          invoiceQrUrl: kind === 'qr' ? settings.invoiceQrUrl || 'https://markode.co' : settings.invoiceQrUrl,
+          invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
+          logoUrl: settings.invoiceLogo || settings.heroImage,
+          isArabic,
+        })
+      }
+      updatePrinter(role, { lastConnected: new Date().toISOString() })
+      setPrinterStatus((current) => ({ ...current, [role]: isArabic ? 'تم إرسال أمر الاختبار بنجاح.' : 'Test command sent successfully.' }))
+    } catch (error) {
+      setPrinterStatus((current) => ({ ...current, [role]: error instanceof Error ? error.message : (isArabic ? 'تعذر اختبار الطابعة.' : 'Could not test printer.') }))
+    }
   }
 
   return (
@@ -222,6 +249,33 @@ export default function DashboardSettingsPage() {
       {activeSection === 'invoice' && <Card>
         <CardHeader><CardTitle>{text.invoice}</CardTitle></CardHeader>
         <CardContent className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-[12rem_1fr]">
+            <div className="flex h-36 items-center justify-center rounded-md border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
+              {settings.invoiceLogo ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={settings.invoiceLogo} alt="Invoice logo" className="max-h-full max-w-full object-contain" />
+              ) : (
+                <span className="text-sm text-slate-500">{isArabic ? 'لا يوجد لوجو' : 'No logo'}</span>
+              )}
+            </div>
+            <div className="space-y-3">
+              <div>
+                <Label htmlFor="invoice-logo">{isArabic ? 'لوجو الفاتورة' : 'Invoice logo'}</Label>
+                <FileInput id="invoice-logo" accept="image/*" onChange={handleInvoiceLogoFile} className="mt-1" />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" onClick={() => updateSettings({ invoiceLogo: settings.heroImage || '/logo.png' })}>
+                  {isArabic ? 'استخدام صورة التطبيق' : 'Use app image'}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => updateSettings({ invoiceLogo: '/logo.png' })}>
+                  {isArabic ? 'استخدام اللوجو الافتراضي' : 'Use default logo'}
+                </Button>
+              </div>
+              <p className="text-xs text-slate-500">
+                {isArabic ? 'سيظهر هذا اللوجو أعلى فاتورة الكاشير فقط، ولا يظهر في تذاكر المطبخ أو الصالة.' : 'This logo appears at the top of cashier receipts only, not kitchen or hall tickets.'}
+              </p>
+            </div>
+          </div>
           <div className="grid gap-4 md:grid-cols-2">
             <Field id="invoice-name-ar" label={isArabic ? 'اسم المطعم في الفاتورة بالعربية' : 'Invoice restaurant name in Arabic'} value={settings.invoiceNameAr || ''} onChange={(value) => updateSettings({ invoiceNameAr: value })} />
             <Field id="invoice-name-en" label={isArabic ? 'اسم المطعم في الفاتورة بالإنجليزية' : 'Invoice restaurant name in English'} value={settings.invoiceNameEn || ''} onChange={(value) => updateSettings({ invoiceNameEn: value })} />
@@ -246,13 +300,19 @@ export default function DashboardSettingsPage() {
       {activeSection === 'printers' && <Card>
         <CardHeader><CardTitle>{text.printer}</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="rounded-md border border-blue-200 bg-blue-50 p-4 text-sm leading-7 text-blue-900 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-100">
+            {isArabic
+              ? 'فعّل الطابعة التي تستخدمها فقط. عند اختيار Bluetooth أو USB سيطلب المتصفح اختيار الجهاز وقت الاختبار أو أول طباعة، أما Network Bridge فيحتاج رابط الخدمة مثل http://IP:PORT/print.'
+              : 'Enable only the printers you use. Bluetooth and USB ask for a device during testing or the first print. Network Bridge needs a service URL like http://IP:PORT/print.'}
+          </div>
+          <div className="space-y-4">
             <PrinterCard
               role="cashier"
               title={isArabic ? 'طابعة الكاشير' : 'Cashier Printer'}
               description={isArabic ? 'الفاتورة الرئيسية وبها QR.' : 'Main invoice with QR.'}
               printer={settings.printers.cashier}
               isArabic={isArabic}
+              statusMessage={printerStatus.cashier}
               onChange={updatePrinter}
               onTest={testPrinter}
             />
@@ -262,6 +322,7 @@ export default function DashboardSettingsPage() {
               description={isArabic ? 'ورقة صغيرة بدون QR.' : 'Small ticket without QR.'}
               printer={settings.printers.kitchen}
               isArabic={isArabic}
+              statusMessage={printerStatus.kitchen}
               onChange={updatePrinter}
               onTest={testPrinter}
             />
@@ -271,16 +332,11 @@ export default function DashboardSettingsPage() {
               description={isArabic ? 'ورقة صغيرة بدون QR.' : 'Small ticket without QR.'}
               printer={settings.printers.hall}
               isArabic={isArabic}
+              statusMessage={printerStatus.hall}
               onChange={updatePrinter}
               onTest={testPrinter}
             />
           </div>
-          <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-900 dark:text-slate-300">
-            {isArabic
-              ? 'الطباعة تتم من نافذة المتصفح. عرّف كل طابعة على الجهاز ثم اختر الطابعة المناسبة من نافذة الطباعة.'
-              : 'Printing uses the browser print dialog. Install each printer on the device, then choose the target printer in the print dialog.'}
-          </div>
-          {printerStatus && <p className="text-sm text-slate-500">{printerStatus}</p>}
         </CardContent>
       </Card>}
 
@@ -332,6 +388,7 @@ function PrinterCard({
   description,
   printer,
   isArabic,
+  statusMessage,
   onChange,
   onTest,
 }: {
@@ -340,33 +397,77 @@ function PrinterCard({
   description: string
   printer: PrinterConnection
   isArabic: boolean
+  statusMessage?: string
   onChange: (role: PrinterRole, updates: Partial<PrinterConnection>) => void
-  onTest: (role: PrinterRole) => void
+  onTest: (role: PrinterRole, kind?: 'connection' | 'arabic' | 'qr' | 'kitchen' | 'hall') => void
 }) {
+  const method = printer.method || 'network'
+  const enabled = printer.isEnabled === true
+  const networkReady = Boolean((printer.ip || printer.deviceAddress || '').trim())
+  const ready = enabled && (method !== 'network' || networkReady)
+  const status = !enabled
+    ? { label: isArabic ? 'غير مفعلة' : 'Disabled', className: 'bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300', icon: AlertCircle }
+    : ready
+      ? { label: method === 'network' ? (isArabic ? 'جاهزة للطباعة' : 'Ready') : (isArabic ? 'جاهزة لاختيار الجهاز' : 'Ready to pair'), className: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200', icon: CheckCircle2 }
+      : { label: isArabic ? 'تحتاج عنوان الشبكة' : 'Needs bridge URL', className: 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-200', icon: AlertCircle }
+  const StatusIcon = status.icon
+  const connectionOptions = [
+    { value: 'bluetooth' as const, label: 'Bluetooth', hint: isArabic ? 'اختيار مباشر من المتصفح' : 'Browser device picker', icon: Bluetooth },
+    { value: 'usb' as const, label: 'USB / OTG', hint: isArabic ? 'كابل أو محول OTG' : 'Cable or OTG adapter', icon: Usb },
+    { value: 'network' as const, label: isArabic ? 'Network Bridge' : 'Network Bridge', hint: isArabic ? 'خدمة http://IP:PORT/print' : 'http://IP:PORT/print service', icon: Wifi },
+  ]
+  const fontLabels: Record<string, string> = {
+    '0.9': isArabic ? 'صغير' : 'Small',
+    '1': isArabic ? 'عادي' : 'Normal',
+    '1.15': isArabic ? 'كبير' : 'Large',
+    '1.3': isArabic ? 'كبير جدا' : 'Extra large',
+  }
+
   return (
-    <div className="rounded-md border border-slate-200 p-4 dark:border-slate-800">
-      <div className="mb-4">
-        <h3 className="font-semibold">{title}</h3>
-        <p className="mt-1 text-xs text-slate-500">{description}</p>
-      </div>
-      <div className="space-y-3">
-        <Field id={`printer-${role}-name`} label={isArabic ? 'اسم الطابعة أو ملاحظة الربط' : 'Printer name or connection note'} value={printer.name || ''} onChange={(value) => onChange(role, { name: value })} />
+    <div className={`rounded-md border p-5 transition ${enabled ? 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950' : 'border-dashed border-slate-200 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-950/60'}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <Label htmlFor={`printer-${role}-method`}>{isArabic ? 'طريقة الربط' : 'Connection method'}</Label>
-          <select
-            id={`printer-${role}-method`}
-            value={printer.method || 'browser'}
-            onChange={(event) => onChange(role, { method: event.target.value as PrinterConnection['method'] })}
-            className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950"
-          >
-            <option value="browser">{isArabic ? 'طباعة المتصفح' : 'Browser print'}</option>
-            <option value="usb">USB</option>
-            <option value="bluetooth">Bluetooth</option>
-            <option value="network">{isArabic ? 'شبكة / IP' : 'Network / IP'}</option>
-          </select>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-lg font-bold">{title}</h3>
+            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${status.className}`}>
+              <StatusIcon className="h-3.5 w-3.5" />
+              {status.label}
+            </span>
+          </div>
+          <p className="mt-1 text-sm text-slate-500">{description}</p>
+          <p className="mt-1 text-xs font-medium text-slate-400">{role}_printer</p>
         </div>
+        <label className="inline-flex select-none items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium dark:border-slate-800 dark:bg-slate-950">
+          <input type="checkbox" checked={enabled} onChange={(event) => onChange(role, { isEnabled: event.target.checked })} />
+          {isArabic ? 'تفعيل' : 'Enable'}
+        </label>
+      </div>
+
+      <div className="mt-5 grid gap-3 md:grid-cols-3">
+        {connectionOptions.map((option) => {
+          const Icon = option.icon
+          const active = method === option.value
+          return (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => onChange(role, { method: option.value })}
+              className={`min-h-20 rounded-md border p-3 text-start transition ${active ? 'border-blue-500 bg-blue-50 text-blue-950 ring-1 ring-blue-500 dark:bg-blue-950/40 dark:text-blue-100' : 'border-slate-200 bg-white hover:border-blue-200 dark:border-slate-800 dark:bg-slate-950'}`}
+            >
+              <span className="flex items-center gap-2 text-sm font-bold">
+                <Icon className="h-4 w-4 text-blue-600" />
+                {option.label}
+              </span>
+              <span className="mt-2 block text-xs text-slate-500">{option.hint}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-3">
+        <Field id={`printer-${role}-name`} label={isArabic ? 'اسم الطابعة' : 'Printer name'} value={printer.deviceName || printer.name || ''} onChange={(value) => onChange(role, { name: value, deviceName: value })} />
         <div>
-          <Label htmlFor={`printer-${role}-paper`}>{isArabic ? 'مقاس الورق' : 'Paper width'}</Label>
+          <Label htmlFor={`printer-${role}-paper`}>{isArabic ? 'عرض الورق' : 'Paper width'}</Label>
           <select
             id={`printer-${role}-paper`}
             value={printer.paperWidth || '80mm'}
@@ -377,25 +478,72 @@ function PrinterCard({
             <option value="58mm">58mm</option>
           </select>
         </div>
-        <Field id={`printer-${role}-ip`} label={isArabic ? 'IP الطابعة الشبكية' : 'Network printer IP'} value={printer.ip || ''} onChange={(value) => onChange(role, { ip: value })} />
-        <Button type="button" variant="outline" className="w-full" onClick={() => onTest(role)}>
-          {isArabic ? 'تأكيد الاتصال' : 'Test Connection'}
-        </Button>
+        <div>
+          <Label htmlFor={`printer-${role}-font`}>{isArabic ? 'مقاس الكلام' : 'Text size'}</Label>
+          <select
+            id={`printer-${role}-font`}
+            value={String(printer.fontScale || 1)}
+            onChange={(event) => onChange(role, { fontScale: Number(event.target.value) })}
+            className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950"
+          >
+            {Object.entries(fontLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </div>
       </div>
+
+      {method === 'network' ? (
+        <div className="mt-4 grid gap-4 lg:grid-cols-[2fr_1fr]">
+          <Field id={`printer-${role}-ip`} label={isArabic ? 'رابط Network Bridge أو IP' : 'Network Bridge URL or IP'} value={printer.ip || ''} onChange={(value) => onChange(role, { ip: value })} />
+          <Field id={`printer-${role}-port`} label={isArabic ? 'Port' : 'Port'} value={printer.port || '9100'} onChange={(value) => onChange(role, { port: value })} />
+        </div>
+      ) : (
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <Field id={`printer-${role}-device-id`} label={isArabic ? 'Device ID / Address اختياري' : 'Optional Device ID / Address'} value={printer.deviceId || printer.deviceAddress || ''} onChange={(value) => onChange(role, { deviceId: value, deviceAddress: value })} />
+          <Field id={`printer-${role}-retry`} label={isArabic ? 'عدد المحاولات' : 'Retry attempts'} value={String(printer.retryAttempts || 3)} type="number" onChange={(value) => onChange(role, { retryAttempts: Number(value) })} />
+        </div>
+      )}
+
+      {method === 'network' && (
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <Field id={`printer-${role}-retry`} label={isArabic ? 'عدد المحاولات' : 'Retry attempts'} value={String(printer.retryAttempts || 3)} type="number" onChange={(value) => onChange(role, { retryAttempts: Number(value) })} />
+          <div className="rounded-md bg-slate-50 p-3 text-xs leading-6 text-slate-500 dark:bg-slate-900">
+            {isArabic ? 'لو كتبت IP فقط سيتم استخدام /print تلقائيا. مثال: 192.168.1.50 مع Port 9100.' : 'If you enter only an IP, /print is added automatically. Example: 192.168.1.50 with port 9100.'}
+          </div>
+        </div>
+      )}
+
+      {printer.lastConnected && <p className="mt-3 text-xs text-slate-500">{isArabic ? 'آخر اتصال' : 'Last connected'}: {new Date(printer.lastConnected).toLocaleString(isArabic ? 'ar-EG' : 'en-US')}</p>}
+
+      <div className="mt-5 flex flex-wrap gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
+        <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'connection')}>
+          <PrinterCheck className="h-4 w-4" />
+          {isArabic ? 'اختبار اتصال' : 'Connection'}
+        </Button>
+        <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'arabic')}>
+          <ClipboardCheck className="h-4 w-4" />
+          {isArabic ? 'اختبار عربي' : 'Arabic'}
+        </Button>
+        {role === 'cashier' && <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'qr')}>
+          <QrCode className="h-4 w-4" />
+          QR
+        </Button>}
+        {role === 'kitchen' && <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'kitchen')}>
+          <Utensils className="h-4 w-4" />
+          Kitchen
+        </Button>}
+        {role === 'hall' && <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'hall')}>
+          <ReceiptText className="h-4 w-4" />
+          Hall
+        </Button>}
+      </div>
+      {statusMessage && (
+        <p className="mt-3 rounded-md bg-slate-100 p-3 text-sm text-slate-700 dark:bg-slate-900 dark:text-slate-200">
+          {statusMessage}
+        </p>
+      )}
     </div>
   )
 }
-
-function printerMethodLabel(method: string | undefined, isArabic: boolean) {
-  const labels: Record<string, { ar: string; en: string }> = {
-    browser: { ar: 'طباعة المتصفح', en: 'Browser print' },
-    usb: { ar: 'USB', en: 'USB' },
-    bluetooth: { ar: 'Bluetooth', en: 'Bluetooth' },
-    network: { ar: 'شبكة / IP', en: 'Network / IP' },
-  }
-  return labels[method || 'browser']?.[isArabic ? 'ar' : 'en'] || method || labels.browser[isArabic ? 'ar' : 'en']
-}
-
 function Field({ id, label, value, onChange, type = 'text' }: { id: string; label: string; value: string; onChange: (value: string) => void; type?: string }) {
   return (
     <div>

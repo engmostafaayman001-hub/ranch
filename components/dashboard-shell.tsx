@@ -7,6 +7,7 @@ import { ArrowLeftToLine, Home, Menu, ReceiptText, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/logo'
 import { useLanguage } from '@/components/language-provider'
+import { DashboardPrintWatcher } from '@/components/dashboard-print-watcher'
 import { ROUTES } from '@/lib/constants'
 import { dashboardLinks } from '@/lib/dashboard-routes'
 
@@ -26,6 +27,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950">
+      <DashboardPrintWatcher />
       {sidebarOpen && <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />}
       <DashboardAside isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 

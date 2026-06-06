@@ -35,6 +35,14 @@ export interface OrderDiscount {
   amount: number
 }
 
+export interface OrderLine {
+  name: string
+  quantity: number
+  price?: number
+  notes?: string
+  additions?: string[]
+}
+
 export interface TrackedOrder {
   id: string
   source?: string
@@ -46,6 +54,7 @@ export interface TrackedOrder {
   notes?: string
   total: number
   items: number
+  lines?: OrderLine[]
   status: TrackingStatus
   createdAt: string
   estimatedDelivery: string
@@ -78,6 +87,27 @@ export const statusLabels = Object.fromEntries(
 export const initialTrackedOrders: TrackedOrder[] = []
 
 const STORAGE_KEY = 'trackedOrders'
+const MAX_LOCAL_TRACKED_ORDERS = 50
+
+function compactTrackedOrder(order: TrackedOrder): TrackedOrder {
+  return {
+    ...order,
+    payment: order.payment
+      ? {
+          ...order.payment,
+          receiptDataUrl: undefined,
+        }
+      : order.payment,
+    history: order.history.slice(-12),
+  }
+}
+
+function compactTrackedOrders(orders: TrackedOrder[], limit = MAX_LOCAL_TRACKED_ORDERS) {
+  return orders
+    .map(compactTrackedOrder)
+    .sort((a, b) => latestOrderTime(b) - latestOrderTime(a))
+    .slice(0, limit)
+}
 
 export function getStatusIndex(status: TrackingStatus) {
   return trackingSteps.findIndex((step) => step.status === status)
@@ -107,7 +137,24 @@ export function getTrackedOrdersForEmail(email?: string | null): TrackedOrder[] 
 }
 
 export function saveTrackedOrders(orders: TrackedOrder[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(orders))
+  if (typeof window === 'undefined') return
+
+  let compacted = compactTrackedOrders(orders)
+  while (compacted.length >= 0) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(compacted))
+      return
+    } catch (error) {
+      if (!(error instanceof DOMException) || !['QuotaExceededError', 'NS_ERROR_DOM_QUOTA_REACHED'].includes(error.name)) {
+        throw error
+      }
+      if (compacted.length === 0) {
+        localStorage.removeItem(STORAGE_KEY)
+        return
+      }
+      compacted = compacted.slice(0, Math.max(0, Math.floor(compacted.length / 2)))
+    }
+  }
 }
 
 function latestOrderTime(order: TrackedOrder) {
@@ -152,7 +199,7 @@ export function syncTrackedOrdersForEmail(serverOrders: TrackedOrder[], email?: 
 
 export function upsertTrackedOrder(order: TrackedOrder) {
   const orders = getTrackedOrders()
-  const updated = [order, ...orders.filter((item) => item.id.toLowerCase() !== order.id.toLowerCase())]
+  const updated = [compactTrackedOrder(order), ...orders.filter((item) => item.id.toLowerCase() !== order.id.toLowerCase())]
   saveTrackedOrders(updated)
   return order
 }
@@ -190,7 +237,7 @@ export function createTrackedOrder(order: Omit<TrackedOrder, 'history'>) {
     ...order,
     history: [{ status: order.status, at: order.createdAt }],
   }
-  const updated = [created, ...orders.filter((item) => item.id !== created.id)]
+  const updated = [compactTrackedOrder(created), ...orders.filter((item) => item.id !== created.id)]
   saveTrackedOrders(updated)
   return created
 }

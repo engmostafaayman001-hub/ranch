@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { deleteServerOrder, readServerOrders, updateServerOrderStatus, upsertServerOrder } from '@/lib/server-orders'
+import { deleteServerOrder, readServerOrders, stripHeavyOrderFields, updateServerOrderStatus, upsertServerOrder } from '@/lib/server-orders'
 import { PaymentStatus, TrackingStatus, trackingSteps, TrackedOrder } from '@/lib/order-tracking'
 import { getRequestDashboardAccess, getRequestUserEmail } from '@/lib/server-access'
 import { validateNotificationDiscount } from '@/lib/discounts'
@@ -115,6 +115,36 @@ function getOrderSubtotal(body: Record<string, unknown>) {
   return Number(body.subtotal || body.itemsTotal || body.amount || body.total || 0)
 }
 
+function normalizeOrderLines(body: Record<string, unknown>) {
+  const source = Array.isArray(body.lines)
+    ? body.lines
+    : Array.isArray(body.orderLines)
+      ? body.orderLines
+      : Array.isArray(body.cartItems)
+        ? body.cartItems
+        : Array.isArray(body.items)
+          ? body.items
+          : undefined
+  if (!source) return undefined
+  return source
+    .map((line) => {
+      if (!line || typeof line !== 'object') return null
+      const item = line as Record<string, unknown>
+      const product = item.product && typeof item.product === 'object' ? item.product as Record<string, unknown> : {}
+      const additions = Array.isArray(item.additions)
+        ? item.additions.map((addition) => String(addition)).filter(Boolean)
+        : undefined
+      return {
+        name: String(item.name || item.nameAr || item.nameEn || item.productName || product.name || product.nameAr || product.nameEn || 'Item'),
+        quantity: Number(item.quantity || item.qty || 1),
+        price: Number(item.price || product.price || 0),
+        notes: item.notes || item.note ? String(item.notes || item.note) : undefined,
+        additions,
+      }
+    })
+    .filter(Boolean) as TrackedOrder['lines']
+}
+
 export async function OPTIONS() {
   return new Response(null, { headers: corsHeaders })
 }
@@ -124,17 +154,23 @@ export async function GET(request: NextRequest) {
     const userEmail = getRequestUserEmail(request)
     const access = await getRequestDashboardAccess(request)
     const isAdmin = access.allowed
-    const orders = await readServerOrders()
+    const includeReceipts = request.nextUrl.searchParams.get('includeReceipts') === '1'
+    const requestedOrderId = request.nextUrl.searchParams.get('orderId')?.trim().toLowerCase()
+    const allOrders = await readServerOrders()
+    const orders = requestedOrderId
+      ? allOrders.filter((order) => order.id.toLowerCase() === requestedOrderId)
+      : allOrders
+    const compactOrders = orders.map((order) => stripHeavyOrderFields(order, { includeReceipts }))
 
     if (access.role === 'delivery') {
-      return json({ orders: orders.filter((order) => order.source !== 'restaurant_pos' && isOrderAssignedToDelivery(order, access)) })
+      return json({ orders: compactOrders.filter((order) => order.source !== 'restaurant_pos' && isOrderAssignedToDelivery(order, access)) })
     }
 
-    if (isAdmin) return json({ orders })
+    if (isAdmin) return json({ orders: compactOrders })
     if (!userEmail) return json({ orders: [] })
 
     return json({
-      orders: orders.filter((order) => order.customerEmail?.toLowerCase() === userEmail),
+      orders: compactOrders.filter((order) => order.customerEmail?.toLowerCase() === userEmail),
     })
   } catch (error) {
     console.error('Failed to read POS orders:', error)
@@ -186,6 +222,7 @@ export async function POST(request: NextRequest) {
 
     const calculatedTotal = subtotal + tax + deliveryFee - (discount?.amount || 0)
     const finalTotal = Math.max(0, Number(calculatedTotal.toFixed(2)))
+    const lines = normalizeOrderLines(body)
 
     const order: TrackedOrder = {
       id,
@@ -198,6 +235,7 @@ export async function POST(request: NextRequest) {
       notes: String(customer.notes || body.notes || body.note || '').trim() || undefined,
       total: finalTotal,
       items: Number(body.items || body.itemsCount || body.lines?.length || 0),
+      lines,
       status,
       createdAt: String(body.createdAt || now),
       estimatedDelivery: String(body.estimatedDelivery || '30 min'),

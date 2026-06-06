@@ -48,16 +48,24 @@ export interface DeliveryDriver {
   status: 'active' | 'inactive'
 }
 
-export type PrinterMethod = 'browser' | 'usb' | 'bluetooth' | 'network'
+export type PrinterMethod = 'bluetooth' | 'usb' | 'network'
 export type PrinterPaperWidth = '58mm' | '80mm'
 export type PrinterRole = 'cashier' | 'kitchen' | 'hall'
 
 export interface PrinterConnection {
   role: PrinterRole
   name: string
+  deviceName: string
+  deviceId: string
+  deviceAddress: string
   method: PrinterMethod
   ip: string
+  port: string
   paperWidth: PrinterPaperWidth
+  fontScale: number
+  retryAttempts: number
+  isEnabled: boolean
+  lastConnected: string
   printsMainInvoice: boolean
   printsQr: boolean
 }
@@ -75,6 +83,7 @@ export interface AppSettings {
   heroSubtitleEn: string
   heroImage: string
   offerImages: string[]
+  invoiceLogo: string
   workingHoursAr: string
   workingHoursEn: string
   deliveryFee: number
@@ -134,37 +143,75 @@ export const defaultPrinters: Record<PrinterRole, PrinterConnection> = {
   cashier: {
     role: 'cashier',
     name: 'Cashier Printer',
-    method: 'browser',
+    deviceName: 'Cashier Printer',
+    deviceId: '',
+    deviceAddress: '',
+    method: 'network',
     ip: '',
+    port: '9100',
     paperWidth: '80mm',
+    fontScale: 1,
+    retryAttempts: 3,
+    isEnabled: false,
+    lastConnected: '',
     printsMainInvoice: true,
     printsQr: true,
   },
   kitchen: {
     role: 'kitchen',
     name: 'Kitchen Printer',
-    method: 'browser',
+    deviceName: 'Kitchen Printer',
+    deviceId: '',
+    deviceAddress: '',
+    method: 'network',
     ip: '',
+    port: '9100',
     paperWidth: '58mm',
+    fontScale: 1,
+    retryAttempts: 3,
+    isEnabled: false,
+    lastConnected: '',
     printsMainInvoice: false,
     printsQr: false,
   },
   hall: {
     role: 'hall',
     name: 'Hall Printer',
-    method: 'browser',
+    deviceName: 'Hall Printer',
+    deviceId: '',
+    deviceAddress: '',
+    method: 'network',
     ip: '',
+    port: '9100',
     paperWidth: '58mm',
+    fontScale: 1,
+    retryAttempts: 3,
+    isEnabled: false,
+    lastConnected: '',
     printsMainInvoice: false,
     printsQr: false,
   },
 }
 
 function mergePrinters(printers?: Partial<Record<PrinterRole, Partial<PrinterConnection>>>) {
+  const normalize = (role: PrinterRole) => {
+    const incoming = printers?.[role] || {}
+    const method = incoming.method === 'usb' || incoming.method === 'bluetooth' || incoming.method === 'network'
+      ? incoming.method
+      : defaultPrinters[role].method
+    return {
+      ...defaultPrinters[role],
+      ...incoming,
+      method,
+      deviceName: incoming.deviceName || incoming.name || defaultPrinters[role].deviceName,
+      retryAttempts: Number(incoming.retryAttempts || defaultPrinters[role].retryAttempts),
+      fontScale: Number(incoming.fontScale || defaultPrinters[role].fontScale),
+    }
+  }
   return {
-    cashier: { ...defaultPrinters.cashier, ...(printers?.cashier || {}) },
-    kitchen: { ...defaultPrinters.kitchen, ...(printers?.kitchen || {}) },
-    hall: { ...defaultPrinters.hall, ...(printers?.hall || {}) },
+    cashier: normalize('cashier'),
+    kitchen: normalize('kitchen'),
+    hall: normalize('hall'),
   }
 }
 
@@ -181,13 +228,14 @@ export const defaultSettings: AppSettings = {
   heroSubtitleEn: 'Fresh meals, fast delivery, and live tracking from order to doorstep.',
   heroImage: '/favicon.png',
   offerImages: [],
+  invoiceLogo: '/logo.png',
   workingHoursAr: 'يوميا من 10 صباحا إلى 12 منتصف الليل',
   workingHoursEn: 'Daily from 10 AM to 12 AM',
   deliveryFee: 29.99,
   taxRate: 0.1,
   deliveryTime: 30,
   defaultLanguage: 'ar',
-  printerMethod: 'browser',
+  printerMethod: 'network',
   printerName: '',
   printerIp: '',
   printerPaperWidth: '80mm',
