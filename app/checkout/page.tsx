@@ -13,7 +13,7 @@ import { Logo } from '@/components/logo'
 import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN, PAYMENT_METHOD_OPTIONS, PAYMENT_METHODS, ROUTES } from '@/lib/constants'
 import { useAppStore } from '@/lib/app-store'
-import { createTrackedOrder, PaymentStatus, TrackingStatus } from '@/lib/order-tracking'
+import { PaymentStatus, TrackingStatus } from '@/lib/order-tracking'
 import { useAuthStore } from '@/lib/store'
 import { useSharedAppData } from '@/lib/use-shared-app-data'
 
@@ -243,7 +243,6 @@ export default function CheckoutPage() {
       const orderData = await response.json().catch(() => null)
       if (!response.ok) throw new Error(orderData?.message || orderData?.error || 'Order API failed')
 
-      createTrackedOrder(orderData?.order || payload)
       clearCart()
       router.push(ROUTES.ORDERS)
     } catch (err) {

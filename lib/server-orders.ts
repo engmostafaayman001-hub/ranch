@@ -7,12 +7,10 @@ const DATA_DIR = process.env.VERCEL ? '/tmp/ranch-data' : join(process.cwd(), 'd
 const ORDERS_FILE = join(DATA_DIR, 'orders.json')
 const ORDERS_CACHE_MS = 7000
 const SUPABASE_READ_TIMEOUT_MS = Number(process.env.SUPABASE_ORDERS_READ_TIMEOUT_MS || 10000)
-const SUPABASE_COOLDOWN_MS = 60000
 const DEFAULT_ORDERS_LIMIT = 100
 
 let ordersCache: { data: TrackedOrder[]; at: number } | null = null
 let ordersReadPromise: Promise<TrackedOrder[]> | null = null
-let supabaseOrdersCooldownUntil = 0
 
 export type ServerOrderSourceFilter = 'app' | 'restaurant_pos'
 
@@ -30,7 +28,7 @@ function canUseSupabaseRuntimeTables() {
 }
 
 function shouldRequireSupabaseRuntimeTables() {
-  return Boolean(process.env.VERCEL && canUseSupabaseRuntimeTables())
+  return canUseSupabaseRuntimeTables()
 }
 
 function getSupabaseErrorMessage(error: unknown) {
@@ -97,21 +95,15 @@ async function readOrdersFile() {
 }
 
 async function readServerOrdersFresh(options: ReadServerOrdersOptions = {}): Promise<TrackedOrder[]> {
-  if (canUseSupabaseRuntimeTables() && Date.now() >= supabaseOrdersCooldownUntil) {
+  if (canUseSupabaseRuntimeTables()) {
     const supabase = createSupabaseAdminClient()
     try {
-      const readLimit = normalizeLimit(options.limit)
-      let query = supabase
+      const readLimit = options.source ? Math.max(300, normalizeLimit(options.limit)) : normalizeLimit(options.limit)
+      const query = supabase
         .from('app_orders')
         .select('data')
         .order('created_at', { ascending: false })
         .limit(readLimit)
-
-      if (options.source === 'restaurant_pos') {
-        query = query.eq('data->>source', 'restaurant_pos')
-      } else if (options.source === 'app') {
-        query = query.neq('data->>source', 'restaurant_pos')
-      }
 
       const { data, error } = await withTimeout(
         query,
@@ -122,12 +114,11 @@ async function readServerOrdersFresh(options: ReadServerOrdersOptions = {}): Pro
 
       if (Array.isArray(data)) {
         const orders = data.map(normalizeOrder)
-        if (!options.source && !options.limit) setOrdersCache(orders)
-        return options.source ? orders : applyReadOptions(orders, options)
+        setOrdersCache(orders)
+        return applyReadOptions(orders, options)
       }
     } catch (error) {
-      console.warn('[server-orders] Falling back after Supabase read failed:', getSupabaseErrorMessage(error))
-      supabaseOrdersCooldownUntil = Date.now() + SUPABASE_COOLDOWN_MS
+      console.warn('[server-orders] Supabase read failed:', getSupabaseErrorMessage(error))
       if (ordersCache) return applyReadOptions(ordersCache.data, options)
       if (shouldRequireSupabaseRuntimeTables()) throw error
     }
@@ -140,14 +131,15 @@ async function readServerOrdersFresh(options: ReadServerOrdersOptions = {}): Pro
 }
 
 export async function readServerOrders(options: ReadServerOrdersOptions = {}): Promise<TrackedOrder[]> {
+  if (options.source) return readServerOrdersFresh(options)
   if (isFreshCache()) return applyReadOptions(ordersCache!.data, options)
-  if (options.source || options.limit) return readServerOrdersFresh(options)
+  if (options.limit) return readServerOrdersFresh(options)
   if (ordersReadPromise) return ordersReadPromise
 
-  ordersReadPromise = readServerOrdersFresh(options).finally(() => {
+  ordersReadPromise = readServerOrdersFresh().finally(() => {
     ordersReadPromise = null
   })
-  return ordersReadPromise
+  return ordersReadPromise.then((orders) => applyReadOptions(orders, options))
 }
 
 export function stripHeavyOrderFields(order: TrackedOrder, options: { includeReceipts?: boolean } = {}) {
@@ -179,9 +171,7 @@ export async function writeServerOrders(orders: TrackedOrder[]) {
       return
     }
 
-    if (shouldRequireSupabaseRuntimeTables()) {
-      throw new Error(`Could not save orders to Supabase: ${getSupabaseErrorMessage(error)}`)
-    }
+    if (shouldRequireSupabaseRuntimeTables()) throw new Error(`Could not save orders to Supabase: ${getSupabaseErrorMessage(error)}`)
   }
 
   await ensureDataFile()
@@ -208,9 +198,7 @@ export async function upsertServerOrder(order: TrackedOrder) {
       return order
     }
 
-    if (shouldRequireSupabaseRuntimeTables()) {
-      throw new Error(`Could not save order to Supabase: ${getSupabaseErrorMessage(error)}`)
-    }
+    if (shouldRequireSupabaseRuntimeTables()) throw new Error(`Could not save order to Supabase: ${getSupabaseErrorMessage(error)}`)
   }
 
   const orders = await readServerOrders()
@@ -228,9 +216,7 @@ export async function deleteServerOrder(orderId: string) {
       return true
     }
 
-    if (shouldRequireSupabaseRuntimeTables()) {
-      throw new Error(`Could not delete order from Supabase: ${getSupabaseErrorMessage(error)}`)
-    }
+    if (shouldRequireSupabaseRuntimeTables()) throw new Error(`Could not delete order from Supabase: ${getSupabaseErrorMessage(error)}`)
   }
 
   const orders = await readServerOrders()

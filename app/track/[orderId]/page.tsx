@@ -11,7 +11,7 @@ import { Sidebar } from '@/components/sidebar'
 import { CURRENCY, CURRENCY_EN, PAYMENT_METHOD_LABELS, PAYMENT_METHOD_LABELS_EN, ROUTES } from '@/lib/constants'
 import { useLanguage } from '@/components/language-provider'
 import { useAuthStore } from '@/lib/store'
-import { getStatusIndex, getTrackedOrdersForEmail, statusLabels, syncTrackedOrdersForEmail, TrackedOrder, trackingSteps, upsertTrackedOrder } from '@/lib/order-tracking'
+import { getStatusIndex, statusLabels, syncTrackedOrdersForEmail, TrackedOrder, trackingSteps } from '@/lib/order-tracking'
 
 export default function TrackOrderPage() {
   const params = useParams()
@@ -34,16 +34,12 @@ export default function TrackOrderPage() {
         const apiOrders = Array.isArray(data.orders) ? data.orders as TrackedOrder[] : []
         const visibleOrders = isLoggedIn && user?.email
           ? syncTrackedOrdersForEmail(apiOrders, user.email)
-          : getTrackedOrdersForEmail(null)
-        const apiOrder = apiOrders.find((item) => item.id.toLowerCase() === orderId.toLowerCase())
+          : []
         const visibleOrder = visibleOrders.find((item) => item.id.toLowerCase() === orderId.toLowerCase())
 
         if (active) setOrder(visibleOrder || null)
-        if (apiOrder && visibleOrder) upsertTrackedOrder(apiOrder)
       } catch {
-        const localOrder = (isLoggedIn && user?.email ? getTrackedOrdersForEmail(user.email) : getTrackedOrdersForEmail(null))
-          .find((item) => item.id.toLowerCase() === orderId.toLowerCase())
-        if (active) setOrder(localOrder || null)
+        if (active) setOrder(null)
       } finally {
         if (active) setLoading(false)
       }

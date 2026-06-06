@@ -12,7 +12,7 @@ import { Sidebar } from '@/components/sidebar'
 import { CURRENCY, CURRENCY_EN } from '@/lib/constants'
 import { useLanguage } from '@/components/language-provider'
 import { useAuthStore } from '@/lib/store'
-import { TrackedOrder, getTrackedOrdersForEmail, statusLabels, syncTrackedOrdersForEmail } from '@/lib/order-tracking'
+import { TrackedOrder, statusLabels, syncTrackedOrdersForEmail } from '@/lib/order-tracking'
 
 export default function TrackPage() {
   const router = useRouter()
@@ -34,10 +34,10 @@ export default function TrackPage() {
         const orders = Array.isArray(data.orders) ? data.orders as TrackedOrder[] : []
         const nextOrders = isLoggedIn && user?.email
           ? syncTrackedOrdersForEmail(orders, user.email)
-          : getTrackedOrdersForEmail(null)
+          : []
         if (active) setRecentOrders(nextOrders)
       } catch {
-        if (active) setRecentOrders(isLoggedIn && user?.email ? getTrackedOrdersForEmail(user.email) : getTrackedOrdersForEmail(null))
+        if (active) setRecentOrders([])
       }
     }
 

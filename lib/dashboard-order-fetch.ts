@@ -27,10 +27,8 @@ async function fetchOrdersJson(url: string, timeoutMs: number) {
 export async function fetchDashboardOrdersBySource(source: OrderSource, limit = 120) {
   try {
     return await fetchOrdersJson(`/api/pos/orders?source=${source}&limit=${limit}`, 4500)
-  } catch (sourceError) {
+  } catch {
     const orders = await fetchOrdersJson(`/api/pos/orders?limit=${Math.max(limit, 200)}`, 9000)
-    const filtered = orders.filter((order) => matchesSource(order, source)).slice(0, limit)
-    if (filtered.length > 0) return filtered
-    throw sourceError instanceof Error ? sourceError : new Error('Could not load orders')
+    return orders.filter((order) => matchesSource(order, source)).slice(0, limit)
   }
 }

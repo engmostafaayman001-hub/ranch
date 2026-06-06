@@ -10,7 +10,7 @@ import { Sidebar } from '@/components/sidebar'
 import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN, ROUTES } from '@/lib/constants'
 import { useAuthStore } from '@/lib/store'
-import { getTrackedOrdersForEmail, statusLabels, syncTrackedOrdersForEmail, TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
+import { statusLabels, syncTrackedOrdersForEmail, TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
 
 const getStatusColor = (status: TrackingStatus) => {
   switch (status) {
@@ -49,7 +49,7 @@ export default function OrdersPage() {
         const nextOrders = userEmail ? syncTrackedOrdersForEmail(apiOrders, userEmail) : []
         if (active) setOrders(nextOrders)
       } catch {
-        if (active) setOrders(user?.email ? getTrackedOrdersForEmail(user.email) : [])
+        if (active) setOrders([])
       } finally {
         if (active) setLoading(false)
       }

@@ -166,24 +166,9 @@ function latestOrderTime(order: TrackedOrder) {
 }
 
 export function syncTrackedOrdersFromServer(serverOrders: TrackedOrder[]) {
-  if (typeof window === 'undefined') return serverOrders
-
-  const localOrders = getTrackedOrders()
-  const byId = new Map<string, TrackedOrder>()
-
-  for (const order of localOrders) {
-    byId.set(order.id.toLowerCase(), order)
-  }
-
-  for (const order of serverOrders) {
-    const key = order.id.toLowerCase()
-    const local = byId.get(key)
-    byId.set(key, !local || latestOrderTime(order) >= latestOrderTime(local) ? order : local)
-  }
-
-  const merged = Array.from(byId.values()).sort((a, b) => latestOrderTime(b) - latestOrderTime(a))
-  saveTrackedOrders(merged)
-  return merged
+  const serverOnly = serverOrders.slice().sort((a, b) => latestOrderTime(b) - latestOrderTime(a))
+  saveTrackedOrders(serverOnly)
+  return serverOnly
 }
 
 export function syncTrackedOrdersForEmail(serverOrders: TrackedOrder[], email?: string | null) {
