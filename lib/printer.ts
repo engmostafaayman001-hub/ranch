@@ -536,7 +536,7 @@ export class PrinterManager {
     const printer = this.settings[job.role]
     if (!printer.isEnabled) {
       console.info(`[PrinterManager] ${job.role} disabled. Skipping print job.`)
-      return { ok: true, skipped: true }
+      return { ok: true, skipped: true, reason: `${job.role} printer is disabled` }
     }
     const configurationIssue = this.getConfigurationIssue(printer)
     if (configurationIssue) {

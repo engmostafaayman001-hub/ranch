@@ -1,6 +1,6 @@
 'use client'
 
-import { FormEvent, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -8,22 +8,47 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useLanguage } from '@/components/language-provider'
 import { DeliveryDriver, useAppStore } from '@/lib/app-store'
-import { saveSharedDrivers, useSharedAppData } from '@/lib/use-shared-app-data'
+import { fetchSharedDrivers, saveSharedDrivers } from '@/lib/use-shared-app-data'
 
 const createId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
 export default function DashboardDeliveryPage() {
-  useSharedAppData()
   const { language } = useLanguage()
   const isArabic = language === 'ar'
   const { drivers, setDrivers } = useAppStore()
+  const [loading, setLoading] = useState(true)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [form, setForm] = useState({ name: '', email: '', phone: '', area: '', status: 'active' as 'active' | 'inactive' })
   const [saveStatus, setSaveStatus] = useState('')
   const [saving, setSaving] = useState(false)
+  const loadingDrivers = useRef(false)
+
+  const loadDrivers = useCallback(async () => {
+    if (loadingDrivers.current) return
+    loadingDrivers.current = true
+    try {
+      setDrivers(await fetchSharedDrivers())
+      setSaveStatus('')
+    } catch (error) {
+      setSaveStatus(error instanceof Error ? error.message : (isArabic ? 'تعذر تحميل السائقين.' : 'Could not load drivers.'))
+    } finally {
+      loadingDrivers.current = false
+      setLoading(false)
+    }
+  }, [isArabic, setDrivers])
+
+  useEffect(() => {
+    const timer = window.setTimeout(loadDrivers, 0)
+    const interval = window.setInterval(loadDrivers, 10000)
+    return () => {
+      window.clearTimeout(timer)
+      window.clearInterval(interval)
+    }
+  }, [loadDrivers])
 
   const publishDrivers = async (nextDrivers: DeliveryDriver[]) => {
+    const previousDrivers = drivers
     setDrivers(nextDrivers)
     setSaving(true)
     setSaveStatus('')
@@ -33,7 +58,8 @@ export default function DashboardDeliveryPage() {
       setDrivers(data.drivers || nextDrivers)
       setSaveStatus(isArabic ? 'تم حفظ السائقين وظهورهم لجميع أجهزة لوحة التحكم.' : 'Drivers saved and published to all dashboard devices.')
     } catch (error) {
-      setSaveStatus(error instanceof Error ? error.message : (isArabic ? 'تم حفظ التغيير محليا فقط.' : 'Changes were saved locally only.'))
+      setDrivers(previousDrivers)
+      setSaveStatus(error instanceof Error ? error.message : (isArabic ? 'تعذر حفظ السائقين على السيرفر.' : 'Could not save drivers on the server.'))
     } finally {
       setSaving(false)
       window.setTimeout(() => setSaveStatus(''), 3000)
@@ -136,7 +162,9 @@ export default function DashboardDeliveryPage() {
       <Card>
         <CardHeader><CardTitle>{isArabic ? 'قائمة السائقين' : 'Driver List'}</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          {drivers.length === 0 ? (
+          {loading ? (
+            <p className="py-8 text-center text-slate-500">{isArabic ? 'جاري تحميل السائقين...' : 'Loading drivers...'}</p>
+          ) : drivers.length === 0 ? (
             <p className="py-8 text-center text-slate-500">{isArabic ? 'لا يوجد سائقون بعد.' : 'No drivers yet.'}</p>
           ) : drivers.map((driver) => (
             <div key={driver.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 dark:border-slate-800">

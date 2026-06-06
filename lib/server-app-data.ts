@@ -37,7 +37,7 @@ function canUseSupabaseRuntimeTables() {
 }
 
 function shouldRequireSupabaseRuntimeTables() {
-  return false
+  return canUseSupabaseRuntimeTables()
 }
 
 function getSupabaseErrorMessage(error: unknown) {
@@ -135,7 +135,8 @@ async function readAppDataFile() {
 }
 
 async function readSharedAppDataFresh(): Promise<SharedAppData> {
-  if (canUseSupabaseRuntimeTables() && Date.now() >= supabaseAppDataCooldownUntil) {
+  const requireSupabase = shouldRequireSupabaseRuntimeTables()
+  if (canUseSupabaseRuntimeTables() && (requireSupabase || Date.now() >= supabaseAppDataCooldownUntil)) {
     const supabase = createSupabaseAdminClient()
     try {
       const { data, error } = await withTimeout(
@@ -168,11 +169,15 @@ async function readSharedAppDataFresh(): Promise<SharedAppData> {
     } catch (error) {
       console.warn('[server-app-data] Falling back after Supabase read failed:', getSupabaseErrorMessage(error))
       supabaseAppDataCooldownUntil = Date.now() + SUPABASE_COOLDOWN_MS
-      if (shouldRequireSupabaseRuntimeTables()) throw error
+      if (appDataCache) return appDataCache.data
+      if (requireSupabase) throw error
     }
   }
 
   if (appDataCache) return appDataCache.data
+  if (requireSupabase) {
+    throw new Error('Supabase app data is required but no shared data could be loaded')
+  }
   const data = await readAppDataFile()
   setAppDataCache(data)
   return data

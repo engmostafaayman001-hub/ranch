@@ -5,6 +5,14 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key'
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || supabaseAnonKey
 
+type SupabaseBrowserClient = ReturnType<typeof createBrowserClient>
+
+declare global {
+  // Keep one auth client across module reloads in the browser.
+  // Multiple GoTrueClient instances with the same storage key can race each other.
+  var __ranchSupabaseBrowserClient: SupabaseBrowserClient | undefined
+}
+
 type CookieToSet = {
   name: string
   value: string
@@ -18,7 +26,15 @@ type SupabaseCookieStore = {
 }
 
 export function createSupabaseBrowserClient() {
-  return createBrowserClient(supabaseUrl, supabaseAnonKey)
+  if (typeof window === 'undefined') {
+    return createBrowserClient(supabaseUrl, supabaseAnonKey)
+  }
+
+  if (!globalThis.__ranchSupabaseBrowserClient) {
+    globalThis.__ranchSupabaseBrowserClient = createBrowserClient(supabaseUrl, supabaseAnonKey)
+  }
+
+  return globalThis.__ranchSupabaseBrowserClient
 }
 
 export function createSupabaseServerClient(
@@ -56,5 +72,4 @@ export function createSupabaseAdminClient() {
   })
 }
 
-// Export default client for compatibility
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+export const supabase = createSupabaseBrowserClient

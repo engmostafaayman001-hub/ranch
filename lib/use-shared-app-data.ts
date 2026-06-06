@@ -33,10 +33,7 @@ export function useSharedAppData(options: { poll?: boolean } = {}) {
         }
         if (data.settings) setSettings(data.settings)
         if (Array.isArray(data.drivers)) {
-          const localDrivers = useAppStore.getState().drivers
-          if (data.drivers.length > 0 || localDrivers.length === 0) {
-            setDrivers(data.drivers)
-          }
+          setDrivers(data.drivers)
         }
       } catch {
         // Keep local persisted data if the shared source is unavailable.
@@ -81,12 +78,21 @@ export async function saveSharedSettings(settings: AppSettings) {
 }
 
 export async function saveSharedDrivers(drivers: DeliveryDriver[]) {
-  const response = await fetch('/api/app-data', {
+  const response = await fetch('/api/drivers', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type: 'drivers', drivers }),
+    body: JSON.stringify({ drivers }),
   })
   const data = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(data.message || data.error || 'Could not save drivers')
   return data as { drivers: DeliveryDriver[] }
+}
+
+export async function fetchSharedDrivers() {
+  const response = await fetch('/api/drivers', { cache: 'no-store' })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok || !Array.isArray(data.drivers)) {
+    throw new Error(data.message || data.error || 'Could not load drivers')
+  }
+  return data.drivers as DeliveryDriver[]
 }

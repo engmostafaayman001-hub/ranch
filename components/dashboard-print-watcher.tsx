@@ -145,9 +145,19 @@ export function DashboardPrintWatcher() {
         for (const order of newOrders) {
           const payload = createPrintPayload(order)
           const roles = readAutoPrintedOrders()[order.id] || {}
+          const cashierEnabled = settings.printers.cashier?.isEnabled === true
+          const kitchenEnabled = settings.printers.kitchen?.isEnabled === true
+
+          if (roles.cashier !== true && !cashierEnabled) {
+            markOrderRolePrinted(order.id, 'cashier')
+          }
+          if (roles.kitchen !== true && !kitchenEnabled) {
+            markOrderRolePrinted(order.id, 'kitchen')
+          }
+
           const jobs = [
-            roles.cashier === true ? null : { role: 'cashier' as const, print: () => printerManager.printCashierReceipt(payload) },
-            roles.kitchen === true ? null : { role: 'kitchen' as const, print: () => printerManager.printKitchenTicket(payload) },
+            roles.cashier === true || !cashierEnabled ? null : { role: 'cashier' as const, print: () => printerManager.printCashierReceipt(payload) },
+            roles.kitchen === true || !kitchenEnabled ? null : { role: 'kitchen' as const, print: () => printerManager.printKitchenTicket(payload) },
           ].filter(Boolean) as Array<{ role: keyof AutoPrintedOrderRoles; print: () => Promise<{ skipped?: boolean; reason?: string } | unknown> }>
 
           for (const job of jobs) {
