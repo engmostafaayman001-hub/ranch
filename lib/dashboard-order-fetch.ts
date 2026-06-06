@@ -32,14 +32,14 @@ export async function fetchDashboardOrderDetails(orderId: string) {
 }
 
 export async function fetchDashboardOrderReceipt(orderId: string) {
-  const response = await fetch(`/api/pos/orders/receipt?orderId=${encodeURIComponent(orderId)}`, { cache: 'no-store' })
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok || !data.receipt?.receiptDataUrl) {
-    throw new Error(data.message || data.error || 'No receipt file is saved for this order')
+  const order = await fetchDashboardOrderDetails(orderId)
+  const receiptDataUrl = order?.payment?.receiptDataUrl
+  if (!receiptDataUrl) {
+    throw new Error('No receipt file is saved for this order')
   }
 
   return {
-    url: data.receipt.receiptDataUrl as string,
-    name: data.receipt.receiptName as string | undefined,
+    url: receiptDataUrl,
+    name: order.payment?.receiptName,
   }
 }
