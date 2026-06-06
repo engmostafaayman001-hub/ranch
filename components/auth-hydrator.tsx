@@ -9,26 +9,22 @@ export function AuthHydrator() {
 
   useEffect(() => {
     const hydrate = async () => {
-      const stored = localStorage.getItem('user')
-      if (stored) {
-        setUser(JSON.parse(stored))
-        return
-      }
-
       const supabase = createSupabaseBrowserClient()
       const {
         data: { user },
       } = await supabase.auth.getUser()
 
-      setUser(
-        user
-          ? {
-              id: user.id,
-              name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
-              email: user.email || '',
-            }
-          : null
-      )
+      if (user?.email) {
+        setUser({
+          id: user.id,
+          name: user.user_metadata?.name || user.email.split('@')[0] || 'User',
+          email: user.email,
+        })
+        return
+      }
+
+      const stored = localStorage.getItem('user')
+      setUser(stored ? JSON.parse(stored) : null)
     }
 
     hydrate().catch(() => setUser(null))

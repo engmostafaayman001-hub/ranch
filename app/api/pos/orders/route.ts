@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { deleteServerOrder, readServerOrders, ServerOrderSourceFilter, stripHeavyOrderFields, updateServerOrderStatus, upsertServerOrder } from '@/lib/server-orders'
 import { PaymentStatus, TrackingStatus, trackingSteps, TrackedOrder } from '@/lib/order-tracking'
-import { getRequestDashboardAccess, getRequestUserEmail } from '@/lib/server-access'
+import { getRequestAuthenticatedUserEmail, getRequestDashboardAccess } from '@/lib/server-access'
 import { validateNotificationDiscount } from '@/lib/discounts'
 import { readServerNotifications } from '@/lib/server-notifications'
 
@@ -164,7 +164,7 @@ export async function OPTIONS() {
 
 export async function GET(request: NextRequest) {
   try {
-    const userEmail = getRequestUserEmail(request)
+    const userEmail = await getRequestAuthenticatedUserEmail(request)
     const access = await getRequestDashboardAccess(request)
     const isAdmin = access.allowed
     const includeReceipts = request.nextUrl.searchParams.get('includeReceipts') === '1'
@@ -207,7 +207,7 @@ export async function POST(request: NextRequest) {
     const payment = body.payment && typeof body.payment === 'object' ? body.payment : {}
     const paymentMethod = String(payment.method || body.paymentMethod || body.payMethod || 'cash')
     const customerEmail = String(customer.email || body.customerEmail || body.email || '').toLowerCase()
-    const requestEmail = getRequestUserEmail(request)
+    const requestEmail = await getRequestAuthenticatedUserEmail(request)
     const hasValidPosKey = getRequestApiKey(request) ? validateOptionalApiKey(request) : false
     const isAdmin = (await getRequestDashboardAccess(request)).allowed
 

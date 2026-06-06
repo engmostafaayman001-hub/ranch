@@ -8,7 +8,7 @@ const DATA_DIR = process.env.VERCEL ? '/tmp/ranch-data' : join(process.cwd(), 'd
 const NOTIFICATIONS_FILE = join(DATA_DIR, 'notifications.json')
 const NOTIFICATIONS_KEY = 'notifications'
 const NOTIFICATIONS_CACHE_MS = 10000
-const SUPABASE_READ_TIMEOUT_MS = 2000
+const SUPABASE_READ_TIMEOUT_MS = Number(process.env.SUPABASE_NOTIFICATIONS_READ_TIMEOUT_MS || 10000)
 const SUPABASE_COOLDOWN_MS = 45000
 
 let notificationsCache: { data: AppNotification[]; at: number } | null = null
@@ -21,6 +21,16 @@ function canUseSupabaseRuntimeTables() {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY &&
       process.env.SUPABASE_SERVICE_ROLE_KEY
   )
+}
+
+function shouldRequireSupabaseRuntimeTables() {
+  return Boolean(process.env.VERCEL && canUseSupabaseRuntimeTables())
+}
+
+function getSupabaseErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === 'object' && 'message' in error) return String((error as { message?: unknown }).message || error)
+  return String(error || 'Unknown Supabase error')
 }
 
 async function ensureDataFile() {
@@ -72,14 +82,17 @@ async function readServerNotificationsFresh(): Promise<AppNotification[]> {
           .maybeSingle(),
         SUPABASE_READ_TIMEOUT_MS
       )
-      if (!error && Array.isArray(data?.data)) {
+      if (error) throw error
+
+      if (Array.isArray(data?.data)) {
         const notifications = data.data as AppNotification[]
         setNotificationsCache(notifications)
         return notifications
       }
     } catch (error) {
-      console.warn('[server-notifications] Falling back after slow Supabase read:', error instanceof Error ? error.message : error)
+      console.warn('[server-notifications] Falling back after Supabase read failed:', getSupabaseErrorMessage(error))
       supabaseNotificationsCooldownUntil = Date.now() + SUPABASE_COOLDOWN_MS
+      if (shouldRequireSupabaseRuntimeTables()) throw error
     }
   }
 
@@ -110,6 +123,9 @@ async function writeServerNotifications(notifications: AppNotification[]) {
     if (!error) {
       setNotificationsCache(notifications)
       return
+    }
+    if (shouldRequireSupabaseRuntimeTables()) {
+      throw new Error(`Could not save notifications to Supabase: ${getSupabaseErrorMessage(error)}`)
     }
   }
 

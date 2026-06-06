@@ -10,7 +10,10 @@ export async function GET() {
     return Response.json({ notifications })
   } catch (error) {
     console.error('Notifications GET failed:', error)
-    return Response.json({ notifications: [] })
+    return Response.json(
+      { error: 'Could not load notifications', message: error instanceof Error ? error.message : 'Unknown server error', notifications: [] },
+      { status: 500 }
+    )
   }
 }
 

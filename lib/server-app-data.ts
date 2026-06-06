@@ -7,7 +7,7 @@ const DATA_DIR = process.env.VERCEL ? '/tmp/ranch-data' : join(process.cwd(), 'd
 const APP_DATA_FILE = join(DATA_DIR, 'app-data.json')
 const APP_DATA_KEY = 'shared_app_data'
 const APP_DATA_CACHE_MS = 10000
-const SUPABASE_READ_TIMEOUT_MS = 2500
+const SUPABASE_READ_TIMEOUT_MS = Number(process.env.SUPABASE_APP_DATA_READ_TIMEOUT_MS || 10000)
 const SUPABASE_COOLDOWN_MS = 45000
 
 let appDataCache: { data: SharedAppData; at: number } | null = null
@@ -34,6 +34,16 @@ function canUseSupabaseRuntimeTables() {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY &&
       process.env.SUPABASE_SERVICE_ROLE_KEY
   )
+}
+
+function shouldRequireSupabaseRuntimeTables() {
+  return Boolean(process.env.VERCEL && canUseSupabaseRuntimeTables())
+}
+
+function getSupabaseErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === 'object' && 'message' in error) return String((error as { message?: unknown }).message || error)
+  return String(error || 'Unknown Supabase error')
 }
 
 function normalizeSharedData(data: Partial<SharedAppData> | null | undefined): SharedAppData {
@@ -137,15 +147,18 @@ async function readSharedAppDataFresh(): Promise<SharedAppData> {
         SUPABASE_READ_TIMEOUT_MS
       )
 
-      if (!error && data?.data) {
+      if (error) throw error
+
+      if (data?.data) {
         const normalized = normalizeSharedData(data.data as Partial<SharedAppData>)
         setAppDataCache(normalized)
         return normalized
       }
       if (!error && !data) return fallbackData
     } catch (error) {
-      console.warn('[server-app-data] Falling back after slow Supabase read:', error instanceof Error ? error.message : error)
+      console.warn('[server-app-data] Falling back after Supabase read failed:', getSupabaseErrorMessage(error))
       supabaseAppDataCooldownUntil = Date.now() + SUPABASE_COOLDOWN_MS
+      if (shouldRequireSupabaseRuntimeTables()) throw error
     }
   }
 
@@ -179,6 +192,10 @@ export async function writeSharedAppData(data: SharedAppData) {
     if (!error) {
       setAppDataCache(normalized)
       return normalized
+    }
+
+    if (shouldRequireSupabaseRuntimeTables()) {
+      throw new Error(`Could not save app data to Supabase: ${getSupabaseErrorMessage(error)}`)
     }
   }
 

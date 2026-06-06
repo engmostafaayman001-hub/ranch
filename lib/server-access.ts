@@ -31,6 +31,12 @@ export function getRequestUserEmail(request: NextRequest) {
   return cookie ? normalizeEmail(decodeURIComponent(cookie)) : null
 }
 
+export async function getRequestAuthenticatedUserEmail(request: NextRequest) {
+  const sessionUser = await getSupabaseSessionUser(request)
+  const email = normalizeEmail(sessionUser?.email || getRequestUserEmail(request) || '')
+  return email || null
+}
+
 function getAccessCacheKey(request: NextRequest) {
   return request.cookies
     .getAll()

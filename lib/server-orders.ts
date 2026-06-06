@@ -6,7 +6,7 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 const DATA_DIR = process.env.VERCEL ? '/tmp/ranch-data' : join(process.cwd(), 'data')
 const ORDERS_FILE = join(DATA_DIR, 'orders.json')
 const ORDERS_CACHE_MS = 7000
-const SUPABASE_READ_TIMEOUT_MS = 2500
+const SUPABASE_READ_TIMEOUT_MS = Number(process.env.SUPABASE_ORDERS_READ_TIMEOUT_MS || 10000)
 const SUPABASE_COOLDOWN_MS = 60000
 const DEFAULT_ORDERS_LIMIT = 100
 
@@ -27,6 +27,16 @@ function canUseSupabaseRuntimeTables() {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY &&
       process.env.SUPABASE_SERVICE_ROLE_KEY
   )
+}
+
+function shouldRequireSupabaseRuntimeTables() {
+  return Boolean(process.env.VERCEL && canUseSupabaseRuntimeTables())
+}
+
+function getSupabaseErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === 'object' && 'message' in error) return String((error as { message?: unknown }).message || error)
+  return String(error || 'Unknown Supabase error')
 }
 
 function normalizeOrder(row: { data: TrackedOrder } | TrackedOrder): TrackedOrder {
@@ -102,14 +112,17 @@ async function readServerOrdersFresh(options: ReadServerOrdersOptions = {}): Pro
         SUPABASE_READ_TIMEOUT_MS
       )
 
-      if (!error && Array.isArray(data)) {
+      if (error) throw error
+
+      if (Array.isArray(data)) {
         const orders = data.map(normalizeOrder)
         if (!options.source && !options.limit) setOrdersCache(orders)
         return applyReadOptions(orders, options)
       }
     } catch (error) {
-      console.warn('[server-orders] Falling back after slow Supabase read:', error instanceof Error ? error.message : error)
+      console.warn('[server-orders] Falling back after Supabase read failed:', getSupabaseErrorMessage(error))
       supabaseOrdersCooldownUntil = Date.now() + SUPABASE_COOLDOWN_MS
+      if (shouldRequireSupabaseRuntimeTables()) throw error
     }
   }
 
@@ -158,6 +171,10 @@ export async function writeServerOrders(orders: TrackedOrder[]) {
       setOrdersCache(orders)
       return
     }
+
+    if (shouldRequireSupabaseRuntimeTables()) {
+      throw new Error(`Could not save orders to Supabase: ${getSupabaseErrorMessage(error)}`)
+    }
   }
 
   await ensureDataFile()
@@ -183,6 +200,10 @@ export async function upsertServerOrder(order: TrackedOrder) {
       setOrdersCache([order, ...current.filter((item) => item.id !== order.id)])
       return order
     }
+
+    if (shouldRequireSupabaseRuntimeTables()) {
+      throw new Error(`Could not save order to Supabase: ${getSupabaseErrorMessage(error)}`)
+    }
   }
 
   const orders = await readServerOrders()
@@ -198,6 +219,10 @@ export async function deleteServerOrder(orderId: string) {
     if (!error) {
       if (ordersCache) setOrdersCache(ordersCache.data.filter((order) => order.id.toLowerCase() !== orderId.toLowerCase()))
       return true
+    }
+
+    if (shouldRequireSupabaseRuntimeTables()) {
+      throw new Error(`Could not delete order from Supabase: ${getSupabaseErrorMessage(error)}`)
     }
   }
 

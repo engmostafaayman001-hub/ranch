@@ -1,13 +1,13 @@
 import { NextRequest } from 'next/server'
 import { normalizeEmail } from '@/lib/access'
-import { canRequestAccessDashboard, getRequestUserEmail } from '@/lib/server-access'
+import { canRequestAccessDashboard, getRequestAuthenticatedUserEmail } from '@/lib/server-access'
 import { readServerCustomers, upsertServerCustomer } from '@/lib/server-customers'
 
 export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest) {
   try {
-    const userEmail = getRequestUserEmail(request)
+    const userEmail = await getRequestAuthenticatedUserEmail(request)
     const isAdmin = await canRequestAccessDashboard(request)
     const customers = await readServerCustomers()
     return Response.json(
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: 'Email is required' }, { status: 400 })
     }
 
-    const requestEmail = getRequestUserEmail(request)
+    const requestEmail = await getRequestAuthenticatedUserEmail(request)
     const isAdmin = await canRequestAccessDashboard(request)
     if (!isAdmin && (!requestEmail || requestEmail !== email)) {
       return Response.json({ error: 'You can only update your own customer profile' }, { status: 403 })

@@ -14,6 +14,16 @@ function canUseSupabaseRuntimeTables() {
   )
 }
 
+function shouldRequireSupabaseRuntimeTables() {
+  return Boolean(process.env.VERCEL && canUseSupabaseRuntimeTables())
+}
+
+function getSupabaseErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === 'object' && 'message' in error) return String((error as { message?: unknown }).message || error)
+  return String(error || 'Unknown Supabase error')
+}
+
 type AppCustomerRow = {
   id: string
   name: string
@@ -39,51 +49,58 @@ function fromRow(row: AppCustomerRow): AppCustomer {
 async function readRegisteredAuthCustomers(): Promise<AppCustomer[]> {
   if (!canUseSupabaseRuntimeTables()) return []
 
-  const supabase = createSupabaseAdminClient()
-  const teamUserIds = new Set<string>()
-  const { data: teamMembers } = await supabase.from('team_members').select('user_id')
+  try {
+    const supabase = createSupabaseAdminClient()
+    const teamUserIds = new Set<string>()
+    const { data: teamMembers, error: teamError } = await supabase.from('team_members').select('user_id')
+    if (teamError) throw teamError
 
-  if (Array.isArray(teamMembers)) {
-    for (const member of teamMembers) {
-      const userId = typeof member.user_id === 'string' ? member.user_id : ''
-      if (userId) teamUserIds.add(userId)
-    }
-  }
-
-  const customers: AppCustomer[] = []
-  let page = 1
-  const perPage = 1000
-
-  while (true) {
-    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage })
-    if (error || !Array.isArray(data.users) || data.users.length === 0) break
-
-    for (const user of data.users) {
-      const email = user.email?.trim().toLowerCase()
-      if (!email || teamUserIds.has(user.id)) continue
-
-      const metadata = user.user_metadata || {}
-      const name = String(metadata.name || metadata.full_name || metadata.display_name || email.split('@')[0]).trim()
-      const phone = String(user.phone || metadata.phone || '').trim()
-      const address = String(metadata.address || '').trim()
-      const createdAt = user.created_at || new Date().toISOString()
-
-      customers.push({
-        id: user.id,
-        name,
-        email,
-        phone,
-        address,
-        createdAt,
-        updatedAt: user.updated_at || user.last_sign_in_at || createdAt,
-      })
+    if (Array.isArray(teamMembers)) {
+      for (const member of teamMembers) {
+        const userId = typeof member.user_id === 'string' ? member.user_id : ''
+        if (userId) teamUserIds.add(userId)
+      }
     }
 
-    if (data.users.length < perPage) break
-    page += 1
-  }
+    const customers: AppCustomer[] = []
+    let page = 1
+    const perPage = 1000
 
-  return customers
+    while (true) {
+      const { data, error } = await supabase.auth.admin.listUsers({ page, perPage })
+      if (error) throw error
+      if (!Array.isArray(data.users) || data.users.length === 0) break
+
+      for (const user of data.users) {
+        const email = user.email?.trim().toLowerCase()
+        if (!email || teamUserIds.has(user.id)) continue
+
+        const metadata = user.user_metadata || {}
+        const name = String(metadata.name || metadata.full_name || metadata.display_name || email.split('@')[0]).trim()
+        const phone = String(user.phone || metadata.phone || '').trim()
+        const address = String(metadata.address || '').trim()
+        const createdAt = user.created_at || new Date().toISOString()
+
+        customers.push({
+          id: user.id,
+          name,
+          email,
+          phone,
+          address,
+          createdAt,
+          updatedAt: user.updated_at || user.last_sign_in_at || createdAt,
+        })
+      }
+
+      if (data.users.length < perPage) break
+      page += 1
+    }
+
+    return customers
+  } catch (error) {
+    if (shouldRequireSupabaseRuntimeTables()) throw error
+    return []
+  }
 }
 
 function mergeCustomers(...groups: AppCustomer[][]) {
@@ -137,6 +154,10 @@ export async function readServerCustomers(): Promise<AppCustomer[]> {
     if (!error && Array.isArray(data)) {
       return mergeCustomers((data as AppCustomerRow[]).map(fromRow), registeredCustomers)
     }
+
+    if (shouldRequireSupabaseRuntimeTables()) {
+      throw new Error(`Could not read customers from Supabase: ${getSupabaseErrorMessage(error)}`)
+    }
   }
 
   await ensureDataFile()
@@ -176,6 +197,10 @@ export async function upsertServerCustomer(input: {
 
     if (!error && data) {
       return fromRow(data as AppCustomerRow)
+    }
+
+    if (shouldRequireSupabaseRuntimeTables()) {
+      throw new Error(`Could not save customer to Supabase: ${getSupabaseErrorMessage(error)}`)
     }
   }
 

@@ -23,6 +23,16 @@ function canUseSupabaseRuntimeTables() {
   )
 }
 
+function shouldRequireSupabaseRuntimeTables() {
+  return Boolean(process.env.VERCEL && canUseSupabaseRuntimeTables())
+}
+
+function getSupabaseErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === 'object' && 'message' in error) return String((error as { message?: unknown }).message || error)
+  return String(error || 'Unknown Supabase error')
+}
+
 async function ensureDataFile() {
   await mkdir(DATA_DIR, { recursive: true })
   try {
@@ -41,6 +51,9 @@ export async function readServerExpenses(): Promise<ServerExpense[]> {
       .eq('key', EXPENSES_KEY)
       .maybeSingle()
     if (!error && Array.isArray(data?.data)) return data.data as ServerExpense[]
+    if (error && shouldRequireSupabaseRuntimeTables()) {
+      throw new Error(`Could not read expenses from Supabase: ${getSupabaseErrorMessage(error)}`)
+    }
   }
 
   await ensureDataFile()
@@ -62,6 +75,9 @@ async function writeServerExpenses(expenses: ServerExpense[]) {
       updated_at: new Date().toISOString(),
     }, { onConflict: 'key' })
     if (!error) return
+    if (shouldRequireSupabaseRuntimeTables()) {
+      throw new Error(`Could not save expenses to Supabase: ${getSupabaseErrorMessage(error)}`)
+    }
   }
 
   await ensureDataFile()
