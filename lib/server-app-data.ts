@@ -37,7 +37,7 @@ function canUseSupabaseRuntimeTables() {
 }
 
 function shouldRequireSupabaseRuntimeTables() {
-  return Boolean(process.env.VERCEL && canUseSupabaseRuntimeTables())
+  return false
 }
 
 function getSupabaseErrorMessage(error: unknown) {
@@ -154,7 +154,17 @@ async function readSharedAppDataFresh(): Promise<SharedAppData> {
         setAppDataCache(normalized)
         return normalized
       }
-      if (!error && !data) return fallbackData
+      if (!error && !data) {
+        const normalized = normalizeSharedData(fallbackData)
+        const { error: upsertError } = await supabase.from('app_data').upsert({
+          key: APP_DATA_KEY,
+          data: normalized,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'key' })
+        if (upsertError) throw upsertError
+        setAppDataCache(normalized)
+        return normalized
+      }
     } catch (error) {
       console.warn('[server-app-data] Falling back after Supabase read failed:', getSupabaseErrorMessage(error))
       supabaseAppDataCooldownUntil = Date.now() + SUPABASE_COOLDOWN_MS

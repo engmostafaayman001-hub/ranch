@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN, ORDER_STATUS_LABELS, ORDER_STATUS_LABELS_EN } from '@/lib/constants'
 import { PrinterRole, useAppStore } from '@/lib/app-store'
-import { fetchDashboardOrdersBySource } from '@/lib/dashboard-order-fetch'
+import { fetchDashboardOrderDetails, fetchDashboardOrdersBySource } from '@/lib/dashboard-order-fetch'
 import { TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
 import { printerManager, syncPrinterManagerSettings, trackedOrderToReceiptPayload } from '@/lib/printer'
 
@@ -75,6 +75,7 @@ export default function DashboardRestaurantOrdersPage() {
     currency,
     invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
     invoiceAddress: isArabic ? settings.addressAr : settings.addressEn,
+    invoicePhone: settings.phone,
     invoiceQrUrl: settings.printers.cashier.printsQr === false ? undefined : settings.invoiceQrUrl,
     invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
     logoUrl: settings.invoiceLogo || settings.heroImage,
@@ -88,7 +89,8 @@ export default function DashboardRestaurantOrdersPage() {
   const printOrder = async (order: TrackedOrder, role: PrinterRole) => {
     syncPrinterManagerSettings(settings.printers)
     try {
-      const payload = createPrintPayload(order)
+      const fullOrder = await fetchDashboardOrderDetails(order.id)
+      const payload = createPrintPayload(fullOrder || order)
       const result = role === 'cashier'
         ? await printerManager.printCashierReceipt(payload)
         : role === 'kitchen'

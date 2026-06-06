@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ReceiptPreviewDialog } from '@/components/receipt-preview-dialog'
 import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN, PAYMENT_METHOD_LABELS, PAYMENT_METHOD_LABELS_EN } from '@/lib/constants'
+import { fetchDashboardOrderDetails } from '@/lib/dashboard-order-fetch'
 import { PaymentStatus, TrackedOrder } from '@/lib/order-tracking'
 
 const statusStyles: Record<PaymentStatus, string> = {
@@ -34,7 +35,7 @@ export default function DashboardPaymentsPage() {
       if (loadingPayments.current) return
       loadingPayments.current = true
       try {
-        const response = await fetch('/api/pos/orders?includeReceipts=1&limit=200', { cache: 'no-store' })
+        const response = await fetch('/api/pos/orders?limit=200', { cache: 'no-store' })
         const data = await response.json().catch(() => ({}))
         if (mounted) setOrders(Array.isArray(data.orders) ? data.orders : [])
       } catch {
@@ -55,7 +56,7 @@ export default function DashboardPaymentsPage() {
 
   const paymentOrders = useMemo(() => orders.filter((order) => order.payment), [orders])
   const paidOrders = paymentOrders.filter((order) => order.payment?.status === 'paid')
-  const receiptOrders = paymentOrders.filter((order) => order.payment?.receiptDataUrl)
+  const receiptOrders = paymentOrders.filter((order) => order.payment?.receiptDataUrl || order.payment?.receiptName || order.payment?.receiptUploadedAt)
   const pendingOrders = paymentOrders.filter((order) => ['pending', 'receipt_uploaded'].includes(order.payment?.status || ''))
   const rejectedOrders = paymentOrders.filter((order) => order.payment?.status === 'rejected')
   const totalPaid = paidOrders.reduce((sum, order) => sum + Number(order.total || 0), 0)
@@ -181,16 +182,21 @@ export default function DashboardPaymentsPage() {
                       </td>
                       <td className="py-3 font-semibold">{Number(order.total || 0).toFixed(2)} {currency}</td>
                       <td className="py-3">
-                        {order.payment?.receiptDataUrl ? (
+                        {order.payment?.receiptDataUrl || order.payment?.receiptName || order.payment?.receiptUploadedAt ? (
                           <Button
                             type="button"
                             size="sm"
                             variant="outline"
-                            onClick={() => setReceiptPreview({
-                              url: order.payment?.receiptDataUrl || '',
-                              title: `${isArabic ? 'إيصال الطلب' : 'Order receipt'} ${order.id}`,
-                              name: order.payment?.receiptName,
-                            })}
+                            onClick={async () => {
+                              const fullOrder = order.payment?.receiptDataUrl ? order : await fetchDashboardOrderDetails(order.id)
+                              const receipt = fullOrder?.payment?.receiptDataUrl
+                              if (!receipt) return
+                              setReceiptPreview({
+                                url: receipt,
+                                title: `${isArabic ? 'إيصال الطلب' : 'Order receipt'} ${order.id}`,
+                                name: fullOrder?.payment?.receiptName || order.payment?.receiptName,
+                              })
+                            }}
                           >
                             <Eye className="me-2 h-4 w-4" />
                             {isArabic ? 'فتح الإيصال' : 'Open Receipt'}

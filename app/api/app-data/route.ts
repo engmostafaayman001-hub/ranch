@@ -15,8 +15,16 @@ function json(data: unknown, init?: ResponseInit) {
 }
 
 export async function GET() {
-  const data = await readSharedAppData()
-  return json(data)
+  try {
+    const data = await readSharedAppData()
+    return json(data)
+  } catch (error) {
+    console.error('Failed to read shared app data:', error)
+    return json(
+      { error: 'Could not load shared app data', message: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    )
+  }
 }
 
 export async function PATCH(request: NextRequest) {

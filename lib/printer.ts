@@ -53,6 +53,7 @@ export type ReceiptPayload = {
   currency?: string
   invoiceName?: string
   invoiceAddress?: string
+  invoicePhone?: string
   invoiceMessage?: string
   invoiceQrUrl?: string
   logoUrl?: string
@@ -312,6 +313,9 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
   drawText(job.payload.invoiceName || (isArabic ? 'فاتورة طلب' : 'Order Receipt'), { size: 27, weight: 900, align: 'center' })
   if (job.payload.invoiceAddress) {
     drawText(job.payload.invoiceAddress, { size: 17, weight: 700, align: 'center' })
+  }
+  if (job.payload.invoicePhone) {
+    drawText(job.payload.invoicePhone, { size: 17, weight: 700, align: 'center' })
   }
   drawText(job.kind === 'cashier' ? (isArabic ? 'فاتورة كاشير' : 'Cashier Receipt') : job.kind === 'kitchen' ? (isArabic ? 'تذكرة مطبخ' : 'Kitchen Ticket') : (isArabic ? 'تذكرة صالة' : 'Hall Ticket'), { size: 18, weight: 700, align: 'center' })
   divider()

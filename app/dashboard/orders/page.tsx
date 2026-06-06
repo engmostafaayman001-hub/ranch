@@ -16,7 +16,7 @@ import {
   PAYMENT_METHOD_LABELS_EN,
 } from '@/lib/constants'
 import { PrinterRole, useAppStore } from '@/lib/app-store'
-import { fetchDashboardOrdersBySource } from '@/lib/dashboard-order-fetch'
+import { fetchDashboardOrderDetails, fetchDashboardOrdersBySource } from '@/lib/dashboard-order-fetch'
 import { TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
 import { printerManager, syncPrinterManagerSettings, trackedOrderToReceiptPayload } from '@/lib/printer'
 
@@ -170,10 +170,11 @@ export default function DashboardOrdersPage() {
     currency,
     invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
     invoiceAddress: isArabic ? settings.addressAr : settings.addressEn,
+    invoicePhone: settings.phone,
     invoiceQrUrl: settings.printers.cashier.printsQr === false ? undefined : settings.invoiceQrUrl,
     invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
     logoUrl: settings.invoiceLogo || settings.heroImage,
-  }), [currency, isArabic, settings.addressAr, settings.addressEn, settings.heroImage, settings.invoiceLogo, settings.invoiceNameAr, settings.invoiceNameEn, settings.invoiceQrUrl, settings.invoiceWelcomeAr, settings.invoiceWelcomeEn, settings.printers.cashier.printsQr])
+  }), [currency, isArabic, settings.addressAr, settings.addressEn, settings.heroImage, settings.invoiceLogo, settings.invoiceNameAr, settings.invoiceNameEn, settings.invoiceQrUrl, settings.invoiceWelcomeAr, settings.invoiceWelcomeEn, settings.phone, settings.printers.cashier.printsQr])
 
   const isPrinterAvailable = (role: PrinterRole) => {
     const printer = settings.printers[role]
@@ -183,7 +184,8 @@ export default function DashboardOrdersPage() {
   const printOrder = async (order: TrackedOrder, role: PrinterRole) => {
     syncPrinterManagerSettings(settings.printers)
     try {
-      const payload = createPrintPayload(order)
+      const fullOrder = await fetchDashboardOrderDetails(order.id)
+      const payload = createPrintPayload(fullOrder || order)
       const result = role === 'cashier'
         ? await printerManager.printCashierReceipt(payload)
         : role === 'kitchen'
@@ -214,14 +216,13 @@ export default function DashboardOrdersPage() {
 
     setMessage('')
     try {
-      const response = await fetch(`/api/pos/orders?orderId=${encodeURIComponent(order.id)}&includeReceipts=1`, { cache: 'no-store' })
-      const data = await response.json().catch(() => ({}))
-      const receipt = Array.isArray(data.orders) ? data.orders[0]?.payment?.receiptDataUrl : undefined
+      const fullOrder = await fetchDashboardOrderDetails(order.id)
+      const receipt = fullOrder?.payment?.receiptDataUrl
       if (!receipt) {
         setMessage(isArabic ? 'لا يوجد ملف إيصال محفوظ لهذا الطلب.' : 'No receipt file is saved for this order.')
         return
       }
-      setReceiptPreview({ url: receipt, title, name: order.payment?.receiptName })
+      setReceiptPreview({ url: receipt, title, name: fullOrder?.payment?.receiptName || order.payment?.receiptName })
     } catch {
       setMessage(isArabic ? 'تعذر تحميل الإيصال.' : 'Could not load the receipt.')
     }

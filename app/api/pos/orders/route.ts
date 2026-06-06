@@ -168,10 +168,16 @@ export async function GET(request: NextRequest) {
     const access = await getRequestDashboardAccess(request)
     const isAdmin = access.allowed
     const includeReceipts = request.nextUrl.searchParams.get('includeReceipts') === '1'
-    const requestedOrderId = request.nextUrl.searchParams.get('orderId')?.trim().toLowerCase()
+    const requestedOrderIdRaw = request.nextUrl.searchParams.get('orderId')?.trim()
+    const requestedOrderId = requestedOrderIdRaw?.toLowerCase()
     const source = requestedOrderId ? undefined : normalizeSourceFilter(request.nextUrl.searchParams.get('source'))
     const limit = normalizeLimit(request.nextUrl.searchParams.get('limit'))
-    const allOrders = await readServerOrders({ source, limit })
+    const allOrders = await readServerOrders({
+      source,
+      limit,
+      orderId: requestedOrderIdRaw || undefined,
+      includeReceipts,
+    })
     const orders = requestedOrderId
       ? allOrders.filter((order) => order.id.toLowerCase() === requestedOrderId)
       : allOrders
@@ -298,7 +304,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (access.role === 'delivery') {
-      const orders = await readServerOrders()
+      const orders = await readServerOrders({ orderId: id, includeReceipts: true })
       const existing = orders.find((order) => order.id.toLowerCase() === id.toLowerCase())
       if (!existing || existing.source === 'restaurant_pos' || !isOrderAssignedToDelivery(existing, access)) {
         return json({ error: 'Forbidden' }, { status: 403 })

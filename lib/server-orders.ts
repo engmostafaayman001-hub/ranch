@@ -6,8 +6,8 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 const DATA_DIR = process.env.VERCEL ? '/tmp/ranch-data' : join(process.cwd(), 'data')
 const ORDERS_FILE = join(DATA_DIR, 'orders.json')
 const ORDERS_CACHE_MS = 7000
-const SUPABASE_READ_TIMEOUT_MS = Number(process.env.SUPABASE_ORDERS_READ_TIMEOUT_MS || 10000)
-const DEFAULT_ORDERS_LIMIT = 100
+const SUPABASE_READ_TIMEOUT_MS = Number(process.env.SUPABASE_ORDERS_READ_TIMEOUT_MS || 45000)
+const DEFAULT_ORDERS_LIMIT = 300
 
 let ordersCache: { data: TrackedOrder[]; at: number } | null = null
 let ordersReadPromise: Promise<TrackedOrder[]> | null = null
@@ -17,6 +17,31 @@ export type ServerOrderSourceFilter = 'app' | 'restaurant_pos'
 export type ReadServerOrdersOptions = {
   source?: ServerOrderSourceFilter
   limit?: number
+  orderId?: string
+  includeReceipts?: boolean
+}
+
+type CompactOrderRow = {
+  id: string
+  customer_email: string | null
+  customer_phone: string | null
+  status: TrackingStatus | null
+  created_at: string | null
+  source?: string | null
+  external_reference?: string | null
+  customer?: string | null
+  phone?: string | null
+  address?: string | null
+  notes?: string | null
+  total?: string | number | null
+  items?: string | number | null
+  order_status?: TrackingStatus | null
+  estimated_delivery?: string | null
+  driver?: TrackedOrder['driver'] | null
+  payment_method?: string | null
+  payment_status?: OrderPayment['status'] | null
+  receipt_name?: string | null
+  receipt_uploaded_at?: string | null
 }
 
 function canUseSupabaseRuntimeTables() {
@@ -39,6 +64,40 @@ function getSupabaseErrorMessage(error: unknown) {
 
 function normalizeOrder(row: { data: TrackedOrder } | TrackedOrder): TrackedOrder {
   return 'data' in row ? row.data : row
+}
+
+function normalizeCompactOrder(row: CompactOrderRow): TrackedOrder {
+  const createdAt = row.created_at || new Date().toISOString()
+  const status = row.order_status || row.status || 'placed'
+  return {
+    id: row.id,
+    source: row.source || 'app',
+    externalReference: row.external_reference || undefined,
+    customer: row.customer || 'Customer',
+    customerEmail: row.customer_email || undefined,
+    phone: row.phone || row.customer_phone || '',
+    address: row.address || '',
+    notes: row.notes || undefined,
+    total: Number(row.total || 0),
+    items: Number(row.items || 0),
+    status,
+    createdAt,
+    estimatedDelivery: row.estimated_delivery || '30 min',
+    driver: row.driver || {
+      name: 'Pending assignment',
+      phone: '-',
+      rating: 0,
+    },
+    payment: row.payment_method || row.payment_status || row.receipt_name || row.receipt_uploaded_at
+      ? {
+          method: row.payment_method || 'cash',
+          status: row.payment_status || 'pending',
+          receiptName: row.receipt_name || undefined,
+          receiptUploadedAt: row.receipt_uploaded_at || undefined,
+        }
+      : undefined,
+    history: [{ status, at: createdAt }],
+  }
 }
 
 async function ensureDataFile() {
@@ -98,12 +157,40 @@ async function readServerOrdersFresh(options: ReadServerOrdersOptions = {}): Pro
   if (canUseSupabaseRuntimeTables()) {
     const supabase = createSupabaseAdminClient()
     try {
-      const readLimit = options.source ? Math.max(300, normalizeLimit(options.limit)) : normalizeLimit(options.limit)
-      const query = supabase
+      const readLimit = options.source ? Math.max(DEFAULT_ORDERS_LIMIT, normalizeLimit(options.limit)) : normalizeLimit(options.limit)
+      const shouldReadFullData = options.includeReceipts || options.orderId
+      const compactSelect = [
+        'id',
+        'customer_email',
+        'customer_phone',
+        'status',
+        'created_at',
+        'source:data->>source',
+        'external_reference:data->>externalReference',
+        'customer:data->>customer',
+        'phone:data->>phone',
+        'address:data->>address',
+        'notes:data->>notes',
+        'total:data->>total',
+        'items:data->>items',
+        'order_status:data->>status',
+        'estimated_delivery:data->>estimatedDelivery',
+        'payment_method:data->payment->>method',
+        'payment_status:data->payment->>status',
+        'receipt_name:data->payment->>receiptName',
+        'receipt_uploaded_at:data->payment->>receiptUploadedAt',
+      ].join(',')
+
+      let query = supabase
         .from('app_orders')
-        .select('data')
+        .select(shouldReadFullData ? 'data' : compactSelect)
         .order('created_at', { ascending: false })
-        .limit(readLimit)
+
+      if (options.orderId) {
+        query = query.eq('id', options.orderId).limit(1)
+      } else {
+        query = query.limit(readLimit)
+      }
 
       const { data, error } = await withTimeout(
         query,
@@ -113,8 +200,10 @@ async function readServerOrdersFresh(options: ReadServerOrdersOptions = {}): Pro
       if (error) throw error
 
       if (Array.isArray(data)) {
-        const orders = data.map(normalizeOrder)
-        setOrdersCache(orders)
+        const orders = shouldReadFullData
+          ? (data as unknown as Array<{ data: TrackedOrder } | TrackedOrder>).map(normalizeOrder)
+          : (data as unknown as CompactOrderRow[]).map(normalizeCompactOrder)
+        if (!options.orderId) setOrdersCache(orders)
         return applyReadOptions(orders, options)
       }
     } catch (error) {
@@ -233,26 +322,24 @@ export async function updateServerOrderStatus(
     payment?: Partial<OrderPayment>
   }
 ) {
-  const orders = await readServerOrders()
+  const existing = (await readServerOrders({ orderId, includeReceipts: true }))[0]
+  if (!existing) return null
+
   const now = new Date().toISOString()
-  const updated = orders.map((order) => {
-    if (order.id.toLowerCase() !== orderId.toLowerCase()) return order
+  const payment = updates?.payment
+    ? { ...(existing.payment || { method: 'cash', status: 'pending' as const }), ...updates.payment }
+    : existing.payment
+  const history = Array.isArray(existing.history) ? existing.history : []
+  const updated = {
+    ...existing,
+    status,
+    driver: updates?.driver || existing.driver,
+    payment,
+    history: history.some((event) => event.status === status)
+      ? history
+      : [...history, { status, at: now }],
+  }
 
-    const payment = updates?.payment
-      ? { ...(order.payment || { method: 'cash', status: 'pending' as const }), ...updates.payment }
-      : order.payment
-
-    return {
-      ...order,
-      status,
-      driver: updates?.driver || order.driver,
-      payment,
-      history: order.history.some((event) => event.status === status)
-        ? order.history
-        : [...order.history, { status, at: now }],
-    }
-  })
-
-  await writeServerOrders(updated)
-  return updated.find((order) => order.id.toLowerCase() === orderId.toLowerCase()) || null
+  await upsertServerOrder(updated)
+  return updated
 }

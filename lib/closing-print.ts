@@ -23,6 +23,7 @@ type ClosingPrintInput = {
   isArabic: boolean
   invoiceName?: string
   invoiceAddress?: string
+  invoicePhone?: string
   logoUrl?: string
 }
 
@@ -87,6 +88,7 @@ export function createClosingReceiptPayload(input: ClosingPrintInput): ReceiptPa
     currency: input.currency,
     invoiceName: input.invoiceName || input.title,
     invoiceAddress: input.invoiceAddress,
+    invoicePhone: input.invoicePhone,
     invoiceMessage: input.isArabic ? 'تمت طباعة التقفيل من Baseeta POS' : 'Printed from Baseeta POS',
     logoUrl: input.logoUrl,
     isArabic: input.isArabic,
