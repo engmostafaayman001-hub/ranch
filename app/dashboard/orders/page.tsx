@@ -311,6 +311,16 @@ export default function DashboardOrdersPage() {
                       </span>
                     )}
                   </div>
+                  <div className="mt-4 rounded-md border bg-white p-3 text-sm dark:border-slate-800 dark:bg-slate-950">
+                    <p className="font-semibold">{isArabic ? 'بيانات السائق المكلف' : 'Assigned driver'}</p>
+                    {order.driver?.name && order.driver.name !== 'Pending assignment' ? (
+                      <p className="mt-1 text-slate-600 dark:text-slate-300">
+                        {order.driver.name} - {order.driver.phone && order.driver.phone !== '-' ? order.driver.phone : (isArabic ? 'لا يوجد رقم' : 'No phone')}
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-slate-500">{isArabic ? 'لم يتم تعيين سائق لهذا الطلب بعد.' : 'No driver has been assigned to this order yet.'}</p>
+                    )}
+                  </div>
                   {!isDeliveryUser && <div className="mt-4 grid gap-2 border-t pt-4 dark:border-slate-800 md:grid-cols-[1fr_auto]">
                     <select
                       value={driverSelections[order.id] || ''}
@@ -319,7 +329,7 @@ export default function DashboardOrdersPage() {
                     >
                       <option value="">{isArabic ? 'اختر سائقا' : 'Choose a driver'}</option>
                       {drivers.filter((driver) => driver.status === 'active').map((driver) => (
-                        <option key={driver.id} value={driver.id}>{driver.name} - {driver.email || driver.phone}</option>
+                        <option key={driver.id} value={driver.id}>{driver.name} - {driver.phone || '-'}</option>
                       ))}
                     </select>
                     <Button type="button" variant="outline" onClick={() => assignDriver(order)}>

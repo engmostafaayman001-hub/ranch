@@ -172,9 +172,10 @@ export async function GET(request: NextRequest) {
     const requestedOrderId = requestedOrderIdRaw?.toLowerCase()
     const source = requestedOrderId ? undefined : normalizeSourceFilter(request.nextUrl.searchParams.get('source'))
     const limit = normalizeLimit(request.nextUrl.searchParams.get('limit'))
+    const readLimit = access.role === 'delivery' && !requestedOrderIdRaw ? Math.max(limit, 500) : limit
     const allOrders = await readServerOrders({
       source,
-      limit,
+      limit: readLimit,
       orderId: requestedOrderIdRaw || undefined,
       includeReceipts,
     })
@@ -262,6 +263,7 @@ export async function POST(request: NextRequest) {
       estimatedDelivery: String(body.estimatedDelivery || '30 min'),
       driver: {
         name: String(body.driver?.name || 'Pending assignment'),
+        email: String(body.driver?.email || ''),
         phone: String(body.driver?.phone || '-'),
         rating: Number(body.driver?.rating || 0),
       },

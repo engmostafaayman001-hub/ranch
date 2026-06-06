@@ -178,6 +178,7 @@ async function readServerOrdersFresh(options: ReadServerOrdersOptions = {}): Pro
         'items:data->>items',
         'order_status:data->>status',
         'estimated_delivery:data->>estimatedDelivery',
+        'driver:data->driver',
         'payment_method:data->payment->>method',
         'payment_status:data->payment->>status',
         'receipt_name:data->payment->>receiptName',
