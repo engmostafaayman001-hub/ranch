@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ReceiptPreviewDialog } from '@/components/receipt-preview-dialog'
 import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN, PAYMENT_METHOD_LABELS, PAYMENT_METHOD_LABELS_EN } from '@/lib/constants'
-import { fetchDashboardOrderDetails } from '@/lib/dashboard-order-fetch'
+import { fetchDashboardOrderReceipt } from '@/lib/dashboard-order-fetch'
 import { PaymentStatus, TrackedOrder } from '@/lib/order-tracking'
 
 const statusStyles: Record<PaymentStatus, string> = {
@@ -27,6 +27,8 @@ export default function DashboardPaymentsPage() {
   const [orders, setOrders] = useState<TrackedOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [receiptPreview, setReceiptPreview] = useState<{ url: string; title: string; name?: string } | null>(null)
+  const [loadingReceiptId, setLoadingReceiptId] = useState<string | null>(null)
+  const [message, setMessage] = useState('')
   const loadingPayments = useRef(false)
 
   useEffect(() => {
@@ -37,9 +39,15 @@ export default function DashboardPaymentsPage() {
       try {
         const response = await fetch('/api/pos/orders?limit=200', { cache: 'no-store' })
         const data = await response.json().catch(() => ({}))
-        if (mounted) setOrders(Array.isArray(data.orders) ? data.orders : [])
+        if (mounted) {
+          setOrders(Array.isArray(data.orders) ? data.orders : [])
+          setMessage('')
+        }
       } catch {
-        if (mounted) setOrders([])
+        if (mounted) {
+          setOrders([])
+          setMessage(isArabic ? 'تعذر تحميل المدفوعات.' : 'Could not load payments.')
+        }
       } finally {
         loadingPayments.current = false
         if (mounted) setLoading(false)
@@ -52,7 +60,7 @@ export default function DashboardPaymentsPage() {
       mounted = false
       window.clearInterval(interval)
     }
-  }, [])
+  }, [isArabic])
 
   const paymentOrders = useMemo(() => orders.filter((order) => order.payment), [orders])
   const paidOrders = paymentOrders.filter((order) => order.payment?.status === 'paid')
@@ -86,6 +94,26 @@ export default function DashboardPaymentsPage() {
     return labels[status || ''] || status || (isArabic ? 'غير محدد' : 'Not specified')
   }
 
+  const openReceipt = async (order: TrackedOrder) => {
+    const title = `${isArabic ? 'إيصال الطلب' : 'Order receipt'} ${order.id}`
+    setMessage('')
+
+    if (order.payment?.receiptDataUrl) {
+      setReceiptPreview({ url: order.payment.receiptDataUrl, title, name: order.payment.receiptName })
+      return
+    }
+
+    setLoadingReceiptId(order.id)
+    try {
+      const receipt = await fetchDashboardOrderReceipt(order.id)
+      setReceiptPreview({ url: receipt.url, title, name: receipt.name || order.payment?.receiptName })
+    } catch {
+      setMessage(isArabic ? 'تعذر فتح الإيصال لهذا الطلب.' : 'Could not open the receipt for this order.')
+    } finally {
+      setLoadingReceiptId(null)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <ReceiptPreviewDialog receipt={receiptPreview} onClose={() => setReceiptPreview(null)} isArabic={isArabic} />
@@ -95,6 +123,7 @@ export default function DashboardPaymentsPage() {
           {isArabic ? 'متابعة طرق الدفع، حالة التحصيل، والإيصالات المرفوعة مع الطلبات.' : 'Track payment methods, collection status, and uploaded order receipts.'}
         </p>
       </div>
+      {message && <p className="rounded-md bg-slate-100 p-3 text-sm dark:bg-slate-900">{message}</p>}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
@@ -187,19 +216,11 @@ export default function DashboardPaymentsPage() {
                             type="button"
                             size="sm"
                             variant="outline"
-                            onClick={async () => {
-                              const fullOrder = order.payment?.receiptDataUrl ? order : await fetchDashboardOrderDetails(order.id)
-                              const receipt = fullOrder?.payment?.receiptDataUrl
-                              if (!receipt) return
-                              setReceiptPreview({
-                                url: receipt,
-                                title: `${isArabic ? 'إيصال الطلب' : 'Order receipt'} ${order.id}`,
-                                name: fullOrder?.payment?.receiptName || order.payment?.receiptName,
-                              })
-                            }}
+                            disabled={loadingReceiptId === order.id}
+                            onClick={() => openReceipt(order)}
                           >
                             <Eye className="me-2 h-4 w-4" />
-                            {isArabic ? 'فتح الإيصال' : 'Open Receipt'}
+                            {loadingReceiptId === order.id ? (isArabic ? 'جاري الفتح...' : 'Opening...') : (isArabic ? 'فتح الإيصال' : 'Open Receipt')}
                           </Button>
                         ) : (
                           <span className="inline-flex items-center gap-2 text-slate-500">

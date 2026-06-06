@@ -30,3 +30,16 @@ export async function fetchDashboardOrderDetails(orderId: string) {
   const orders = await fetchOrdersJson(`/api/pos/orders?orderId=${encodeURIComponent(orderId)}&includeReceipts=1`)
   return orders[0] || null
 }
+
+export async function fetchDashboardOrderReceipt(orderId: string) {
+  const order = await fetchDashboardOrderDetails(orderId)
+  const receiptDataUrl = order?.payment?.receiptDataUrl
+  if (!receiptDataUrl) {
+    throw new Error('No receipt file is saved for this order')
+  }
+
+  return {
+    url: receiptDataUrl,
+    name: order.payment?.receiptName,
+  }
+}

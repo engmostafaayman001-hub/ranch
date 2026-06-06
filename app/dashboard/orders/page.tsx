@@ -16,7 +16,7 @@ import {
   PAYMENT_METHOD_LABELS_EN,
 } from '@/lib/constants'
 import { PrinterRole, useAppStore } from '@/lib/app-store'
-import { fetchDashboardOrderDetails, fetchDashboardOrdersBySource } from '@/lib/dashboard-order-fetch'
+import { fetchDashboardOrderDetails, fetchDashboardOrderReceipt, fetchDashboardOrdersBySource } from '@/lib/dashboard-order-fetch'
 import { TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
 import { printerManager, syncPrinterManagerSettings, trackedOrderToReceiptPayload } from '@/lib/printer'
 
@@ -34,6 +34,7 @@ export default function DashboardOrdersPage() {
   const [driverSelections, setDriverSelections] = useState<Record<string, string>>({})
   const [dashboardRole, setDashboardRole] = useState<string | null>(null)
   const [receiptPreview, setReceiptPreview] = useState<{ url: string; title: string; name?: string } | null>(null)
+  const [loadingReceiptId, setLoadingReceiptId] = useState<string | null>(null)
   const loadingOrders = useRef(false)
   const isDeliveryUser = dashboardRole === 'delivery'
 
@@ -215,16 +216,14 @@ export default function DashboardOrdersPage() {
     }
 
     setMessage('')
+    setLoadingReceiptId(order.id)
     try {
-      const fullOrder = await fetchDashboardOrderDetails(order.id)
-      const receipt = fullOrder?.payment?.receiptDataUrl
-      if (!receipt) {
-        setMessage(isArabic ? 'لا يوجد ملف إيصال محفوظ لهذا الطلب.' : 'No receipt file is saved for this order.')
-        return
-      }
-      setReceiptPreview({ url: receipt, title, name: fullOrder?.payment?.receiptName || order.payment?.receiptName })
+      const receipt = await fetchDashboardOrderReceipt(order.id)
+      setReceiptPreview({ url: receipt.url, title, name: receipt.name || order.payment?.receiptName })
     } catch {
       setMessage(isArabic ? 'تعذر تحميل الإيصال.' : 'Could not load the receipt.')
+    } finally {
+      setLoadingReceiptId(null)
     }
   }
   const appOrders = useMemo(() => orders, [orders])
@@ -301,9 +300,9 @@ export default function DashboardOrdersPage() {
                       )}
                     </div>
                     {order.payment?.receiptDataUrl || order.payment?.receiptName || order.payment?.receiptUploadedAt ? (
-                      <Button type="button" variant="outline" onClick={() => openOrderReceipt(order)}>
+                      <Button type="button" variant="outline" disabled={loadingReceiptId === order.id} onClick={() => openOrderReceipt(order)}>
                         <Eye className="me-2 h-4 w-4" />
-                        {isArabic ? 'فتح الإيصال' : 'Open Receipt'}
+                        {loadingReceiptId === order.id ? (isArabic ? 'جاري الفتح...' : 'Opening...') : (isArabic ? 'فتح الإيصال' : 'Open Receipt')}
                       </Button>
                     ) : (
                       <span className="inline-flex items-center gap-2 self-center text-sm text-slate-500">
