@@ -41,6 +41,7 @@ export interface PrinterConnection {
   deviceId: string
   deviceAddress: string
   method: PrinterMethod
+  connectionType?: PrinterMethod
   ip: string
   port: string
   paperWidth: PrinterPaperWidth

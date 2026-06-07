@@ -59,6 +59,7 @@ export interface PrinterConnection {
   deviceId: string
   deviceAddress: string
   method: PrinterMethod
+  connectionType?: PrinterMethod
   ip: string
   port: string
   paperWidth: PrinterPaperWidth
@@ -198,13 +199,15 @@ export const defaultPrinters: Record<PrinterRole, PrinterConnection> = {
 function mergePrinters(printers?: Partial<Record<PrinterRole, Partial<PrinterConnection>>>) {
   const normalize = (role: PrinterRole) => {
     const incoming = printers?.[role] || {}
-    const method = incoming.method === 'usb' || incoming.method === 'bluetooth' || incoming.method === 'network'
-      ? incoming.method
+    const rawMethod = incoming.method || incoming.connectionType
+    const method = rawMethod === 'usb' || rawMethod === 'bluetooth' || rawMethod === 'network'
+      ? rawMethod
       : defaultPrinters[role].method
     return {
       ...defaultPrinters[role],
       ...incoming,
       method,
+      connectionType: method,
       deviceName: incoming.deviceName || incoming.name || defaultPrinters[role].deviceName,
       retryAttempts: Number(incoming.retryAttempts || defaultPrinters[role].retryAttempts),
       fontScale: Number(incoming.fontScale || defaultPrinters[role].fontScale),

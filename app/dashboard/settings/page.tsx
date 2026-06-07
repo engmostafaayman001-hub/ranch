@@ -101,9 +101,14 @@ export default function DashboardSettingsPage() {
   }
 
   const updatePrinter = (role: PrinterRole, updates: Partial<PrinterConnection>) => {
+    const normalizedUpdates = updates.method
+      ? { ...updates, connectionType: updates.method }
+      : updates.connectionType
+        ? { ...updates, method: updates.connectionType }
+        : updates
     const printers = {
       ...settings.printers,
-      [role]: { ...settings.printers[role], ...updates },
+      [role]: { ...settings.printers[role], ...normalizedUpdates },
     }
     updateSettings({
       printers: {
@@ -114,11 +119,18 @@ export default function DashboardSettingsPage() {
   }
 
   const connectPrinter = async (role: PrinterRole) => {
-    syncPrinterManagerSettings(settings.printers)
+    const method = settings.printers[role].method || 'network'
+    const printers = {
+      ...settings.printers,
+      [role]: { ...settings.printers[role], method, connectionType: method },
+    }
+    syncPrinterManagerSettings(printers)
     setPrinterStatus((current) => ({ ...current, [role]: isArabic ? 'جاري ربط الطابعة...' : 'Connecting printer...' }))
     try {
       const result = await printerManager.connectPrinter(role)
       updatePrinter(role, {
+        method,
+        connectionType: method,
         deviceId: result.printer.deviceId || '',
         deviceName: result.printer.deviceName || result.printer.name || settings.printers[role].deviceName,
         deviceAddress: result.printer.deviceAddress || settings.printers[role].deviceAddress,
@@ -131,7 +143,12 @@ export default function DashboardSettingsPage() {
   }
 
   const testPrinter = async (role: PrinterRole, kind: 'connection' | 'arabic' | 'qr' | 'kitchen' | 'hall' = 'arabic') => {
-    syncPrinterManagerSettings(settings.printers)
+    const method = settings.printers[role].method || 'network'
+    const printers = {
+      ...settings.printers,
+      [role]: { ...settings.printers[role], method, connectionType: method },
+    }
+    syncPrinterManagerSettings(printers)
     setPrinterStatus((current) => ({ ...current, [role]: isArabic ? 'جاري اختبار الطابعة...' : 'Testing printer...' }))
     try {
       if (kind === 'connection') {
@@ -147,7 +164,7 @@ export default function DashboardSettingsPage() {
           isArabic,
         })
       }
-      updatePrinter(role, { lastConnected: new Date().toISOString() })
+      updatePrinter(role, { method, connectionType: method, lastConnected: new Date().toISOString() })
       setPrinterStatus((current) => ({ ...current, [role]: isArabic ? 'تم إرسال أمر الاختبار بنجاح.' : 'Test command sent successfully.' }))
     } catch (error) {
       setPrinterStatus((current) => ({ ...current, [role]: error instanceof Error ? error.message : (isArabic ? 'تعذر اختبار الطابعة.' : 'Could not test printer.') }))
@@ -482,7 +499,7 @@ function PrinterCard({
             <button
               key={option.value}
               type="button"
-              onClick={() => onChange(role, { method: option.value })}
+              onClick={() => onChange(role, { method: option.value, connectionType: option.value, deviceId: '', deviceAddress: '', lastConnected: '' })}
               className={`min-h-20 rounded-md border p-3 text-start transition ${active ? 'border-blue-500 bg-blue-50 text-blue-950 ring-1 ring-blue-500 dark:bg-blue-950/40 dark:text-blue-100' : 'border-slate-200 bg-white hover:border-blue-200 dark:border-slate-800 dark:bg-slate-950'}`}
             >
               <span className="flex items-center gap-2 text-sm font-bold">

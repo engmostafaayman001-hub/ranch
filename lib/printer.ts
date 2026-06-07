@@ -80,15 +80,22 @@ type UsbDevice = {
   selectConfiguration: (configurationValue: number) => Promise<void>
   claimInterface: (interfaceNumber: number) => Promise<void>
   transferOut: (endpointNumber: number, data: BufferSource) => Promise<unknown>
+  vendorId?: number
+  productId?: number
   configuration?: {
     configurationValue: number
     interfaces: Array<{
       interfaceNumber: number
-      alternates: Array<{ endpoints: Array<{ direction: string; endpointNumber: number }> }>
+      alternates: Array<{ interfaceClass?: number; endpoints: Array<{ direction: string; endpointNumber: number }> }>
     }>
   }
   serialNumber?: string
   productName?: string
+}
+
+type UsbOutEndpoint = {
+  interfaceNumber: number
+  endpointNumber: number
 }
 
 type BluetoothCharacteristic = {
@@ -125,6 +132,17 @@ declare global {
 const STORAGE_KEY = 'baseeta-pos-printer-settings'
 const BLUETOOTH_PRINT_SERVICES = ['000018f0-0000-1000-8000-00805f9b34fb', '0000ffe0-0000-1000-8000-00805f9b34fb']
 const BLUETOOTH_PRINT_CHARACTERISTICS = ['00002af1-0000-1000-8000-00805f9b34fb', '0000ffe1-0000-1000-8000-00805f9b34fb']
+const USB_PRINTER_FILTERS = [
+  { classCode: 0x07 },
+  { vendorId: 0x04b8 },
+  { vendorId: 0x0519 },
+  { vendorId: 0x1504 },
+  { vendorId: 0x0fe6 },
+  { vendorId: 0x1a86 },
+  { vendorId: 0x067b },
+  { vendorId: 0x10c4 },
+  { vendorId: 0x0403 },
+]
 const defaultPrinters: Record<ThermalPrinterRole, ThermalPrinterSettings> = {
   cashier: {
     role: 'cashier',
@@ -172,7 +190,7 @@ const defaultPrinters: Record<ThermalPrinterRole, ThermalPrinterSettings> = {
 
 function normalizePrinter(input: Partial<ThermalPrinterSettings> | undefined, role: ThermalPrinterRole): ThermalPrinterSettings {
   const next = { ...defaultPrinters[role], ...(input || {}) }
-  const method = next.connectionType || next.method
+  const method = next.method || next.connectionType
   return {
     ...next,
     role,
@@ -471,6 +489,7 @@ export class PrinterManager {
   private settings: Record<ThermalPrinterRole, ThermalPrinterSettings>
   private queue: Promise<unknown> = Promise.resolve()
   private usbDevices: Partial<Record<ThermalPrinterRole, UsbDevice>> = {}
+  private usbClaimedInterfaces: Partial<Record<ThermalPrinterRole, number>> = {}
   private bluetoothDevices: Partial<Record<ThermalPrinterRole, BluetoothDeviceLike>> = {}
   private bluetoothCharacteristics: Partial<Record<ThermalPrinterRole, BluetoothCharacteristic>> = {}
 
@@ -570,7 +589,12 @@ export class PrinterManager {
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       try {
         console.info(`[PrinterManager] Printing ${job.kind} on ${job.role}. Attempt ${attempt}/${attempts}.`)
-        await this.print(job, printer, job.allowDevicePrompt === true)
+        const method = printer.method || printer.connectionType
+        const promptAlreadyHandled = job.allowDevicePrompt === true && method !== 'network'
+        if (promptAlreadyHandled) {
+          await this.connect(job.role, printer, true)
+        }
+        await this.print(job, printer, promptAlreadyHandled ? false : job.allowDevicePrompt === true)
         printer.lastConnected = new Date().toISOString()
         this.saveSettings()
         return { ok: true }
@@ -595,7 +619,7 @@ export class PrinterManager {
   private async print(job: PrintJob, printer: ThermalPrinterSettings, allowDevicePrompt = false) {
     const canvas = await renderReceiptImage(job, printer)
     const bytes = canvasToRasterEscPos(canvas)
-    const method = printer.connectionType || printer.method
+    const method = printer.method || printer.connectionType
     if (method === 'network') return this.printNetwork(printer, bytes, canvas)
     if (method === 'usb') return this.printUsb(job.role, printer, bytes, allowDevicePrompt)
     if (method === 'bluetooth') return this.printBluetooth(job.role, printer, bytes, allowDevicePrompt)
@@ -625,22 +649,31 @@ export class PrinterManager {
     if (!navigator.usb) throw new Error('هذا المتصفح لا يدعم WebUSB.')
     const device = this.usbDevices[role] || await this.getUsbDevice(role, printer, allowDevicePrompt)
     if (!device.opened) await device.open()
-    const configuration = device.configuration
-    if (!configuration) await device.selectConfiguration(1)
-    const activeConfiguration = device.configuration
-    const usbInterface = activeConfiguration?.interfaces?.[0]
-    if (!usbInterface) throw new Error('تعذر تحديد واجهة USB للطابعة.')
-    await device.claimInterface(usbInterface.interfaceNumber)
-    const endpoint = usbInterface.alternates.flatMap((alternate) => alternate.endpoints).find((item) => item.direction === 'out')
-    if (!endpoint) throw new Error('تعذر تحديد منفذ إرسال USB.')
+    if (!device.configuration) await device.selectConfiguration(1)
+    const endpoint = this.findUsbOutEndpoint(device)
+    if (!endpoint) throw new Error('تعذر قراءة منفذ إرسال USB للطابعة. اختر طابعة USB حرارية أو جرّب تعريف/كابل آخر.')
+
+    if (this.usbClaimedInterfaces[role] !== endpoint.interfaceNumber) {
+      try {
+        await device.claimInterface(endpoint.interfaceNumber)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error || '')
+        if (!/already claimed/i.test(message)) throw error
+      }
+      this.usbClaimedInterfaces[role] = endpoint.interfaceNumber
+    }
+
     await device.transferOut(endpoint.endpointNumber, toArrayBuffer(bytes))
     this.usbDevices[role] = device
     printer.deviceId = device.serialNumber || printer.deviceId || ''
     printer.deviceName = device.productName || printer.deviceName
+    printer.deviceAddress = device.vendorId && device.productId
+      ? `${device.vendorId.toString(16).padStart(4, '0')}:${device.productId.toString(16).padStart(4, '0')}`
+      : printer.deviceAddress
   }
 
   private getConfigurationIssue(printer: ThermalPrinterSettings) {
-    const method = printer.connectionType || printer.method
+    const method = printer.method || printer.connectionType
     if (method === 'network' && !(printer.ip || printer.deviceAddress || '').trim()) {
       return 'أدخل IP الطابعة أو عنوان bridge الشبكي من إعدادات الطابعات.'
     }
@@ -650,12 +683,14 @@ export class PrinterManager {
   private async getUsbDevice(role: ThermalPrinterRole, printer: ThermalPrinterSettings, allowDevicePrompt: boolean) {
     const storedDeviceId = (printer.deviceId || '').trim()
     const storedDeviceName = (printer.deviceName || printer.name || '').trim()
+    const storedAddress = (printer.deviceAddress || '').trim().toLowerCase()
 
     if (typeof navigator.usb?.getDevices === 'function') {
       const devices = await navigator.usb.getDevices().catch(() => [])
       const restored = devices.find((device) =>
         (storedDeviceId && device.serialNumber === storedDeviceId) ||
-        (storedDeviceName && device.productName === storedDeviceName)
+        (storedDeviceName && device.productName === storedDeviceName) ||
+        (storedAddress && device.vendorId && device.productId && `${device.vendorId.toString(16).padStart(4, '0')}:${device.productId.toString(16).padStart(4, '0')}` === storedAddress)
       ) || (!storedDeviceId && !storedDeviceName && devices.length === 1 ? devices[0] : undefined)
 
       if (restored) return restored
@@ -665,7 +700,30 @@ export class PrinterManager {
       throw new Error('USB printer needs reconnect')
     }
 
-    return navigator.usb!.requestDevice({ filters: [] })
+    return navigator.usb!.requestDevice({ filters: USB_PRINTER_FILTERS })
+  }
+
+  private findUsbOutEndpoint(device: UsbDevice): UsbOutEndpoint | null {
+    const interfaces = device.configuration?.interfaces || []
+    for (const usbInterface of interfaces) {
+      const printerAlternate = usbInterface.alternates.find((alternate) =>
+        alternate.interfaceClass === 0x07 &&
+        alternate.endpoints.some((endpoint) => endpoint.direction === 'out')
+      )
+      const fallbackAlternate = usbInterface.alternates.find((alternate) =>
+        alternate.endpoints.some((endpoint) => endpoint.direction === 'out')
+      )
+      const alternate = printerAlternate || fallbackAlternate
+      const endpoint = alternate?.endpoints.find((item) => item.direction === 'out')
+      if (endpoint) {
+        return {
+          interfaceNumber: usbInterface.interfaceNumber,
+          endpointNumber: endpoint.endpointNumber,
+        }
+      }
+    }
+
+    return null
   }
 
   private async printBluetooth(role: ThermalPrinterRole, printer: ThermalPrinterSettings, bytes: Uint8Array, allowDevicePrompt = false) {
@@ -677,7 +735,7 @@ export class PrinterManager {
   }
 
   private async connect(role: ThermalPrinterRole, printer: ThermalPrinterSettings, allowDevicePrompt = false) {
-    const method = printer.connectionType || printer.method
+    const method = printer.method || printer.connectionType
     if (method === 'network') {
       const ip = (printer.ip || printer.deviceAddress || '').trim()
       if (!ip) throw new Error('أدخل IP الطابعة أو عنوان bridge الشبكي.')
@@ -762,6 +820,7 @@ export class PrinterManager {
 
   private async disconnect(role: ThermalPrinterRole) {
     delete this.bluetoothCharacteristics[role]
+    delete this.usbClaimedInterfaces[role]
   }
 
   private loadSettings() {

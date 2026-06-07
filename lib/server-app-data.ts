@@ -51,13 +51,15 @@ function normalizeSharedData(data: Partial<SharedAppData> | null | undefined): S
   const printers = repaired?.settings?.printers as Partial<AppSettings['printers']> | undefined
   const normalizePrinter = (role: PrinterRole) => {
     const incoming = (printers?.[role] || {}) as Partial<AppSettings['printers'][PrinterRole]>
-    const method = incoming.method === 'bluetooth' || incoming.method === 'usb' || incoming.method === 'network'
-      ? incoming.method
+    const rawMethod = incoming.method || incoming.connectionType
+    const method = rawMethod === 'bluetooth' || rawMethod === 'usb' || rawMethod === 'network'
+      ? rawMethod
       : defaultPrinters[role].method
     return {
       ...defaultPrinters[role],
       ...incoming,
       method,
+      connectionType: method,
       deviceName: incoming.deviceName || incoming.name || defaultPrinters[role].deviceName,
     }
   }
