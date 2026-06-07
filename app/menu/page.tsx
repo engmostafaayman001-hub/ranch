@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Heart, Plus, Search, Star } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Navbar } from '@/components/navbar'
+import { RestaurantStatusBanner } from '@/components/restaurant-status-banner'
 import { Sidebar } from '@/components/sidebar'
 import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN, ROUTES } from '@/lib/constants'
@@ -25,9 +26,10 @@ export default function MenuPage() {
   const [cartMessage, setCartMessage] = useState('')
   const { isLoggedIn, logout } = useAuthStore()
   const { language } = useLanguage()
-  const { categories, products, favoriteProductIds, addToCart, toggleFavoriteProduct } = useAppStore()
+  const { categories, products, settings, favoriteProductIds, addToCart, toggleFavoriteProduct } = useAppStore()
   const isArabic = language === 'ar'
   const currency = isArabic ? CURRENCY : CURRENCY_EN
+  const restaurantOpen = settings.restaurantOpen !== false
 
   const activeCategories = useMemo(() => categories.filter((category) => category.active), [categories])
   const filteredProducts = products.filter((product) => {
@@ -42,6 +44,14 @@ export default function MenuPage() {
   })
 
   const handleAddToCart = (productId: string) => {
+    if (!restaurantOpen) {
+      setCartMessage(isArabic ? 'المطعم مغلق حاليا. سيبدأ العمل حسب ساعات العمل.' : 'The restaurant is currently closed. Ordering resumes during working hours.')
+      window.setTimeout(() => {
+        setAddedProductId(null)
+        setCartMessage('')
+      }, 2200)
+      return
+    }
     const product = products.find((item) => item.id === productId)
     const productName = product ? (isArabic ? product.nameAr : product.nameEn) : ''
     addToCart(productId)
@@ -62,6 +72,7 @@ export default function MenuPage() {
     <main className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} isLoggedIn={isLoggedIn} onLogout={handleLogout} />
       <Navbar onMenuOpen={() => setSidebarOpen(true)} isLoggedIn={isLoggedIn} onLogout={handleLogout} />
+      <RestaurantStatusBanner />
       {cartMessage && <CartToast message={cartMessage} isArabic={isArabic} />}
 
       <section className="mx-auto max-w-7xl px-3 py-4 sm:px-6 lg:px-8">

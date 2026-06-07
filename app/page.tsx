@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Heart, Plus, Search, SlidersHorizontal, Star } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Navbar } from '@/components/navbar'
+import { RestaurantStatusBanner } from '@/components/restaurant-status-banner'
 import { Sidebar } from '@/components/sidebar'
 import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN, ROUTES } from '@/lib/constants'
@@ -27,6 +28,7 @@ export default function Home() {
   const activeCategories = categories.filter((category) => category.active)
   const availableProducts = products.filter((product) => product.available)
   const offerImages = (settings.offerImages || []).filter(Boolean)
+  const restaurantOpen = settings.restaurantOpen !== false
 
   useEffect(() => {
     if (offerImages.length <= 1) return
@@ -60,6 +62,11 @@ export default function Home() {
   }
 
   const handleAddToCart = (productId: string) => {
+    if (!restaurantOpen) {
+      setCartMessage(isArabic ? 'المطعم مغلق حاليا. سيبدأ العمل حسب ساعات العمل.' : 'The restaurant is currently closed. Ordering resumes during working hours.')
+      window.setTimeout(() => setCartMessage(''), 2200)
+      return
+    }
     const product = products.find((item) => item.id === productId)
     const productName = product ? (isArabic ? product.nameAr : product.nameEn) : ''
     addToCart(productId)
@@ -71,6 +78,7 @@ export default function Home() {
     <main className="flex min-h-screen flex-col bg-slate-50 dark:bg-slate-950">
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} isLoggedIn={isLoggedIn} onLogout={handleLogout} />
       <Navbar onMenuOpen={() => setSidebarOpen(true)} isLoggedIn={isLoggedIn} onLogout={handleLogout} />
+      <RestaurantStatusBanner />
       {cartMessage && <CartToast message={cartMessage} isArabic={isArabic} />}
 
       <section className="mx-auto w-full max-w-7xl space-y-5 px-3 py-4 sm:px-6 lg:px-8">

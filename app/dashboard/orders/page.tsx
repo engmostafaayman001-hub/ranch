@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CreditCard, Eye, Printer, ReceiptText, XCircle } from 'lucide-react'
+import { CreditCard, Eye, Power, Printer, ReceiptText, Store, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -19,6 +19,7 @@ import { PrinterRole, useAppStore } from '@/lib/app-store'
 import { fetchDashboardOrderDetails, fetchDashboardOrderReceipt, fetchDashboardOrdersBySource } from '@/lib/dashboard-order-fetch'
 import { TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
 import { printerManager, syncPrinterManagerSettings, trackedOrderToReceiptPayload } from '@/lib/printer'
+import { saveSharedSettings } from '@/lib/use-shared-app-data'
 
 const statuses: TrackingStatus[] = ['placed', 'confirmed', 'preparing', 'ready_for_delivery', 'out_for_delivery', 'delivered', 'received', 'cancelled']
 
@@ -28,15 +29,18 @@ export default function DashboardOrdersPage() {
   const currency = isArabic ? CURRENCY : CURRENCY_EN
   const drivers = useAppStore((state) => state.drivers)
   const settings = useAppStore((state) => state.settings)
+  const updateSettings = useAppStore((state) => state.updateSettings)
   const [orders, setOrders] = useState<TrackedOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
+  const [savingRestaurantStatus, setSavingRestaurantStatus] = useState(false)
   const [driverSelections, setDriverSelections] = useState<Record<string, string>>({})
   const [dashboardRole, setDashboardRole] = useState<string | null>(null)
   const [receiptPreview, setReceiptPreview] = useState<{ url: string; title: string; name?: string } | null>(null)
   const [loadingReceiptId, setLoadingReceiptId] = useState<string | null>(null)
   const loadingOrders = useRef(false)
   const isDeliveryUser = dashboardRole === 'delivery'
+  const restaurantOpen = settings.restaurantOpen !== false
 
   const loadOrders = useCallback(async () => {
     if (loadingOrders.current) return
@@ -140,6 +144,25 @@ export default function DashboardOrdersPage() {
     loadOrders()
   }
 
+  const toggleRestaurantStatus = async () => {
+    if (savingRestaurantStatus) return
+    const nextOpen = !restaurantOpen
+    const nextSettings = { ...settings, restaurantOpen: nextOpen }
+    setSavingRestaurantStatus(true)
+    setMessage('')
+    updateSettings({ restaurantOpen: nextOpen })
+    try {
+      const data = await saveSharedSettings(nextSettings)
+      if (data.settings) updateSettings(data.settings)
+      setMessage(nextOpen ? (isArabic ? 'تم تشغيل المطعم وفتح استقبال الطلبات.' : 'Restaurant is open and accepting orders.') : (isArabic ? 'تم إغلاق المطعم وظهور التنبيه للمستخدمين.' : 'Restaurant is closed and the customer warning is visible.'))
+    } catch (error) {
+      updateSettings({ restaurantOpen })
+      setMessage(error instanceof Error ? error.message : (isArabic ? 'تعذر حفظ حالة المطعم.' : 'Could not save restaurant status.'))
+    } finally {
+      setSavingRestaurantStatus(false)
+    }
+  }
+
   const label = (status: string) => (isArabic ? ORDER_STATUS_LABELS : ORDER_STATUS_LABELS_EN)[status as keyof typeof ORDER_STATUS_LABELS] || status
 
   const paymentMethodLabel = (method?: string) => {
@@ -231,6 +254,31 @@ export default function DashboardOrdersPage() {
   return (
     <div className="space-y-6">
       <ReceiptPreviewDialog receipt={receiptPreview} onClose={() => setReceiptPreview(null)} isArabic={isArabic} />
+      {!isDeliveryUser && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            disabled={savingRestaurantStatus}
+            onClick={toggleRestaurantStatus}
+            className={`flex min-h-16 w-full items-center justify-between gap-4 rounded-lg border px-4 py-3 text-start shadow-sm transition disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto sm:min-w-72 ${
+              restaurantOpen
+                ? 'border-green-200 bg-green-50 text-green-900 hover:bg-green-100 dark:border-green-900 dark:bg-green-950/40 dark:text-green-100'
+                : 'border-red-200 bg-red-50 text-red-900 hover:bg-red-100 dark:border-red-900 dark:bg-red-950/40 dark:text-red-100'
+            }`}
+          >
+            <span className="flex items-center gap-3">
+              <span className={`flex h-10 w-10 items-center justify-center rounded-full ${restaurantOpen ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}>
+                <Store className="h-5 w-5" />
+              </span>
+              <span>
+                <span className="block text-sm font-bold">{restaurantOpen ? (isArabic ? 'تشغيل المطعم' : 'Restaurant open') : (isArabic ? 'المطعم مغلق' : 'Restaurant closed')}</span>
+                <span className="block text-xs opacity-80">{savingRestaurantStatus ? (isArabic ? 'جاري الحفظ...' : 'Saving...') : (isArabic ? 'اضغط لتغيير حالة استقبال الطلبات' : 'Tap to change ordering status')}</span>
+              </span>
+            </span>
+            <Power className="h-5 w-5 shrink-0" />
+          </button>
+        </div>
+      )}
       <div>
         <h2 className="text-3xl font-bold">{isArabic ? 'إدارة طلبات التطبيق' : 'App Orders Management'}</h2>
         <p className="mt-2 text-slate-500 dark:text-slate-400">{isArabic ? 'طلبات العملاء من التطبيق، وكل تغيير هنا يظهر للعميل في صفحة التتبع.' : 'Customer app orders. Changes here appear to customers on the tracking page.'}</p>

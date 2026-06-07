@@ -4,6 +4,7 @@ import { PaymentStatus, TrackingStatus, trackingSteps, TrackedOrder } from '@/li
 import { getRequestAuthenticatedUserEmail, getRequestDashboardAccess } from '@/lib/server-access'
 import { validateNotificationDiscount } from '@/lib/discounts'
 import { readServerNotifications } from '@/lib/server-notifications'
+import { readSharedAppData } from '@/lib/server-app-data'
 
 export const runtime = 'nodejs'
 
@@ -217,9 +218,20 @@ export async function POST(request: NextRequest) {
     const requestEmail = await getRequestAuthenticatedUserEmail(request)
     const hasValidPosKey = getRequestApiKey(request) ? validateOptionalApiKey(request) : false
     const isAdmin = (await getRequestDashboardAccess(request)).allowed
+    const orderSource = String(body.source || 'app')
 
     if (!hasValidPosKey && !isAdmin && (!requestEmail || requestEmail !== customerEmail)) {
       return json({ error: 'You can only create orders for your signed-in account' }, { status: 403 })
+    }
+
+    if (!hasValidPosKey && !isAdmin && orderSource !== 'restaurant_pos') {
+      const appData = await readSharedAppData()
+      if (appData.settings.restaurantOpen === false) {
+        return json({
+          error: 'Restaurant is closed',
+          message: `The restaurant is currently closed. Working hours: ${appData.settings.workingHoursEn}`,
+        }, { status: 423 })
+      }
     }
 
     const subtotal = getOrderSubtotal(body)
@@ -248,7 +260,7 @@ export async function POST(request: NextRequest) {
 
     const order: TrackedOrder = {
       id,
-      source: String(body.source || 'app'),
+      source: orderSource,
       externalReference: body.externalReference || body.posOrderId ? String(body.externalReference || body.posOrderId) : undefined,
       customer: String(customer.name || body.customerName || body.customer || 'Customer'),
       customerEmail,

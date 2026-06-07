@@ -68,6 +68,7 @@ export interface AppSettings {
   invoiceLogo: string
   workingHoursAr: string
   workingHoursEn: string
+  restaurantOpen: boolean
   deliveryFee: number
   taxRate: number
   deliveryTime: number
@@ -160,6 +161,7 @@ export const defaultSettings: AppSettings = {
   invoiceLogo: '/logo.png',
   workingHoursAr: 'يوميا من 10 صباحا إلى 12 منتصف الليل',
   workingHoursEn: 'Daily from 10 AM to 12 AM',
+  restaurantOpen: true,
   deliveryFee: 29.99,
   taxRate: 0.1,
   deliveryTime: 30,

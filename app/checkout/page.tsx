@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Logo } from '@/components/logo'
+import { RestaurantStatusBanner } from '@/components/restaurant-status-banner'
 import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN, PAYMENT_METHOD_OPTIONS, PAYMENT_METHODS, ROUTES } from '@/lib/constants'
 import { useAppStore } from '@/lib/app-store'
@@ -24,6 +25,7 @@ export default function CheckoutPage() {
   const { cart, products, settings, clearCart } = useAppStore()
   const isArabic = language === 'ar'
   const currency = isArabic ? CURRENCY : CURRENCY_EN
+  const restaurantOpen = settings.restaurantOpen !== false
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -170,6 +172,11 @@ export default function CheckoutPage() {
     event.preventDefault()
     setError(null)
 
+    if (!restaurantOpen) {
+      setError(isArabic ? `المطعم مغلق حاليا. سيبدأ العمل حسب ساعات العمل: ${settings.workingHoursAr}` : `The restaurant is currently closed. Ordering resumes during working hours: ${settings.workingHoursEn}`)
+      return
+    }
+
     if (!isLoggedIn || !user?.email) {
       setError(isArabic ? 'يجب تسجيل الدخول قبل اختيار الدفع وإتمام الطلب.' : 'Please sign in before choosing payment and placing the order.')
       return
@@ -278,6 +285,7 @@ export default function CheckoutPage() {
           </div>
         </div>
       </nav>
+      <RestaurantStatusBanner />
 
       <div className="mx-auto max-w-5xl px-3 py-4 sm:px-6 sm:py-8 lg:px-8">
         <h1 className="mb-5 text-2xl font-bold sm:mb-8 sm:text-3xl">{isArabic ? 'إكمال الطلب' : 'Checkout'}</h1>
@@ -442,7 +450,7 @@ export default function CheckoutPage() {
                 </CardContent>
               </Card>
 
-              <Button type="submit" disabled={loading || cartItems.length === 0} className="h-12 w-full bg-red-600 text-base hover:bg-red-700 sm:h-14 sm:text-lg">
+              <Button type="submit" disabled={loading || cartItems.length === 0 || !restaurantOpen} className="h-12 w-full bg-red-600 text-base hover:bg-red-700 sm:h-14 sm:text-lg">
                 {loading ? (isArabic ? 'جاري تقديم الطلب...' : 'Placing order...') : (isArabic ? 'تقديم الطلب' : 'Place Order')}
               </Button>
             </form>

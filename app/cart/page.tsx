@@ -6,6 +6,7 @@ import { Minus, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Navbar } from '@/components/navbar'
+import { RestaurantStatusBanner } from '@/components/restaurant-status-banner'
 import { Sidebar } from '@/components/sidebar'
 import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN, ROUTES } from '@/lib/constants'
@@ -22,6 +23,7 @@ export default function CartPage() {
   const { cart, products, settings, updateCartQuantity, removeFromCart } = useAppStore()
   const isArabic = language === 'ar'
   const currency = isArabic ? CURRENCY : CURRENCY_EN
+  const restaurantOpen = settings.restaurantOpen !== false
 
   const cartItems = useMemo(() => cart.map((item) => {
     const product = products.find((entry) => entry.id === item.productId)
@@ -42,6 +44,7 @@ export default function CartPage() {
     <main className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} isLoggedIn={isLoggedIn} onLogout={handleLogout} />
       <Navbar onMenuOpen={() => setSidebarOpen(true)} isLoggedIn={isLoggedIn} onLogout={handleLogout} />
+      <RestaurantStatusBanner />
 
       <section className="mx-auto max-w-5xl px-3 py-4 sm:px-6 lg:px-8">
         <h1 className="mb-5 text-2xl font-bold sm:text-3xl">{isArabic ? 'السلة' : 'Cart'}</h1>
@@ -98,8 +101,8 @@ export default function CartPage() {
                 </div>
               </CardContent>
               <CardFooter>
-                <Link href={ROUTES.CHECKOUT} className="w-full">
-                  <Button className="h-11 w-full bg-red-600 hover:bg-red-700">{isArabic ? 'إكمال الطلب' : 'Checkout'}</Button>
+                <Link href={restaurantOpen ? ROUTES.CHECKOUT : '#'} className="w-full">
+                  <Button disabled={!restaurantOpen} className="h-11 w-full bg-red-600 hover:bg-red-700">{restaurantOpen ? (isArabic ? 'إكمال الطلب' : 'Checkout') : (isArabic ? 'المطعم مغلق' : 'Restaurant closed')}</Button>
                 </Link>
               </CardFooter>
             </Card>
