@@ -160,6 +160,7 @@ function ProductCard({
   onToggleFavorite: (id: string) => void
 }) {
   const name = isArabic ? product.nameAr : product.nameEn
+  const description = (isArabic ? product.descriptionAr : product.descriptionEn).trim()
   return (
     <article className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="relative flex aspect-square items-center justify-center bg-slate-50 p-2 text-5xl dark:bg-slate-800">
@@ -175,6 +176,9 @@ function ProductCard({
       </div>
       <div className="space-y-2 p-2.5">
         <h3 className="line-clamp-2 min-h-10 text-sm font-bold leading-5">{name}</h3>
+        <p className="line-clamp-2 min-h-9 text-xs leading-4 text-slate-500 dark:text-slate-400">
+          {description || (isArabic ? 'وصف المنتج غير متوفر حاليا.' : 'Product description is not available yet.')}
+        </p>
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs text-slate-500"><Star className="inline h-3 w-3 fill-amber-400 text-amber-400" /> {product.rating || 0}</span>
           <span className="text-sm font-bold text-red-600">{Number(product.price || 0).toFixed(2)} {currency}</span>
