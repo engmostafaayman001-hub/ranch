@@ -159,6 +159,7 @@ export default function DashboardSettingsPage() {
           invoiceAddress: isArabic ? settings.addressAr : settings.addressEn,
           invoicePhone: settings.phone,
           invoiceQrUrl: kind === 'qr' ? settings.invoiceQrUrl || 'https://markode.co' : settings.invoiceQrUrl,
+          invoiceQrUrl2: kind === 'qr' ? settings.invoiceQrUrl2 : settings.invoiceQrUrl2,
           invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
           logoUrl: settings.invoiceLogo || settings.heroImage,
           isArabic,
@@ -316,7 +317,10 @@ export default function DashboardSettingsPage() {
             <Field id="invoice-name-ar" label={isArabic ? 'اسم المطعم في الفاتورة بالعربية' : 'Invoice restaurant name in Arabic'} value={settings.invoiceNameAr || ''} onChange={(value) => updateSettings({ invoiceNameAr: value })} />
             <Field id="invoice-name-en" label={isArabic ? 'اسم المطعم في الفاتورة بالإنجليزية' : 'Invoice restaurant name in English'} value={settings.invoiceNameEn || ''} onChange={(value) => updateSettings({ invoiceNameEn: value })} />
           </div>
-          <Field id="invoice-qr-url" label={isArabic ? 'رابط يظهر QR في الفاتورة' : 'QR link shown on invoice'} value={settings.invoiceQrUrl || ''} onChange={(value) => updateSettings({ invoiceQrUrl: value })} />
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field id="invoice-qr-url" label={isArabic ? 'رابط QR الأول في الفاتورة' : 'First invoice QR link'} value={settings.invoiceQrUrl || ''} onChange={(value) => updateSettings({ invoiceQrUrl: value })} />
+            <Field id="invoice-qr-url-2" label={isArabic ? 'رابط QR الثاني في الفاتورة' : 'Second invoice QR link'} value={settings.invoiceQrUrl2 || ''} onChange={(value) => updateSettings({ invoiceQrUrl2: value })} />
+          </div>
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <Label htmlFor="invoice-welcome-ar">{isArabic ? 'رسالة الفاتورة بالعربية' : 'Invoice message in Arabic'}</Label>

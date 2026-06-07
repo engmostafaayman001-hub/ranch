@@ -2,6 +2,7 @@
 
 import { ChangeEvent, FormEvent, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { Search } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -41,8 +42,16 @@ export default function DashboardProductsPage() {
   const [uploadStatus, setUploadStatus] = useState('')
   const [saveStatus, setSaveStatus] = useState('')
   const [saving, setSaving] = useState(false)
+  const [productSearch, setProductSearch] = useState('')
 
   const activeCategories = useMemo(() => categories.filter((category) => category.active), [categories])
+  const filteredProducts = useMemo(() => {
+    const term = productSearch.trim().toLowerCase()
+    if (!term) return products
+    return products.filter((product) =>
+      `${product.nameAr} ${product.nameEn}`.toLowerCase().includes(term)
+    )
+  }, [productSearch, products])
   const categoryName = (id: string) =>
     categories.find((category) => category.id === id)?.[isArabic ? 'nameAr' : 'nameEn'] ||
     (isArabic ? 'بدون قسم' : 'No category')
@@ -231,14 +240,32 @@ export default function DashboardProductsPage() {
       )}
 
       <Card>
-        <CardHeader>
+        <CardHeader className="space-y-3">
           <CardTitle>{isArabic ? 'كل المنتجات' : 'All Products'}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
+          <div className="flex flex-col gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 md:flex-row md:items-center md:justify-between dark:border-slate-800 dark:bg-slate-900/40">
+            <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
+              {isArabic ? `${filteredProducts.length} من ${products.length} منتج` : `${filteredProducts.length} of ${products.length} products`}
+            </p>
+            <div className="flex h-10 w-full items-center gap-2 rounded-md border border-slate-200 bg-white px-3 md:max-w-sm dark:border-slate-800 dark:bg-slate-950">
+              <Search className="h-4 w-4 text-slate-400" />
+              <input
+                value={productSearch}
+                onChange={(event) => setProductSearch(event.target.value)}
+                placeholder={isArabic ? 'بحث باسم المنتج' : 'Search by product name'}
+                className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+              />
+            </div>
+          </div>
           {products.length === 0 ? (
             <p className="py-8 text-center text-slate-500">{isArabic ? 'لا توجد منتجات حتى الآن.' : 'No products yet.'}</p>
+          ) : filteredProducts.length === 0 ? (
+            <p className="rounded-md border border-dashed border-slate-300 py-8 text-center text-slate-500 dark:border-slate-800">
+              {isArabic ? 'لا توجد منتجات مطابقة لهذا البحث.' : 'No products match this search.'}
+            </p>
           ) : (
-            products.map((product) => (
+            filteredProducts.map((product) => (
               <div key={product.id} className="flex flex-col gap-3 rounded-md border border-slate-200 p-3 dark:border-slate-800 md:flex-row md:items-center md:justify-between">
                 <div>
                   <p className="font-semibold">{isArabic ? product.nameAr : product.nameEn}</p>

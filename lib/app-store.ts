@@ -100,6 +100,7 @@ export interface AppSettings {
   invoiceNameAr: string
   invoiceNameEn: string
   invoiceQrUrl: string
+  invoiceQrUrl2: string
   invoiceWelcomeAr: string
   invoiceWelcomeEn: string
   vodafoneCashNumber: string
@@ -249,6 +250,7 @@ export const defaultSettings: AppSettings = {
   invoiceNameAr: 'رانش',
   invoiceNameEn: 'Ranch',
   invoiceQrUrl: '',
+  invoiceQrUrl2: '',
   invoiceWelcomeAr: 'شكرا لطلبك من رانش. نتمنى لك يوما سعيدا.',
   invoiceWelcomeEn: 'Thank you for ordering from Ranch. Have a great day.',
   vodafoneCashNumber: '01090886364',

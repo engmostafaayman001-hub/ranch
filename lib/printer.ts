@@ -56,6 +56,7 @@ export type ReceiptPayload = {
   invoicePhone?: string
   invoiceMessage?: string
   invoiceQrUrl?: string
+  invoiceQrUrl2?: string
   logoUrl?: string
   isArabic?: boolean
   summaryLabels?: {
@@ -382,11 +383,20 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
     twoCol(job.payload.summaryLabels?.tax || (isArabic ? 'الضريبة' : 'Tax'), money(job.payload.tax, job.payload.currency || ''), false)
     twoCol(job.payload.summaryLabels?.discount || (isArabic ? 'الخصم' : 'Discount'), `-${money(job.payload.discountAmount, job.payload.currency || '')}`, false)
     twoCol(job.payload.summaryLabels?.total || (isArabic ? 'الإجمالي' : 'Total'), money(job.payload.total, job.payload.currency || ''), true)
-    const qr = await loadImage(qrUrl(job.payload.invoiceQrUrl))
-    if (qr) {
+    const qrImages = (await Promise.all([
+      loadImage(qrUrl(job.payload.invoiceQrUrl)),
+      loadImage(qrUrl(job.payload.invoiceQrUrl2)),
+    ])).filter(Boolean) as HTMLImageElement[]
+    if (qrImages.length) {
       y += 10
-      const qrSize = 138
-      context.drawImage(qr, center - qrSize / 2, y, qrSize, qrSize)
+      const qrSize = qrImages.length > 1 ? (width === 384 ? 116 : 138) : 138
+      const gap = width === 384 ? 16 : 26
+      const totalWidth = qrImages.length * qrSize + (qrImages.length - 1) * gap
+      let x = center - totalWidth / 2
+      for (const qr of qrImages) {
+        context.drawImage(qr, x, y, qrSize, qrSize)
+        x += qrSize + gap
+      }
       y += qrSize + 8
     }
     if (job.payload.invoiceMessage) {
@@ -560,6 +570,7 @@ export class PrinterManager {
         invoiceAddress: 'Cairo, Egypt',
         invoiceMessage: 'شكرا لطلبك',
         invoiceQrUrl: 'https://markode.co',
+        invoiceQrUrl2: '',
         isArabic: true,
         ...payload,
       },
