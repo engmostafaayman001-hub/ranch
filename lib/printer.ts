@@ -101,6 +101,8 @@ type UsbOutEndpoint = {
 
 type BluetoothCharacteristic = {
   writeValue: (value: BufferSource) => Promise<void>
+  writeValueWithResponse?: (value: BufferSource) => Promise<void>
+  writeValueWithoutResponse?: (value: BufferSource) => Promise<void>
 }
 
 type BluetoothDeviceLike = {
@@ -131,8 +133,21 @@ declare global {
 }
 
 const STORAGE_KEY = 'baseeta-pos-printer-settings'
-const BLUETOOTH_PRINT_SERVICES = ['000018f0-0000-1000-8000-00805f9b34fb', '0000ffe0-0000-1000-8000-00805f9b34fb']
-const BLUETOOTH_PRINT_CHARACTERISTICS = ['00002af1-0000-1000-8000-00805f9b34fb', '0000ffe1-0000-1000-8000-00805f9b34fb']
+const BLUETOOTH_PRINT_SERVICES = [
+  '000018f0-0000-1000-8000-00805f9b34fb',
+  '0000ffe0-0000-1000-8000-00805f9b34fb',
+  '0000ff00-0000-1000-8000-00805f9b34fb',
+  '49535343-fe7d-4ae5-8fa9-9fafd205e455',
+  'e7810a71-73ae-499d-8c15-faa9aef0c3f2',
+]
+const BLUETOOTH_PRINT_CHARACTERISTICS = [
+  '00002af1-0000-1000-8000-00805f9b34fb',
+  '0000ffe1-0000-1000-8000-00805f9b34fb',
+  '0000ff01-0000-1000-8000-00805f9b34fb',
+  '0000ff02-0000-1000-8000-00805f9b34fb',
+  '49535343-8841-43f4-a8d4-ecbe34729bb3',
+  'bef8d6c9-9c21-4c9e-b632-bd58c1009f9f',
+]
 const USB_PRINTER_FILTERS = [
   { classCode: 0x07 },
   { vendorId: 0x04b8 },
@@ -522,6 +537,24 @@ function wait(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
+async function writeBluetoothBytes(characteristic: BluetoothCharacteristic, bytes: Uint8Array) {
+  const data = toArrayBuffer(bytes)
+  if (typeof characteristic.writeValueWithoutResponse === 'function') {
+    await characteristic.writeValueWithoutResponse(data)
+    return
+  }
+  if (typeof characteristic.writeValueWithResponse === 'function') {
+    await characteristic.writeValueWithResponse(data)
+    return
+  }
+  await characteristic.writeValue(data)
+}
+
+function bluetoothPrintError(error: unknown) {
+  const detail = error instanceof Error ? error.message : String(error || '')
+  return new Error(`تعذر إرسال أمر الطباعة عبر Bluetooth. أعد ربط الطابعة من الزر، وتأكد أنها ليست متصلة بتطبيق آخر. ${detail}`)
+}
+
 export function trackedOrderToReceiptPayload(order: TrackedOrder, options: Partial<ReceiptPayload> = {}): ReceiptPayload {
   const orderWithPossibleLines = order as TrackedOrder & {
     lines?: ReceiptLine[]
@@ -889,10 +922,24 @@ export class PrinterManager {
   }
 
   private async printBluetooth(role: ThermalPrinterRole, printer: ThermalPrinterSettings, bytes: Uint8Array, allowDevicePrompt = false) {
-    const characteristic = this.bluetoothCharacteristics[role] || await this.connectBluetooth(role, printer, allowDevicePrompt)
-    const chunkSize = 180
-    for (let index = 0; index < bytes.length; index += chunkSize) {
-      await characteristic.writeValue(toArrayBuffer(bytes.slice(index, index + chunkSize)))
+    let characteristic = this.bluetoothCharacteristics[role] || await this.connectBluetooth(role, printer, allowDevicePrompt)
+    const chunkSize = 96
+    try {
+      for (let index = 0; index < bytes.length; index += chunkSize) {
+        await writeBluetoothBytes(characteristic, bytes.slice(index, index + chunkSize))
+        if (index + chunkSize < bytes.length) await wait(25)
+      }
+    } catch (error) {
+      delete this.bluetoothCharacteristics[role]
+      if (!allowDevicePrompt && this.bluetoothDevices[role]?.gatt) {
+        characteristic = await this.connectBluetooth(role, printer, false)
+        for (let index = 0; index < bytes.length; index += chunkSize) {
+          await writeBluetoothBytes(characteristic, bytes.slice(index, index + chunkSize))
+          if (index + chunkSize < bytes.length) await wait(35)
+        }
+        return
+      }
+      throw bluetoothPrintError(error)
     }
   }
 
@@ -929,15 +976,21 @@ export class PrinterManager {
         for (const charId of BLUETOOTH_PRINT_CHARACTERISTICS) {
           try {
             const characteristic = await service.getCharacteristic(charId)
+            await writeBluetoothBytes(characteristic, new Uint8Array([0x1b, 0x40]))
+            await wait(120)
             this.bluetoothCharacteristics[role] = characteristic
             printer.deviceId = device.id || printer.deviceId
             printer.deviceName = device.name || printer.deviceName
             printer.lastConnected = new Date().toISOString()
             this.saveSettings()
             return characteristic
-          } catch {}
+          } catch (error) {
+            console.info(`[PrinterManager] ${role} Bluetooth characteristic ${charId} is not writable for printing.`, error)
+          }
         }
-      } catch {}
+      } catch (error) {
+        console.info(`[PrinterManager] ${role} Bluetooth service ${serviceId} is not available.`, error)
+      }
     }
     throw new Error('لم يتم العثور على characteristic للطباعة عبر Bluetooth.')
   }

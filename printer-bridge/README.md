@@ -1,0 +1,36 @@
+# Ranch Printer Bridge
+
+نسخة خفيفة لتشغيل الطباعة المباشرة على جهاز الكاشير بدون نقل مشروع الموقع بالكامل.
+
+## التشغيل
+
+ثبت Node.js على جهاز الكاشير، ثم افتح PowerShell داخل هذا المجلد وشغل:
+
+```powershell
+$env:XPRINTER_NAME='XP-80C'
+npm start
+```
+
+لو اسم الطابعة مختلف، استبدل `XP-80C` بنفس الاسم الظاهر في Windows Printers.
+
+اترك نافذة PowerShell مفتوحة أثناء الطباعة.
+
+## إعداد الموقع
+
+افتح لوحة التحكم من نفس جهاز الكاشير:
+
+```text
+https://ranch-a.vercel.app/dashboard/settings
+```
+
+ثم اختر:
+
+```text
+Network Bridge
+```
+
+واكتب الرابط:
+
+```text
+http://127.0.0.1:17878/print
+```
