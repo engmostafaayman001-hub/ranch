@@ -159,6 +159,8 @@ const USB_PRINTER_FILTERS = [
   { vendorId: 0x10c4 },
   { vendorId: 0x0403 },
 ]
+const PRINT_ASSET_TIMEOUT_MS = 900
+const printAssetCache = new Map<string, Promise<HTMLImageElement | null>>()
 const defaultPrinters: Record<ThermalPrinterRole, ThermalPrinterSettings> = {
   cashier: {
     role: 'cashier',
@@ -319,13 +321,25 @@ function qrUrl(value?: string) {
 
 async function loadImage(url?: string) {
   if (!url) return null
-  return new Promise<HTMLImageElement | null>((resolve) => {
+  if (printAssetCache.has(url)) return printAssetCache.get(url) || null
+  const task = new Promise<HTMLImageElement | null>((resolve) => {
     const image = new Image()
+    let settled = false
+    const finish = (value: HTMLImageElement | null) => {
+      if (settled) return
+      settled = true
+      window.clearTimeout(timeout)
+      if (!value) printAssetCache.delete(url)
+      resolve(value)
+    }
+    const timeout = window.setTimeout(() => finish(null), PRINT_ASSET_TIMEOUT_MS)
     image.crossOrigin = 'anonymous'
-    image.onload = () => resolve(image)
-    image.onerror = () => resolve(null)
+    image.onload = () => finish(image)
+    image.onerror = () => finish(null)
     image.src = url
   })
+  printAssetCache.set(url, task)
+  return task
 }
 
 function wrapText(context: CanvasRenderingContext2D, text: string, maxWidth: number) {
@@ -488,7 +502,7 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
     drawText('+0201090886364', { size: 16, weight: 800, align: 'center' })
   }
 
-  y += 32
+  y += 8
   const finalCanvas = document.createElement('canvas')
   finalCanvas.width = width
   finalCanvas.height = y
@@ -526,9 +540,7 @@ function canvasToRasterEscPos(canvas: HTMLCanvasElement) {
     (height >> 8) & 0xff,
   ])
   const footer = new Uint8Array([
-    0x0a,
-    0x0a,
-    0x1b, 0x64, 0x04,
+    0x1b, 0x64, 0x01,
     0x1d, 0x56, 0x00,
   ])
   const output = new Uint8Array(header.length + raster.length + footer.length)
