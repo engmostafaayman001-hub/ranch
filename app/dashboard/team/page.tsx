@@ -1,6 +1,7 @@
 'use client'
 
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { Search } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -25,6 +26,12 @@ export default function DashboardTeamPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [form, setForm] = useState({ name: '', email: '', role: 'support', status: 'active' as 'active' | 'inactive' })
+  const [search, setSearch] = useState('')
+  const filteredTeam = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    if (!term) return team
+    return team.filter((member) => `${member.name} ${member.email} ${member.role} ${member.status}`.toLowerCase().includes(term))
+  }, [search, team])
 
   const loadTeam = async () => {
     setLoading(true)
@@ -41,7 +48,11 @@ export default function DashboardTeamPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(loadTeam, 0)
-    return () => window.clearTimeout(timer)
+    const interval = window.setInterval(loadTeam, 15000)
+    return () => {
+      window.clearTimeout(timer)
+      window.clearInterval(interval)
+    }
   }, [])
 
   const closeForm = () => {
@@ -168,7 +179,13 @@ export default function DashboardTeamPage() {
       <Card>
         <CardHeader><CardTitle>{isArabic ? 'أعضاء الفريق' : 'Team Members'}</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          {team.length === 0 ? <p className="py-10 text-center text-slate-500">{isArabic ? 'لا يوجد أعضاء فريق محفوظون بعد.' : 'No team members saved yet.'}</p> : team.map((member) => (
+          <div className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-800 dark:bg-slate-950">
+            <Search className="h-4 w-4 text-slate-400" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isArabic ? 'بحث في الفريق' : 'Search team'} className="min-w-0 flex-1 bg-transparent text-sm outline-none" />
+          </div>
+          {team.length === 0 ? <p className="py-10 text-center text-slate-500">{isArabic ? 'لا يوجد أعضاء فريق محفوظون بعد.' : 'No team members saved yet.'}</p> : filteredTeam.length === 0 ? (
+            <p className="py-10 text-center text-slate-500">{isArabic ? 'لا توجد نتائج مطابقة.' : 'No matching team members.'}</p>
+          ) : filteredTeam.map((member) => (
             <div key={member.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 dark:border-slate-800">
               <div>
                 <p className="font-semibold">{member.name}</p>

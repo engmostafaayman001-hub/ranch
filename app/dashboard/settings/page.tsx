@@ -11,7 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useLanguage } from '@/components/language-provider'
 import { PrinterConnection, PrinterRole, useAppStore } from '@/lib/app-store'
 import { imageFileToOptimizedDataUrl, isAcceptedImageFile } from '@/lib/client-images'
-import { printerManager, syncPrinterManagerSettings } from '@/lib/printer'
+import { printerManager, syncPrinterManagerSettings, type ThermalPrinterSettings } from '@/lib/printer'
 import { saveSharedSettings, useSharedAppData } from '@/lib/use-shared-app-data'
 
 export default function DashboardSettingsPage() {
@@ -151,8 +151,10 @@ export default function DashboardSettingsPage() {
     syncPrinterManagerSettings(printers)
     setPrinterStatus((current) => ({ ...current, [role]: isArabic ? 'جاري اختبار الطابعة...' : 'Testing printer...' }))
     try {
+      let testedPrinter: ThermalPrinterSettings = settings.printers[role]
       if (kind === 'connection') {
-        await printerManager.testConnection(role)
+        const result = await printerManager.testConnection(role)
+        testedPrinter = result.printer || printerManager.getPrinters()[role]
       } else {
         await printerManager.printTest(role, kind === 'kitchen' ? 'kitchen' : kind === 'hall' ? 'hall' : 'diagnostic', {
           invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
@@ -164,8 +166,16 @@ export default function DashboardSettingsPage() {
           logoUrl: settings.invoiceLogo || settings.heroImage,
           isArabic,
         })
+        testedPrinter = printerManager.getPrinters()[role]
       }
-      updatePrinter(role, { method, connectionType: method, lastConnected: new Date().toISOString() })
+      updatePrinter(role, {
+        method,
+        connectionType: method,
+        deviceId: testedPrinter.deviceId || settings.printers[role].deviceId || '',
+        deviceName: testedPrinter.deviceName || testedPrinter.name || settings.printers[role].deviceName,
+        deviceAddress: testedPrinter.deviceAddress || settings.printers[role].deviceAddress,
+        lastConnected: testedPrinter.lastConnected || new Date().toISOString(),
+      })
       setPrinterStatus((current) => ({ ...current, [role]: isArabic ? 'تم إرسال أمر الاختبار بنجاح.' : 'Test command sent successfully.' }))
     } catch (error) {
       setPrinterStatus((current) => ({ ...current, [role]: error instanceof Error ? error.message : (isArabic ? 'تعذر اختبار الطابعة.' : 'Could not test printer.') }))
@@ -449,7 +459,9 @@ function PrinterCard({
   const method = printer.method || 'network'
   const enabled = printer.isEnabled === true
   const networkReady = Boolean((printer.ip || printer.deviceAddress || '').trim())
-  const deviceConnected = Boolean(printer.lastConnected && (printer.deviceId || printer.deviceAddress || printer.deviceName))
+  const savedDeviceName = (printer.deviceName || '').trim()
+  const genericDeviceNames = new Set(['Cashier Printer', 'Kitchen Printer', 'Hall Printer', printer.name || ''])
+  const deviceConnected = Boolean(printer.lastConnected && (printer.deviceId || printer.deviceAddress || (savedDeviceName && !genericDeviceNames.has(savedDeviceName))))
   const ready = enabled && (method === 'network' ? networkReady : deviceConnected)
   const status = !enabled
     ? { label: isArabic ? 'غير مفعلة' : 'Disabled', className: 'bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300', icon: AlertCircle }

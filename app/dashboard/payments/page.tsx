@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CheckCircle2, Clock3, CreditCard, Eye, ReceiptText, Wallet, XCircle } from 'lucide-react'
+import { CheckCircle2, Clock3, CreditCard, Eye, ReceiptText, Search, Wallet, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -29,6 +29,7 @@ export default function DashboardPaymentsPage() {
   const [receiptPreview, setReceiptPreview] = useState<{ url: string; title: string; name?: string } | null>(null)
   const [loadingReceiptId, setLoadingReceiptId] = useState<string | null>(null)
   const [message, setMessage] = useState('')
+  const [search, setSearch] = useState('')
   const loadingPayments = useRef(false)
 
   useEffect(() => {
@@ -63,6 +64,11 @@ export default function DashboardPaymentsPage() {
   }, [isArabic])
 
   const paymentOrders = useMemo(() => orders.filter((order) => order.payment), [orders])
+  const filteredPaymentOrders = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    if (!term) return paymentOrders
+    return paymentOrders.filter((order) => `${order.id} ${order.customer} ${order.phone} ${order.payment?.method || ''} ${order.payment?.status || ''}`.toLowerCase().includes(term))
+  }, [paymentOrders, search])
   const paidOrders = paymentOrders.filter((order) => order.payment?.status === 'paid')
   const receiptOrders = paymentOrders.filter((order) => order.payment?.receiptDataUrl || order.payment?.receiptName || order.payment?.receiptUploadedAt)
   const pendingOrders = paymentOrders.filter((order) => ['pending', 'receipt_uploaded'].includes(order.payment?.status || ''))
@@ -173,10 +179,16 @@ export default function DashboardPaymentsPage() {
           <CardTitle>{isArabic ? 'سجل المدفوعات' : 'Payment Ledger'}</CardTitle>
         </CardHeader>
         <CardContent>
+          <div className="mb-4 flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-800 dark:bg-slate-950">
+            <Search className="h-4 w-4 text-slate-400" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isArabic ? 'بحث في المدفوعات' : 'Search payments'} className="min-w-0 flex-1 bg-transparent text-sm outline-none" />
+          </div>
           {loading ? (
             <p className="py-8 text-center text-slate-500">{isArabic ? 'جاري تحميل المدفوعات...' : 'Loading payments...'}</p>
           ) : paymentOrders.length === 0 ? (
             <p className="py-8 text-center text-slate-500">{isArabic ? 'لا توجد مدفوعات بعد.' : 'No payments yet.'}</p>
+          ) : filteredPaymentOrders.length === 0 ? (
+            <p className="py-8 text-center text-slate-500">{isArabic ? 'لا توجد مدفوعات مطابقة.' : 'No matching payments.'}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[760px] text-sm">
@@ -191,7 +203,7 @@ export default function DashboardPaymentsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {paymentOrders.map((order) => (
+                  {filteredPaymentOrders.map((order) => (
                     <tr key={order.id} className="border-b last:border-0 dark:border-slate-800">
                       <td className="py-3 font-medium">{order.id}</td>
                       <td className="py-3">

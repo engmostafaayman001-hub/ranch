@@ -14,7 +14,7 @@ import { useSharedAppData } from '@/lib/use-shared-app-data'
 import { isDisplayableImage } from '@/lib/client-images'
 
 export default function FavoritesPage() {
-  useSharedAppData()
+  const { loading } = useSharedAppData()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [message, setMessage] = useState('')
   const { isLoggedIn, logout } = useAuthStore()
@@ -56,7 +56,11 @@ export default function FavoritesPage() {
           </Link>
         </div>
 
-        {favorites.length === 0 ? (
+        {loading ? (
+          <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-slate-500 dark:border-slate-800 dark:bg-slate-900">
+            <p className="font-semibold">{isArabic ? 'جاري تحميل المفضلة...' : 'Loading favorites...'}</p>
+          </div>
+        ) : favorites.length === 0 ? (
           <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500 dark:border-slate-800 dark:bg-slate-900">
             <Heart className="mx-auto mb-3 h-10 w-10 text-red-500" />
             <p className="font-semibold">{isArabic ? 'لا توجد منتجات في المفضلة بعد.' : 'No favorite products yet.'}</p>

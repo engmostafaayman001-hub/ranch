@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { Search } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN } from '@/lib/constants'
@@ -25,6 +26,7 @@ export default function DashboardCustomersPage() {
   const currency = isArabic ? CURRENCY : CURRENCY_EN
   const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
 
   useEffect(() => {
     let active = true
@@ -95,9 +97,11 @@ export default function DashboardCustomersPage() {
     }
 
     const timer = window.setTimeout(loadCustomers, 0)
+    const interval = window.setInterval(loadCustomers, 15000)
     return () => {
       active = false
       window.clearTimeout(timer)
+      window.clearInterval(interval)
     }
   }, [])
 
@@ -105,6 +109,11 @@ export default function DashboardCustomersPage() {
     if (!value) return '-'
     return new Date(value).toLocaleDateString(isArabic ? 'ar-EG' : 'en-US')
   }
+  const filteredCustomers = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    if (!term) return customers
+    return customers.filter((customer) => `${customer.name || ''} ${customer.email || ''} ${customer.phone || ''} ${customer.address || ''}`.toLowerCase().includes(term))
+  }, [customers, search])
 
   return (
     <div className="space-y-6">
@@ -122,6 +131,10 @@ export default function DashboardCustomersPage() {
           <CardTitle>{isArabic ? 'قائمة العملاء' : 'Customer List'}</CardTitle>
         </CardHeader>
         <CardContent>
+          <div className="mb-4 flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-800 dark:bg-slate-950">
+            <Search className="h-4 w-4 text-slate-400" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isArabic ? 'بحث بالاسم أو الهاتف أو البريد' : 'Search name, phone, or email'} className="min-w-0 flex-1 bg-transparent text-sm outline-none" />
+          </div>
           {loading ? (
             <div className="py-12 text-center text-slate-500">
               {isArabic ? 'جاري تحميل العملاء...' : 'Loading customers...'}
@@ -130,6 +143,8 @@ export default function DashboardCustomersPage() {
             <div className="py-12 text-center text-slate-500">
               {isArabic ? 'لا يوجد عملاء مسجلون بعد.' : 'No registered customers yet.'}
             </div>
+          ) : filteredCustomers.length === 0 ? (
+            <div className="py-12 text-center text-slate-500">{isArabic ? 'لا يوجد عملاء مطابقون.' : 'No matching customers.'}</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -145,7 +160,7 @@ export default function DashboardCustomersPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {customers.map((customer, index) => (
+                  {filteredCustomers.map((customer, index) => (
                     <tr key={customer.id || customer.email || index} className="border-b last:border-0 dark:border-slate-800">
                       <td className="py-3">{customer.name || '-'}</td>
                       <td className="py-3">{customer.email || '-'}</td>

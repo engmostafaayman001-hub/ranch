@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Logo } from '@/components/logo'
 import { useLanguage } from '@/components/language-provider'
-import { useAppStore } from '@/lib/app-store'
+import { AppSettings, useAppStore } from '@/lib/app-store'
 import { useSharedAppData } from '@/lib/use-shared-app-data'
 
 type PageKind = 'about' | 'contact' | 'faq' | 'privacy' | 'terms' | 'refund'
@@ -143,30 +143,128 @@ const pages: Record<PageKind, Record<'ar' | 'en', LocalizedSimplePage>> = {
   },
 }
 
+function buildSimplePage(kind: PageKind, language: 'ar' | 'en', settings: AppSettings, appName: string): LocalizedSimplePage {
+  const isArabic = language === 'ar'
+  const restaurantName = isArabic ? settings.restaurantNameAr || appName : settings.restaurantNameEn || appName
+  const address = isArabic ? settings.addressAr : settings.addressEn
+  const workingHours = isArabic ? settings.workingHoursAr : settings.workingHoursEn
+  const contactLines = [
+    `${isArabic ? 'الهاتف' : 'Phone'}: ${settings.phone || '-'}`,
+    `${isArabic ? 'البريد الإلكتروني' : 'Email'}: ${settings.email || '-'}`,
+    `${isArabic ? 'العنوان' : 'Address'}: ${address || '-'}`,
+  ]
+  const paymentLines = [
+    isArabic ? 'الدفع عند الاستلام' : 'Cash on delivery',
+    settings.vodafoneCashNumber ? `${isArabic ? 'فودافون كاش' : 'Vodafone Cash'}: ${settings.vodafoneCashNumber}` : '',
+    settings.instapayNumber ? `${isArabic ? 'إنستاباي' : 'InstaPay'}: ${settings.instapayNumber}` : '',
+  ].filter(Boolean)
+
+  const dynamicPages: Record<PageKind, LocalizedSimplePage> = isArabic
+    ? {
+        about: {
+          title: `عن ${restaurantName}`,
+          sections: [
+            { title: 'من نحن', body: [`${restaurantName} يقدم تجربة طلب واضحة وسريعة من بيانات المطعم الحالية.`] },
+            { title: 'ما نوفره', list: ['قائمة محدثة من لوحة التحكم', 'طلبات موثقة من السيرفر', 'توصيل ومتابعة حالة الطلب'] },
+          ],
+        },
+        contact: {
+          title: 'اتصل بنا',
+          sections: [
+            { title: 'معلومات التواصل', body: contactLines },
+            { title: 'ساعات العمل', body: [workingHours || '-'] },
+          ],
+        },
+        faq: {
+          title: 'الأسئلة الشائعة',
+          sections: [
+            { title: 'كم يستغرق التوصيل؟', body: [`متوسط وقت التوصيل ${settings.deliveryTime || 30} دقيقة بعد تأكيد الطلب.`] },
+            { title: 'ما طرق الدفع المتاحة؟', list: paymentLines },
+            { title: 'كيف أتابع طلبي؟', body: ['يمكن متابعة الطلب من صفحة الطلبات باستخدام بيانات الطلب المسجلة.'] },
+          ],
+        },
+        privacy: {
+          title: 'سياسة الخصوصية',
+          sections: [
+            { title: 'البيانات التي نجمعها', list: ['بيانات التواصل', 'عنوان التوصيل', 'تفاصيل الطلب', 'إيصال الدفع عند رفعه'] },
+            { title: 'استخدام البيانات', body: ['تستخدم البيانات لتنفيذ الطلبات، التواصل مع العميل، وتحسين الخدمة فقط.'] },
+            { title: 'التواصل', body: contactLines },
+          ],
+        },
+        terms: {
+          title: 'الشروط والأحكام',
+          sections: [
+            { title: 'استخدام الخدمة', body: [`باستخدام ${restaurantName} أنت توافق على سياسات الطلب والدفع والتوصيل الخاصة بالمطعم.`] },
+            { title: 'الطلبات والدفع', body: ['يجب إدخال بيانات صحيحة، وتأكيد الدفع عند اختيار طريقة دفع تتطلب إيصالا.'] },
+            { title: 'التواصل', body: contactLines },
+          ],
+        },
+        refund: {
+          title: 'سياسة الاسترجاع',
+          sections: [
+            { title: 'الشروط', list: ['وجود رقم طلب صحيح', 'توضيح سبب الاسترجاع', 'إرفاق صورة أو إيصال عند الحاجة'] },
+            { title: 'المعالجة', body: ['تتم مراجعة طلبات الاسترجاع حسب حالة الطلب وطريقة الدفع المسجلة.'] },
+            { title: 'التواصل', body: contactLines },
+          ],
+        },
+      }
+    : {
+        about: {
+          title: `About ${restaurantName}`,
+          sections: [
+            { title: 'Who We Are', body: [`${restaurantName} provides a clear, fast ordering experience using the current restaurant settings.`] },
+            { title: 'What We Offer', list: ['Dashboard-managed menu', 'Server-backed orders', 'Delivery and order tracking'] },
+          ],
+        },
+        contact: {
+          title: 'Contact Us',
+          sections: [
+            { title: 'Contact Information', body: contactLines },
+            { title: 'Working Hours', body: [workingHours || '-'] },
+          ],
+        },
+        faq: {
+          title: 'Frequently Asked Questions',
+          sections: [
+            { title: 'How long does delivery take?', body: [`Average delivery time is ${settings.deliveryTime || 30} minutes after confirmation.`] },
+            { title: 'What payment methods are available?', list: paymentLines },
+            { title: 'How can I track my order?', body: ['You can track your order from the orders page using the saved order details.'] },
+          ],
+        },
+        privacy: {
+          title: 'Privacy Policy',
+          sections: [
+            { title: 'Data We Collect', list: ['Contact details', 'Delivery address', 'Order details', 'Uploaded payment receipts'] },
+            { title: 'How We Use Data', body: ['Data is used to fulfill orders, contact customers, and improve service.'] },
+            { title: 'Contact', body: contactLines },
+          ],
+        },
+        terms: {
+          title: 'Terms & Conditions',
+          sections: [
+            { title: 'Using the Service', body: [`By using ${restaurantName}, you agree to the restaurant ordering, payment, and delivery policies.`] },
+            { title: 'Orders and Payment', body: ['Please provide accurate details and confirm payment when a receipt-based method is selected.'] },
+            { title: 'Contact', body: contactLines },
+          ],
+        },
+        refund: {
+          title: 'Refund Policy',
+          sections: [
+            { title: 'Conditions', list: ['Valid order number', 'Clear refund reason', 'Photo or receipt when needed'] },
+            { title: 'Processing', body: ['Refund requests are reviewed according to the order status and recorded payment method.'] },
+            { title: 'Contact', body: contactLines },
+          ],
+        },
+      }
+
+  return dynamicPages[kind] || pages[kind][language]
+}
+
 export function SimplePage({ kind }: { kind: PageKind }) {
   useSharedAppData()
   const { language, appName, t } = useLanguage()
   const settings = useAppStore((state) => state.settings)
-  const page = pages[kind][language]
-  const contactPage = kind === 'contact'
-    ? {
-        ...page,
-        sections: [
-          {
-            title: language === 'ar' ? 'معلومات التواصل' : 'Contact Information',
-            body: [
-              `${language === 'ar' ? 'الهاتف' : 'Phone'}: ${settings.phone}`,
-              `${language === 'ar' ? 'البريد الإلكتروني' : 'Email'}: ${settings.email}`,
-              `${language === 'ar' ? 'العنوان' : 'Address'}: ${language === 'ar' ? settings.addressAr : settings.addressEn}`,
-            ],
-          },
-          {
-            title: language === 'ar' ? 'أوقات العمل' : 'Working Hours',
-            body: [language === 'ar' ? settings.workingHoursAr : settings.workingHoursEn],
-          },
-        ],
-      }
-    : page
+  const page = buildSimplePage(kind, language, settings, appName)
 
   return (
     <main className="min-h-screen bg-white dark:bg-slate-950">
@@ -185,9 +283,9 @@ export function SimplePage({ kind }: { kind: PageKind }) {
       </nav>
 
       <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">
-        <h1 className="mb-8 text-4xl font-bold">{contactPage.title}</h1>
+        <h1 className="mb-8 text-4xl font-bold">{page.title}</h1>
         <div className="space-y-6">
-          {contactPage.sections.map((section) => (
+          {page.sections.map((section) => (
             <Card key={section.title}>
               <CardHeader>
                 <CardTitle>{section.title}</CardTitle>

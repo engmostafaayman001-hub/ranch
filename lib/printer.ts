@@ -521,7 +521,7 @@ export class PrinterManager {
     await this.connect(role, printer, true)
     printer.lastConnected = new Date().toISOString()
     this.saveSettings()
-    return { ok: true, message: 'تم الاتصال بالطابعة بنجاح.' }
+    return { ok: true, message: 'تم الاتصال بالطابعة بنجاح.', printer: { ...printer } }
   }
 
   async connectPrinter(role: ThermalPrinterRole) {
@@ -693,7 +693,9 @@ export class PrinterManager {
 
   private async getUsbDevice(role: ThermalPrinterRole, printer: ThermalPrinterSettings, allowDevicePrompt: boolean) {
     const storedDeviceId = (printer.deviceId || '').trim()
-    const storedDeviceName = (printer.deviceName || printer.name || '').trim()
+    const configuredDeviceName = (printer.deviceName || printer.name || '').trim()
+    const defaultDeviceName = (defaultPrinters[role].deviceName || defaultPrinters[role].name || '').trim()
+    const storedDeviceName = configuredDeviceName && configuredDeviceName !== defaultDeviceName ? configuredDeviceName : ''
     const storedAddress = (printer.deviceAddress || '').trim().toLowerCase()
 
     if (typeof navigator.usb?.getDevices === 'function') {
@@ -702,7 +704,7 @@ export class PrinterManager {
         (storedDeviceId && device.serialNumber === storedDeviceId) ||
         (storedDeviceName && device.productName === storedDeviceName) ||
         (storedAddress && device.vendorId && device.productId && `${device.vendorId.toString(16).padStart(4, '0')}:${device.productId.toString(16).padStart(4, '0')}` === storedAddress)
-      ) || (!storedDeviceId && !storedDeviceName && devices.length === 1 ? devices[0] : undefined)
+      ) || (!storedDeviceId && !storedDeviceName && !storedAddress && devices.length === 1 ? devices[0] : undefined)
 
       if (restored) return restored
     }

@@ -1,6 +1,7 @@
 'use client'
 
 import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -26,6 +27,7 @@ export default function DashboardExpensesPage() {
   const [message, setMessage] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [form, setForm] = useState({ name: '', amount: '', date: new Date().toISOString().slice(0, 10), note: '' })
+  const [search, setSearch] = useState('')
 
   const loadExpenses = async () => {
     try {
@@ -41,10 +43,19 @@ export default function DashboardExpensesPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(loadExpenses, 0)
-    return () => window.clearTimeout(timer)
+    const interval = window.setInterval(loadExpenses, 15000)
+    return () => {
+      window.clearTimeout(timer)
+      window.clearInterval(interval)
+    }
   }, [])
 
   const total = useMemo(() => expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0), [expenses])
+  const filteredExpenses = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    if (!term) return expenses
+    return expenses.filter((expense) => `${expense.name} ${expense.note} ${expense.date} ${expense.amount}`.toLowerCase().includes(term))
+  }, [expenses, search])
 
   const closeForm = () => {
     setForm({ name: '', amount: '', date: new Date().toISOString().slice(0, 10), note: '' })
@@ -116,13 +127,19 @@ export default function DashboardExpensesPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
+          <div className="mb-4 flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-800 dark:bg-slate-950">
+            <Search className="h-4 w-4 text-slate-400" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isArabic ? 'بحث في المصروفات' : 'Search expenses'} className="min-w-0 flex-1 bg-transparent text-sm outline-none" />
+          </div>
           {loading ? (
             <p className="py-8 text-center text-slate-500">{isArabic ? 'جاري التحميل...' : 'Loading...'}</p>
           ) : expenses.length === 0 ? (
             <p className="py-8 text-center text-slate-500">{isArabic ? 'لا توجد مصروفات بعد.' : 'No expenses yet.'}</p>
+          ) : filteredExpenses.length === 0 ? (
+            <p className="py-8 text-center text-slate-500">{isArabic ? 'لا توجد مصروفات مطابقة.' : 'No matching expenses.'}</p>
           ) : (
             <div className="space-y-3">
-              {expenses.map((expense) => (
+              {filteredExpenses.map((expense) => (
                 <div key={expense.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 dark:border-slate-800">
                   <div>
                     <p className="font-semibold">{expense.name}</p>

@@ -1,7 +1,7 @@
 'use client'
 
-import { FormEvent, useEffect, useState } from 'react'
-import { Check, Copy } from 'lucide-react'
+import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { Check, Copy, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -30,6 +30,12 @@ export default function DashboardNotificationsPage() {
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [readIds, setReadIds] = useState<string[]>([])
   const [form, setForm] = useState(emptyForm)
+  const [search, setSearch] = useState('')
+  const filteredNotifications = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    if (!term) return notifications
+    return notifications.filter((notification) => `${notification.title} ${notification.message} ${notification.code || ''}`.toLowerCase().includes(term))
+  }, [notifications, search])
 
   const loadNotifications = async () => {
     const response = await fetch('/api/notifications', { cache: 'no-store' })
@@ -42,7 +48,14 @@ export default function DashboardNotificationsPage() {
       setReadIds(getReadNotificationIds())
       loadNotifications().catch(() => setNotifications([]))
     }, 0)
-    return () => window.clearTimeout(timer)
+    const interval = window.setInterval(() => {
+      setReadIds(getReadNotificationIds())
+      loadNotifications().catch(() => setNotifications([]))
+    }, 15000)
+    return () => {
+      window.clearTimeout(timer)
+      window.clearInterval(interval)
+    }
   }, [])
 
   const closeForm = () => {
@@ -144,11 +157,17 @@ export default function DashboardNotificationsPage() {
       <Card>
         <CardHeader><CardTitle>{isArabic ? 'العروض المحفوظة' : 'Saved Offers'}</CardTitle></CardHeader>
         <CardContent>
+          <div className="mb-4 flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-800 dark:bg-slate-950">
+            <Search className="h-4 w-4 text-slate-400" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isArabic ? 'بحث في العروض والخصومات' : 'Search offers and discounts'} className="min-w-0 flex-1 bg-transparent text-sm outline-none" />
+          </div>
           {notifications.length === 0 ? (
             <p className="py-8 text-center text-slate-500">{isArabic ? 'لا توجد عروض أو إشعارات محفوظة بعد.' : 'No saved offers or notifications yet.'}</p>
+          ) : filteredNotifications.length === 0 ? (
+            <p className="py-8 text-center text-slate-500">{isArabic ? 'لا توجد عروض أو خصومات مطابقة.' : 'No matching offers or discounts.'}</p>
           ) : (
             <div className="space-y-3">
-              {notifications.map((notification) => {
+              {filteredNotifications.map((notification) => {
                 const isRead = readIds.includes(notification.id)
                 return (
                 <div key={notification.id} className={`rounded-md border p-4 dark:border-slate-800 ${isRead ? 'bg-slate-50/70 dark:bg-slate-900/40' : 'bg-white dark:bg-slate-950'}`}>

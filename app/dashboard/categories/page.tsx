@@ -1,6 +1,7 @@
 'use client'
 
-import { FormEvent, useState } from 'react'
+import { FormEvent, useMemo, useState } from 'react'
+import { Search } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -22,6 +23,12 @@ export default function DashboardCategoriesPage() {
   const [formOpen, setFormOpen] = useState(false)
   const [saveStatus, setSaveStatus] = useState('')
   const [saving, setSaving] = useState(false)
+  const [search, setSearch] = useState('')
+  const filteredCategories = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    if (!term) return categories
+    return categories.filter((category) => `${category.nameAr} ${category.nameEn}`.toLowerCase().includes(term))
+  }, [categories, search])
 
   const publishCatalog = async (nextCategories: MenuCategory[], nextProducts: MenuProduct[]) => {
     setCatalog({ categories: nextCategories, products: nextProducts })
@@ -123,10 +130,16 @@ export default function DashboardCategoriesPage() {
           <CardTitle>{isArabic ? 'الأقسام الحالية' : 'Current Categories'}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
+          <div className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-800 dark:bg-slate-950">
+            <Search className="h-4 w-4 text-slate-400" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isArabic ? 'بحث في الأقسام' : 'Search categories'} className="min-w-0 flex-1 bg-transparent text-sm outline-none" />
+          </div>
           {categories.length === 0 ? (
             <p className="py-8 text-center text-slate-500">{isArabic ? 'لا توجد أقسام حتى الآن.' : 'No categories yet.'}</p>
+          ) : filteredCategories.length === 0 ? (
+            <p className="py-8 text-center text-slate-500">{isArabic ? 'لا توجد أقسام مطابقة.' : 'No matching categories.'}</p>
           ) : (
-            categories.map((category) => (
+            filteredCategories.map((category) => (
               <div key={category.id} className="flex flex-col gap-3 rounded-md border border-slate-200 p-3 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="font-semibold">{isArabic ? category.nameAr : category.nameEn}</p>
