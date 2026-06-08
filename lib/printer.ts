@@ -240,6 +240,48 @@ function usbAccessDeniedError(error: unknown) {
   return new Error(`تعذر فتح طابعة USB. افصل الكابل ثم وصله، أغلق أي برنامج يستخدم الطابعة، وتأكد من تشغيل Chrome كمسؤول أو تثبيت تعريف WinUSB/USB للطابعة. ${detail}`)
 }
 
+function normalizeNetworkPrintEndpoint(printer: ThermalPrinterSettings) {
+  const rawAddress = (printer.ip || printer.deviceAddress || '').trim()
+  if (!rawAddress) return ''
+
+  if (/^https?:\/\//i.test(rawAddress)) {
+    try {
+      const url = new URL(rawAddress)
+      const port = String(printer.port || '').trim()
+      if (!url.port && port) url.port = port
+      if (!url.pathname || url.pathname === '/') url.pathname = '/print'
+      return url.toString()
+    } catch {
+      const port = String(printer.port || '').trim()
+      const withPath = rawAddress.endsWith('/print') ? rawAddress : `${rawAddress.replace(/\/+$/, '')}/print`
+      return port && !/:\d+(?:\/|$)/.test(rawAddress.replace(/^https?:\/\//i, '')) ? withPath.replace(/^https?:\/\/([^/]+)/i, (match) => `${match}:${port}`) : withPath
+    }
+  }
+
+  const port = String(printer.port || '').trim()
+  return `http://${rawAddress}${port ? `:${port}` : ''}/print`
+}
+
+async function checkNetworkPrintEndpoint(printer: ThermalPrinterSettings) {
+  const endpoint = normalizeNetworkPrintEndpoint(printer)
+  if (!endpoint) throw new Error('Enter the printer IP or Network Bridge URL.')
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 3500)
+  try {
+    const response = await fetch(endpoint, {
+      method: 'OPTIONS',
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+    if (response.status >= 500) throw new Error(`Network bridge responded with ${response.status}`)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error || '')
+    throw new Error(`Could not reach Network Bridge at ${endpoint}. ${message}`)
+  } finally {
+    window.clearTimeout(timeout)
+  }
+}
+
 function qrUrl(value?: string) {
   const trimmed = (value || '').trim()
   if (!trimmed) return ''
@@ -715,11 +757,8 @@ export class PrinterManager {
     window.setTimeout(() => iframe.remove(), 1000)
   }
   private async printNetwork(printer: ThermalPrinterSettings, bytes: Uint8Array, canvas: HTMLCanvasElement) {
-    const ip = (printer.ip || printer.deviceAddress || '').trim()
-    if (!ip) throw new Error('أدخل IP الطابعة أو عنوان bridge الشبكي.')
-    const endpoint = ip.startsWith('http://') || ip.startsWith('https://')
-      ? ip
-      : `http://${ip}${printer.port ? `:${printer.port}` : ''}/print`
+    const endpoint = normalizeNetworkPrintEndpoint(printer)
+    if (!endpoint) throw new Error('Enter the printer IP or Network Bridge URL.')
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -730,9 +769,8 @@ export class PrinterManager {
         imageDataUrl: canvas.toDataURL('image/png'),
       }),
     })
-    if (!response.ok) throw new Error(`فشل bridge الطباعة الشبكية: ${response.status}`)
+    if (!response.ok) throw new Error(`Network print bridge failed: ${response.status} at ${endpoint}`)
   }
-
   private async printUsb(role: ThermalPrinterRole, printer: ThermalPrinterSettings, bytes: Uint8Array, allowDevicePrompt = false) {
     if (!navigator.usb) throw new Error('هذا المتصفح لا يدعم WebUSB.')
     let device = this.usbDevices[role] || await this.getUsbDevice(role, printer, allowDevicePrompt)
@@ -842,8 +880,7 @@ export class PrinterManager {
     const method = printer.method || printer.connectionType
     if (method === 'system') return
     if (method === 'network') {
-      const ip = (printer.ip || printer.deviceAddress || '').trim()
-      if (!ip) throw new Error('أدخل IP الطابعة أو عنوان bridge الشبكي.')
+      await checkNetworkPrintEndpoint(printer)
       return
     }
     if (method === 'usb') {
