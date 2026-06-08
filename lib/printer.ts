@@ -606,12 +606,12 @@ export class PrinterManager {
       return { ok: true, skipped: true, reason: configurationIssue }
     }
     let lastError: unknown
-    const attempts = Math.max(1, Number(printer.retryAttempts || 3))
+    const method = printer.method || printer.connectionType
+    const attempts = method === 'system' ? 1 : Math.max(1, Number(printer.retryAttempts || 3))
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       try {
         console.info(`[PrinterManager] Printing ${job.kind} on ${job.role}. Attempt ${attempt}/${attempts}.`)
-        const method = printer.method || printer.connectionType
-        const promptAlreadyHandled = job.allowDevicePrompt === true && method !== 'network'
+        const promptAlreadyHandled = job.allowDevicePrompt === true && (method === 'usb' || method === 'bluetooth')
         if (promptAlreadyHandled) {
           await this.connect(job.role, printer, true)
         }
@@ -651,12 +651,26 @@ export class PrinterManager {
   private async printSystem(printer: ThermalPrinterSettings, canvas: HTMLCanvasElement) {
     const imageDataUrl = canvas.toDataURL('image/png')
     const width = printer.paperWidth === 58 || printer.paperWidth === '58mm' ? '58mm' : '80mm'
-    const popup = window.open('', '_blank', 'noopener,noreferrer,width=420,height=720')
-    if (!popup) {
-      throw new Error('افتح السماح بالنوافذ المنبثقة لهذه الصفحة حتى تظهر نافذة طباعة Windows/XPrinter.')
+    const iframe = document.createElement('iframe')
+    iframe.setAttribute('aria-hidden', 'true')
+    iframe.style.position = 'fixed'
+    iframe.style.right = '0'
+    iframe.style.bottom = '0'
+    iframe.style.width = '0'
+    iframe.style.height = '0'
+    iframe.style.border = '0'
+    iframe.style.opacity = '0'
+    document.body.appendChild(iframe)
+
+    const printWindow = iframe.contentWindow
+    const printDocument = printWindow?.document
+    if (!printWindow || !printDocument) {
+      iframe.remove()
+      throw new Error('Could not prepare the Windows/XPrinter print frame.')
     }
 
-    popup.document.write(`<!doctype html>
+    printDocument.open()
+    printDocument.write(`<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
@@ -669,12 +683,37 @@ export class PrinterManager {
   </style>
 </head>
 <body>
-  <img src="${imageDataUrl}" alt="Receipt" onload="setTimeout(() => { window.focus(); window.print(); }, 120)" />
+  <img src="${imageDataUrl}" alt="Receipt" />
 </body>
 </html>`)
-    popup.document.close()
-  }
+    printDocument.close()
 
+    await new Promise<void>((resolve, reject) => {
+      const timeout = window.setTimeout(() => reject(new Error('Receipt image did not load for printing.')), 5000)
+      const image = printDocument.querySelector('img')
+      if (!image) {
+        window.clearTimeout(timeout)
+        reject(new Error('Could not prepare the receipt image for printing.'))
+        return
+      }
+      image.onload = () => {
+        window.clearTimeout(timeout)
+        resolve()
+      }
+      image.onerror = () => {
+        window.clearTimeout(timeout)
+        reject(new Error('Could not load the receipt image for printing.'))
+      }
+      if (image.complete) {
+        window.clearTimeout(timeout)
+        resolve()
+      }
+    })
+
+    printWindow.focus()
+    printWindow.print()
+    window.setTimeout(() => iframe.remove(), 1000)
+  }
   private async printNetwork(printer: ThermalPrinterSettings, bytes: Uint8Array, canvas: HTMLCanvasElement) {
     const ip = (printer.ip || printer.deviceAddress || '').trim()
     if (!ip) throw new Error('أدخل IP الطابعة أو عنوان bridge الشبكي.')
