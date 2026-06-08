@@ -132,11 +132,8 @@ export default function DashboardSettingsPage() {
     syncPrinterManagerSettings(printers)
     if (printerSaveTimers.current[role]) window.clearTimeout(printerSaveTimers.current[role])
     printerSaveTimers.current[role] = window.setTimeout(() => {
-      void saveSharedSettings(nextSettings).then((data) => {
-        if (data.settings) {
-          updateSettings(data.settings)
-          syncPrinterManagerSettings(data.settings.printers)
-        }
+      void saveSharedSettings(nextSettings).then(() => {
+        syncPrinterManagerSettings(printers)
       }).catch((error) => {
         setPrinterStatus((current) => ({
           ...current,

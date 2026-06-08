@@ -30,6 +30,14 @@ type Expense = {
   note: string
 }
 
+type PosCustomer = {
+  id?: string
+  name?: string
+  email?: string
+  phone?: string
+  address?: string
+}
+
 const ORDER_TYPE_LABELS: Record<PosOrderType, { ar: string; en: string }> = {
   dine_in: { ar: 'داخل المطعم', en: 'Dine in' },
   delivery: { ar: 'دليفيري', en: 'Delivery' },
@@ -54,6 +62,9 @@ export default function DashboardPosPage() {
   const [orderType, setOrderType] = useState<PosOrderType>('dine_in')
   const [selectedCategoryId, setSelectedCategoryId] = useState('')
   const [selectedDriverId, setSelectedDriverId] = useState('')
+  const [savedCustomers, setSavedCustomers] = useState<PosCustomer[]>([])
+  const [customerSearch, setCustomerSearch] = useState('')
+  const [showCustomerResults, setShowCustomerResults] = useState(false)
   const loadingDailyClosing = useRef(false)
   const [customer, setCustomer] = useState({
     name: isArabic ? 'عميل مطعم' : 'Restaurant Customer',
@@ -76,6 +87,13 @@ export default function DashboardPosPage() {
   const selectedDriver = drivers.find((driver) => driver.id === selectedDriverId)
   const activeDrivers = drivers.filter((driver) => driver.status === 'active')
   const activeCategories = categories.filter((category) => category.active && products.some((product) => product.available && product.categoryId === category.id))
+  const customerMatches = savedCustomers
+    .filter((item) => {
+      const term = customerSearch.trim().toLowerCase()
+      if (!term) return false
+      return `${item.name || ''} ${item.phone || ''} ${item.email || ''} ${item.address || ''}`.toLowerCase().includes(term)
+    })
+    .slice(0, 6)
   const orderAddress = orderType === 'delivery' && customer.deliveryAddress.trim()
     ? `${orderTypeLabel} - ${customer.deliveryAddress.trim()}`
     : orderTypeLabel
@@ -130,6 +148,26 @@ export default function DashboardPosPage() {
     }
   }, [])
 
+  useEffect(() => {
+    let active = true
+    async function loadCustomers() {
+      try {
+        const response = await fetch('/api/customers', { cache: 'no-store' })
+        const data = await response.json().catch(() => ({}))
+        if (active) setSavedCustomers(Array.isArray(data.customers) ? data.customers : [])
+      } catch {
+        if (active) setSavedCustomers([])
+      }
+    }
+
+    loadCustomers()
+    const interval = window.setInterval(loadCustomers, 30000)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+    }
+  }, [])
+
   const addProduct = (productId: string) => {
     setLines((current) => {
       const existing = current.find((line) => line.productId === productId)
@@ -149,6 +187,17 @@ export default function DashboardPosPage() {
   const selectOrderType = (type: PosOrderType) => {
     setOrderType(type)
     if (type !== 'delivery') setSelectedDriverId('')
+  }
+
+  const selectCustomer = (item: PosCustomer) => {
+    setCustomer((current) => ({
+      ...current,
+      name: item.name || current.name,
+      phone: item.phone || current.phone,
+      deliveryAddress: item.address || current.deliveryAddress,
+    }))
+    setCustomerSearch(`${item.name || ''}${item.phone ? ` - ${item.phone}` : ''}`.trim())
+    setShowCustomerResults(false)
   }
 
   const applyDiscount = async () => {
@@ -236,6 +285,17 @@ export default function DashboardPosPage() {
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.message || data.error || 'Could not create sale')
+      if (customer.name.trim() || customer.phone.trim()) {
+        void fetch('/api/customers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: customer.name,
+            phone: customer.phone,
+            address: customer.deliveryAddress,
+          }),
+        }).catch(() => undefined)
+      }
       setMessage(isArabic ? `تم البيع وإنشاء الطلب: ${data.order?.id || ''}` : `Sale completed and order created: ${data.order?.id || ''}`)
       syncPrinterManagerSettings(settings.printers)
       const receiptPayload = {
@@ -384,6 +444,41 @@ export default function DashboardPosPage() {
         <CardHeader><CardTitle>{isArabic ? 'فاتورة البيع' : 'Sale Ticket'}</CardTitle></CardHeader>
         <CardContent>
           <form onSubmit={submit} className="space-y-4">
+            <div className="relative">
+              <Label htmlFor="pos-customer-search">{isArabic ? 'بحث عن عميل' : 'Find customer'}</Label>
+              <div className="mt-1 flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-800 dark:bg-slate-950">
+                <Search className="h-4 w-4 text-slate-500" />
+                <input
+                  id="pos-customer-search"
+                  value={customerSearch}
+                  onChange={(event) => {
+                    setCustomerSearch(event.target.value)
+                    setShowCustomerResults(true)
+                  }}
+                  onFocus={() => setShowCustomerResults(true)}
+                  placeholder={isArabic ? 'ابحث بالاسم أو الهاتف' : 'Search by name or phone'}
+                  className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+                />
+              </div>
+              {showCustomerResults && customerSearch.trim() && (
+                <div className="absolute z-20 mt-2 max-h-64 w-full overflow-auto rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-800 dark:bg-slate-950">
+                  {customerMatches.length > 0 ? customerMatches.map((item) => (
+                    <button
+                      key={item.id || item.email || item.phone || item.name}
+                      type="button"
+                      onClick={() => selectCustomer(item)}
+                      className="w-full rounded-sm px-3 py-2 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-900"
+                    >
+                      <span className="block font-semibold">{item.name || '-'}</span>
+                      <span className="block text-xs text-slate-500">{item.phone || item.email || '-'}</span>
+                    </button>
+                  )) : (
+                    <p className="px-3 py-2 text-sm text-slate-500">{isArabic ? 'لا يوجد عميل مطابق.' : 'No matching customer.'}</p>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="grid gap-3 sm:grid-cols-2">
               <Field id="customer" label={isArabic ? 'اسم العميل' : 'Customer'} value={customer.name} onChange={(value) => setCustomer({ ...customer, name: value })} />
               <Field id="phone" label={isArabic ? 'الهاتف' : 'Phone'} value={customer.phone} onChange={(value) => setCustomer({ ...customer, phone: value })} />

@@ -19,9 +19,11 @@ export default function DashboardRestaurantOrdersPage() {
   const isArabic = language === 'ar'
   const currency = isArabic ? CURRENCY : CURRENCY_EN
   const settings = useAppStore((state) => state.settings)
+  const drivers = useAppStore((state) => state.drivers)
   const [orders, setOrders] = useState<TrackedOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
+  const [driverSelections, setDriverSelections] = useState<Record<string, string>>({})
   const loadingOrders = useRef(false)
 
   const loadOrders = useCallback(async () => {
@@ -48,6 +50,11 @@ export default function DashboardRestaurantOrdersPage() {
 
   const label = (status: string) => (isArabic ? ORDER_STATUS_LABELS : ORDER_STATUS_LABELS_EN)[status as keyof typeof ORDER_STATUS_LABELS] || status
 
+  const isDeliveryOrder = (order: TrackedOrder) => {
+    const text = `${order.estimatedDelivery || ''} ${order.address || ''}`.toLowerCase()
+    return text.includes('delivery') || text.includes('دليف') || text.includes('توصيل')
+  }
+
   const updateStatus = async (orderId: string, status: TrackingStatus) => {
     const response = await fetch('/api/pos/orders', {
       method: 'PATCH',
@@ -68,6 +75,38 @@ export default function DashboardRestaurantOrdersPage() {
     const data = await response.json().catch(() => ({}))
     setMessage(response.ok ? (isArabic ? 'تم حذف طلب المطعم.' : 'Restaurant order deleted.') : data.message || data.error || (isArabic ? 'تعذر حذف الطلب.' : 'Could not delete order.'))
     if (response.ok) loadOrders()
+  }
+
+  const assignDriver = async (order: TrackedOrder) => {
+    const driverId = driverSelections[order.id]
+    const driver = drivers.find((item) => item.id === driverId)
+    if (!driver) {
+      setMessage(isArabic ? 'اختر السائق قبل حفظ التعيين.' : 'Choose a driver before saving the assignment.')
+      return
+    }
+
+    const response = await fetch('/api/pos/orders', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        orderId: order.id,
+        status: order.status,
+        driver: {
+          name: driver.name,
+          email: driver.email || '',
+          phone: driver.phone,
+          rating: 0,
+        },
+      }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      setMessage(data.message || data.error || (isArabic ? 'تعذر تغيير السائق.' : 'Could not change driver.'))
+      return
+    }
+    setDriverSelections((current) => ({ ...current, [order.id]: '' }))
+    setMessage(isArabic ? 'تم تغيير السائق المسؤول عن الطلب.' : 'Assigned driver updated.')
+    loadOrders()
   }
 
   const createPrintPayload = (order: TrackedOrder) => trackedOrderToReceiptPayload(order, {
@@ -165,6 +204,31 @@ export default function DashboardRestaurantOrdersPage() {
                     ))}
                     <Button size="sm" variant="destructive" onClick={() => deleteOrder(order.id)}>{isArabic ? 'حذف' : 'Delete'}</Button>
                   </div>
+                  {isDeliveryOrder(order) && (
+                    <div className="mt-4 grid min-w-0 gap-2 rounded-md border bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/40 md:grid-cols-[minmax(0,1fr)_auto]">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold">{isArabic ? 'السائق المسؤول عن الدليفري' : 'Delivery driver'}</p>
+                        <p className="mt-1 text-sm text-slate-500">
+                          {order.driver?.name && order.driver.name !== 'Pending assignment'
+                            ? `${order.driver.name}${order.driver.phone && order.driver.phone !== '-' ? ` - ${order.driver.phone}` : ''}`
+                            : (isArabic ? 'لم يتم تعيين سائق بعد.' : 'No driver assigned yet.')}
+                        </p>
+                        <select
+                          value={driverSelections[order.id] || ''}
+                          onChange={(event) => setDriverSelections((current) => ({ ...current, [order.id]: event.target.value }))}
+                          className="mt-3 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950"
+                        >
+                          <option value="">{isArabic ? 'اختر سائقا جديدا' : 'Choose a new driver'}</option>
+                          {drivers.filter((driver) => driver.status === 'active').map((driver) => (
+                            <option key={driver.id} value={driver.id}>{driver.name} - {driver.phone || '-'}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <Button type="button" variant="outline" className="self-end" onClick={() => assignDriver(order)}>
+                        {isArabic ? 'تغيير السائق' : 'Change Driver'}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

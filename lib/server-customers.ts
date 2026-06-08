@@ -235,3 +235,57 @@ export async function upsertServerCustomer(input: {
   await writeFile(CUSTOMERS_FILE, JSON.stringify(updated, null, 2), 'utf8')
   return customer
 }
+
+export async function deleteServerCustomer(input: {
+  id?: string
+  email?: string
+  phone?: string
+}) {
+  const id = input.id?.trim()
+  const email = input.email?.trim().toLowerCase()
+  const phone = input.phone?.replace(/\D/g, '')
+
+  if (!id && !email && !phone) {
+    throw new Error('Customer id, email, or phone is required')
+  }
+
+  if (canUseSupabaseRuntimeTables()) {
+    const supabase = createSupabaseAdminClient()
+    const customers = await readServerCustomers()
+    const matches = customers.filter((customer) => {
+      const customerPhone = customer.phone?.replace(/\D/g, '')
+      return (
+        (id && customer.id === id) ||
+        (email && customer.email?.toLowerCase() === email) ||
+        (phone && customerPhone === phone)
+      )
+    })
+
+    const appCustomerIds = matches
+      .filter((customer) => customer.id?.startsWith('CUS'))
+      .map((customer) => customer.id)
+
+    if (appCustomerIds.length > 0) {
+      const { error } = await supabase.from('app_customers').delete().in('id', appCustomerIds)
+      if (error && shouldRequireSupabaseRuntimeTables()) {
+        throw new Error(`Could not delete customer from Supabase: ${getSupabaseErrorMessage(error)}`)
+      }
+    }
+
+    return { deleted: appCustomerIds.length }
+  }
+
+  await ensureDataFile()
+  const customers = await readServerCustomers()
+  const kept = customers.filter((customer) => {
+    const customerPhone = customer.phone?.replace(/\D/g, '')
+    return !(
+      (id && customer.id === id) ||
+      (email && customer.email?.toLowerCase() === email) ||
+      (phone && customerPhone === phone)
+    )
+  })
+
+  await writeFile(CUSTOMERS_FILE, JSON.stringify(kept, null, 2), 'utf8')
+  return { deleted: customers.length - kept.length }
+}
