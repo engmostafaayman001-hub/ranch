@@ -1,4 +1,5 @@
 import type { TrackedOrder } from '@/lib/order-tracking'
+import QRCode from 'qrcode'
 
 export type ThermalPrinterRole = 'cashier' | 'kitchen' | 'hall'
 export type ThermalConnectionType = 'bluetooth' | 'usb' | 'network' | 'system'
@@ -159,8 +160,10 @@ const USB_PRINTER_FILTERS = [
   { vendorId: 0x10c4 },
   { vendorId: 0x0403 },
 ]
-const PRINT_ASSET_TIMEOUT_MS = 900
+const PRINT_EXTERNAL_ASSET_TIMEOUT_MS = 1200
+const PRINT_LOCAL_ASSET_TIMEOUT_MS = 5000
 const printAssetCache = new Map<string, Promise<HTMLImageElement | null>>()
+const qrAssetCache = new Map<string, Promise<HTMLImageElement | null>>()
 const defaultPrinters: Record<ThermalPrinterRole, ThermalPrinterSettings> = {
   cashier: {
     role: 'cashier',
@@ -313,10 +316,13 @@ async function checkNetworkPrintEndpoint(printer: ThermalPrinterSettings) {
   }
 }
 
-function qrUrl(value?: string) {
+function qrValue(value?: string) {
   const trimmed = (value || '').trim()
-  if (!trimmed) return ''
-  return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=8&data=${encodeURIComponent(trimmed)}`
+  return trimmed
+}
+
+function isLocalAsset(url: string) {
+  return /^data:|^blob:/i.test(url) || url.startsWith('/') || (typeof window !== 'undefined' && url.startsWith(window.location.origin))
 }
 
 async function loadImage(url?: string) {
@@ -332,13 +338,30 @@ async function loadImage(url?: string) {
       if (!value) printAssetCache.delete(url)
       resolve(value)
     }
-    const timeout = window.setTimeout(() => finish(null), PRINT_ASSET_TIMEOUT_MS)
+    const timeout = window.setTimeout(() => finish(null), isLocalAsset(url) ? PRINT_LOCAL_ASSET_TIMEOUT_MS : PRINT_EXTERNAL_ASSET_TIMEOUT_MS)
     image.crossOrigin = 'anonymous'
     image.onload = () => finish(image)
     image.onerror = () => finish(null)
     image.src = url
   })
   printAssetCache.set(url, task)
+  return task
+}
+
+async function loadQrImage(value?: string) {
+  const trimmed = qrValue(value)
+  if (!trimmed) return null
+  if (qrAssetCache.has(trimmed)) return qrAssetCache.get(trimmed) || null
+  const task = QRCode.toDataURL(trimmed, {
+    errorCorrectionLevel: 'M',
+    margin: 1,
+    scale: 6,
+    color: {
+      dark: '#000000',
+      light: '#ffffff',
+    },
+  }).then((dataUrl) => loadImage(dataUrl)).catch(() => null)
+  qrAssetCache.set(trimmed, task)
   return task
 }
 
@@ -386,6 +409,13 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
   const right = width - padding
   const textX = isArabic ? right : left
   const center = width / 2
+  const logoPromise = loadImage(job.kind === 'cashier' ? job.payload.logoUrl : undefined)
+  const qrImagesPromise = job.kind === 'cashier'
+    ? Promise.all([
+      loadQrImage(job.payload.invoiceQrUrl),
+      loadQrImage(job.payload.invoiceQrUrl2),
+    ]).then((images) => images.filter(Boolean) as HTMLImageElement[])
+    : Promise.resolve([] as HTMLImageElement[])
 
   const setFont = (size: number, weight = 700) => {
     context.font = `${weight} ${Math.round(size * scale)}px Arial, Tahoma, sans-serif`
@@ -423,7 +453,7 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
     y += strong ? lineHeight + 4 : lineHeight
   }
 
-  const logo = await loadImage(job.kind === 'cashier' ? job.payload.logoUrl : undefined)
+  const logo = await logoPromise
   if (logo) {
     const logoSize = width === 384 ? 86 : 108
     context.drawImage(logo, center - logoSize / 2, y, logoSize, logoSize)
@@ -478,12 +508,17 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
     twoCol(job.payload.summaryLabels?.tax || (isArabic ? 'الضريبة' : 'Tax'), money(job.payload.tax, job.payload.currency || ''), false)
     twoCol(job.payload.summaryLabels?.discount || (isArabic ? 'الخصم' : 'Discount'), `-${money(job.payload.discountAmount, job.payload.currency || '')}`, false)
     twoCol(job.payload.summaryLabels?.total || (isArabic ? 'الإجمالي' : 'Total'), money(job.payload.total, job.payload.currency || ''), true)
-    const qrImages = (await Promise.all([
-      loadImage(qrUrl(job.payload.invoiceQrUrl)),
-      loadImage(qrUrl(job.payload.invoiceQrUrl2)),
-    ])).filter(Boolean) as HTMLImageElement[]
+    if (job.payload.invoiceMessage) {
+      divider()
+      drawText(job.payload.invoiceMessage, { size: 18, weight: 700, align: 'center' })
+    }
+    divider()
+    drawText('Powered by markode.co', { size: 15, weight: 800, align: 'center', gap: 0 })
+    drawText('+0201090886364', { size: 15, weight: 800, align: 'center', gap: 2 })
+
+    const qrImages = await qrImagesPromise
     if (qrImages.length) {
-      y += 10
+      y += 8
       const qrSize = qrImages.length > 1 ? (width === 384 ? 104 : 122) : (width === 384 ? 128 : 138)
       const gap = width === 384 ? 14 : 24
       const totalWidth = qrImages.length * qrSize + (qrImages.length - 1) * gap
@@ -492,17 +527,10 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
         context.drawImage(qr, x, y, qrSize, qrSize)
         x += qrSize + gap
       }
-      y += qrSize + 8
+      y += qrSize
     }
-    if (job.payload.invoiceMessage) {
-      divider()
-      drawText(job.payload.invoiceMessage, { size: 18, weight: 700, align: 'center' })
-    }
-    drawText('https://markode.co', { size: 16, weight: 800, align: 'center', gap: 0 })
-    drawText('+0201090886364', { size: 16, weight: 800, align: 'center' })
   }
 
-  y += 8
   const finalCanvas = document.createElement('canvas')
   finalCanvas.width = width
   finalCanvas.height = y
@@ -539,10 +567,7 @@ function canvasToRasterEscPos(canvas: HTMLCanvasElement) {
     height & 0xff,
     (height >> 8) & 0xff,
   ])
-  const footer = new Uint8Array([
-    0x1b, 0x64, 0x01,
-    0x1d, 0x56, 0x00,
-  ])
+  const footer = new Uint8Array([])
   const output = new Uint8Array(header.length + raster.length + footer.length)
   output.set(header, 0)
   output.set(raster, header.length)
