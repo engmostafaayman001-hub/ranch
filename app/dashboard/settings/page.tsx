@@ -364,8 +364,8 @@ export default function DashboardSettingsPage() {
         <CardContent className="space-y-4">
           <div className="rounded-md border border-blue-200 bg-blue-50 p-4 text-sm leading-7 text-blue-900 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-100">
             {isArabic
-              ? 'فعّل الطابعة التي تستخدمها فقط. عند اختيار Bluetooth أو USB سيطلب المتصفح اختيار الجهاز وقت الاختبار أو أول طباعة، أما Network Bridge فيحتاج رابط الخدمة مثل http://IP:PORT/print.'
-              : 'Enable only the printers you use. Bluetooth and USB ask for a device during testing or the first print. Network Bridge needs a service URL like http://IP:PORT/print.'}
+              ? 'للطباعة المباشرة على XPrinter بدون نافذة شغّل npm run print-bridge ثم اختر Network Bridge واستخدم http://127.0.0.1:17878/print. Bluetooth وUSB يطلبان اختيار الجهاز من المتصفح.'
+              : 'For silent XPrinter printing, run npm run print-bridge, choose Network Bridge, and use http://127.0.0.1:17878/print. Bluetooth and USB use the browser device picker.'}
           </div>
           <div className="space-y-4">
             <PrinterCard
@@ -588,7 +588,7 @@ function PrinterCard({
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
           <Field id={`printer-${role}-retry`} label={isArabic ? 'عدد المحاولات' : 'Retry attempts'} value={String(printer.retryAttempts || 3)} type="number" onChange={(value) => onChange(role, { retryAttempts: Number(value) })} />
           <div className="rounded-md bg-slate-50 p-3 text-xs leading-6 text-slate-500 dark:bg-slate-900">
-            {isArabic ? 'لو كتبت IP فقط سيتم استخدام /print تلقائيا. مثال: 192.168.1.50 مع Port 9100.' : 'If you enter only an IP, /print is added automatically. Example: 192.168.1.50 with port 9100.'}
+            {isArabic ? 'لـ XPrinter المحلي استخدم http://127.0.0.1:17878/print بعد تشغيل npm run print-bridge. لو كتبت IP فقط سيتم استخدام /print تلقائيا.' : 'For local XPrinter, use http://127.0.0.1:17878/print after running npm run print-bridge. If you enter only an IP, /print is added automatically.'}
           </div>
         </div>
       )}

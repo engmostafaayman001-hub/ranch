@@ -441,8 +441,8 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
     ])).filter(Boolean) as HTMLImageElement[]
     if (qrImages.length) {
       y += 10
-      const qrSize = qrImages.length > 1 ? (width === 384 ? 116 : 138) : 138
-      const gap = width === 384 ? 16 : 26
+      const qrSize = qrImages.length > 1 ? (width === 384 ? 104 : 122) : (width === 384 ? 128 : 138)
+      const gap = width === 384 ? 14 : 24
       const totalWidth = qrImages.length * qrSize + (qrImages.length - 1) * gap
       let x = center - totalWidth / 2
       for (const qr of qrImages) {
@@ -455,7 +455,8 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
       divider()
       drawText(job.payload.invoiceMessage, { size: 18, weight: 700, align: 'center' })
     }
-    drawText('https://markode.co - +0201090886364', { size: 15, weight: 600, align: 'center' })
+    drawText('https://markode.co', { size: 16, weight: 800, align: 'center', gap: 0 })
+    drawText('+0201090886364', { size: 16, weight: 800, align: 'center' })
   }
 
   y += 32
@@ -486,7 +487,7 @@ function canvasToRasterEscPos(canvas: HTMLCanvasElement) {
         const offset = ((yStart + y) * width + x) * 4
         const alpha = data[offset + 3] / 255
         const luminance = (data[offset] * 0.299 + data[offset + 1] * 0.587 + data[offset + 2] * 0.114) * alpha + 255 * (1 - alpha)
-        if (luminance < 172) raster[y * bytesPerRow + (x >> 3)] |= 0x80 >> (x & 7)
+        if (luminance < 198) raster[y * bytesPerRow + (x >> 3)] |= 0x80 >> (x & 7)
       }
     }
     bands.push(new Uint8Array([0x1d, 0x76, 0x30, 0x00, bytesPerRow & 0xff, (bytesPerRow >> 8) & 0xff, currentHeight & 0xff, (currentHeight >> 8) & 0xff]))
@@ -778,6 +779,7 @@ export class PrinterManager {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         printer: printer.deviceName || printer.name,
+        paperWidth: printer.paperWidth || '80mm',
         format: 'escpos-raster',
         escposBase64: bytesToBase64(bytes),
         imageDataUrl: canvas.toDataURL('image/png'),
