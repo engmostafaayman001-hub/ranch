@@ -52,7 +52,7 @@ function normalizeSharedData(data: Partial<SharedAppData> | null | undefined): S
   const normalizePrinter = (role: PrinterRole) => {
     const incoming = (printers?.[role] || {}) as Partial<AppSettings['printers'][PrinterRole]>
     const rawMethod = incoming.method || incoming.connectionType
-    const method = rawMethod === 'bluetooth' || rawMethod === 'usb' || rawMethod === 'network'
+    const method = rawMethod === 'bluetooth' || rawMethod === 'usb' || rawMethod === 'network' || rawMethod === 'system'
       ? rawMethod
       : defaultPrinters[role].method
     return {
@@ -77,6 +77,30 @@ function normalizeSharedData(data: Partial<SharedAppData> | null | undefined): S
       } as Record<PrinterRole, AppSettings['printers'][PrinterRole]>,
     },
   }
+}
+
+function normalizeSharedPrinters(printers?: Partial<AppSettings['printers']>, current?: AppSettings['printers']) {
+  const normalizePrinter = (role: PrinterRole) => {
+    const incoming = (printers?.[role] || {}) as Partial<AppSettings['printers'][PrinterRole]>
+    const base = current?.[role] || defaultPrinters[role]
+    const rawMethod = incoming.method || incoming.connectionType || base.method || base.connectionType
+    const method = rawMethod === 'bluetooth' || rawMethod === 'usb' || rawMethod === 'network' || rawMethod === 'system'
+      ? rawMethod
+      : defaultPrinters[role].method
+    return {
+      ...base,
+      ...incoming,
+      method,
+      connectionType: method,
+      deviceName: incoming.deviceName || incoming.name || base.deviceName || base.name || defaultPrinters[role].deviceName,
+    }
+  }
+
+  return {
+    cashier: normalizePrinter('cashier'),
+    kitchen: normalizePrinter('kitchen'),
+    hall: normalizePrinter('hall'),
+  } as Record<PrinterRole, AppSettings['printers'][PrinterRole]>
 }
 
 function repairMojibake(value: unknown): unknown {
@@ -239,13 +263,7 @@ export async function updateSharedSettings(settings: Partial<AppSettings>) {
     settings: {
       ...current.settings,
       ...settings,
-      printers: printers
-        ? {
-            cashier: { ...current.settings.printers.cashier, ...(printers.cashier || {}) },
-            kitchen: { ...current.settings.printers.kitchen, ...(printers.kitchen || {}) },
-            hall: { ...current.settings.printers.hall, ...(printers.hall || {}) },
-          }
-        : current.settings.printers,
+      printers: printers ? normalizeSharedPrinters(printers, current.settings.printers) : current.settings.printers,
     },
   })
 }

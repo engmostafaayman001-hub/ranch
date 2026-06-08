@@ -490,7 +490,7 @@ function PrinterCard({
   const connectionOptions = [
     { value: 'bluetooth' as const, label: 'Bluetooth', hint: isArabic ? 'اختيار مباشر من المتصفح' : 'Browser device picker', icon: Bluetooth },
     { value: 'usb' as const, label: 'USB / OTG', hint: isArabic ? 'كابل أو محول OTG' : 'Cable or OTG adapter', icon: Usb },
-    { value: 'system' as const, label: isArabic ? 'Windows / XPrinter' : 'Windows / XPrinter', hint: isArabic ? '????? ????? ?? Windows' : 'Installed Windows printer', icon: PrinterCheck },
+    { value: 'system' as const, label: 'Windows / XPrinter', hint: 'Installed Windows printer', icon: PrinterCheck },
     { value: 'network' as const, label: isArabic ? 'Network Bridge' : 'Network Bridge', hint: isArabic ? 'خدمة http://IP:PORT/print' : 'http://IP:PORT/print service', icon: Wifi },
   ]
   const fontLabels: Record<string, string> = {
