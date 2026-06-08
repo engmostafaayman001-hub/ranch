@@ -28,6 +28,30 @@ body {
   overflow-x: hidden;
 }
 
+html,
+body {
+  width: 100%;
+  max-width: 100%;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+:where(main, section, article, aside, header, footer, nav, div, form) {
+  min-width: 0;
+}
+
+:where(p, span, h1, h2, h3, h4, h5, h6, a, label, td, th, li) {
+  overflow-wrap: anywhere;
+}
+
+:where(input, select, textarea, button) {
+  max-width: 100%;
+}
+
 img,
 video,
 canvas,

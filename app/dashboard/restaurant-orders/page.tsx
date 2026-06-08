@@ -112,7 +112,7 @@ export default function DashboardRestaurantOrdersPage() {
     }
   }
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 max-w-full space-y-6 overflow-x-hidden">
       <div>
         <h2 className="text-3xl font-bold">{isArabic ? 'إدارة طلبات المطعم' : 'Restaurant Orders Management'}</h2>
         <p className="mt-2 text-slate-500 dark:text-slate-400">{isArabic ? 'طلبات تم إنشاؤها من نقطة بيع المطعم.' : 'Orders created from the restaurant POS.'}</p>
@@ -126,12 +126,12 @@ export default function DashboardRestaurantOrdersPage() {
           ) : orders.length === 0 ? (
             <p className="py-8 text-center text-slate-500">{isArabic ? 'لا توجد طلبات مطعم بعد.' : 'No restaurant orders yet.'}</p>
           ) : (
-            <div className="space-y-3">
+            <div className="min-w-0 space-y-3">
               {orders.map((order) => (
-                <div key={order.id} className="rounded-md border p-4 dark:border-slate-800">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="font-semibold">{order.id}</p>
+                <div key={order.id} className="min-w-0 max-w-full overflow-hidden rounded-md border p-4 dark:border-slate-800">
+                  <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="break-all font-semibold">{order.id}</p>
                       <p className="text-sm text-slate-500">{order.customer} - {order.phone || '-'}</p>
                       <p className="text-sm text-slate-500">{order.address}</p>
                       {order.notes && (
@@ -140,12 +140,12 @@ export default function DashboardRestaurantOrdersPage() {
                         </p>
                       )}
                     </div>
-                    <div className="text-end">
+                    <div className="shrink-0 text-end">
                       <p className="font-bold">{Number(order.total || 0).toFixed(2)} {currency}</p>
                       <Badge className="bg-slate-700">{label(order.status)}</Badge>
                     </div>
                   </div>
-                  <div className="mt-4 flex flex-wrap gap-2">
+                  <div className="mt-4 flex min-w-0 flex-wrap gap-2">
                     <Button size="sm" variant="outline" className="gap-2" disabled={!isPrinterAvailable('cashier')} title={!isPrinterAvailable('cashier') ? (isArabic ? 'فعّل طابعة الكاشير من الإعدادات' : 'Enable cashier printer in settings') : undefined} onClick={() => printOrder(order, 'cashier')}>
                       <Printer className="h-4 w-4" />
                       {isArabic ? 'فاتورة الكاشير' : 'Cashier'}

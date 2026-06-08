@@ -28,21 +28,21 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const isArabic = language === 'ar'
 
   return (
-    <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950">
+    <div className="flex min-h-screen w-full overflow-x-hidden bg-slate-50 dark:bg-slate-950">
       <DashboardPrintWatcher />
       {sidebarOpen && <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />}
       <DashboardAside isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-      <main className="min-w-0 flex-1">
-        <div className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 px-4 py-4 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95 sm:px-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
+      <main className="min-w-0 max-w-full flex-1 overflow-x-hidden">
+        <div className="sticky top-0 z-30 max-w-full border-b border-slate-200 bg-white/95 px-4 py-4 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95 sm:px-6">
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
               <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)} title={isArabic ? 'فتح قائمة لوحة التحكم' : 'Open dashboard menu'}>
                 <Menu className="h-5 w-5" aria-hidden="true" />
               </Button>
-              <h1 className="text-2xl font-bold">{t('dashboard')}</h1>
+              <h1 className="min-w-0 text-2xl font-bold">{t('dashboard')}</h1>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex min-w-0 flex-wrap gap-2">
               <Link href={ROUTES.TRACK_ORDER}>
                 <Button variant="outline" className="gap-2">
                   <ReceiptText className="h-4 w-4" />
@@ -58,7 +58,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </div>
-        <div className="p-4 sm:p-6">{children}</div>
+        <div className="min-w-0 max-w-full overflow-x-hidden p-4 sm:p-6">{children}</div>
       </main>
     </div>
   )

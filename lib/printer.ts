@@ -509,7 +509,12 @@ function canvasToRasterEscPos(canvas: HTMLCanvasElement) {
     bands.push(raster)
   }
 
-  bands.push(new Uint8Array([0x0a, 0x0a, 0x0a, 0x1d, 0x56, 0x42, 0x00]))
+  bands.push(new Uint8Array([
+    0x0a,
+    0x0a,
+    0x1b, 0x64, 0x04,
+    0x1d, 0x56, 0x00,
+  ]))
   const output = new Uint8Array(bands.reduce((total, band) => total + band.length, 0))
   let outputOffset = 0
   for (const band of bands) {

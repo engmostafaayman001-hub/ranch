@@ -253,7 +253,7 @@ export default function DashboardOrdersPage() {
   const appOrders = useMemo(() => orders, [orders])
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 max-w-full space-y-6 overflow-x-hidden">
       <ReceiptPreviewDialog receipt={receiptPreview} onClose={() => setReceiptPreview(null)} isArabic={isArabic} />
       {!isDeliveryUser && (
         <div className="flex justify-end">
@@ -261,7 +261,7 @@ export default function DashboardOrdersPage() {
             type="button"
             disabled={savingRestaurantStatus}
             onClick={toggleRestaurantStatus}
-            className={`flex min-h-16 w-full items-center justify-between gap-4 rounded-lg border px-4 py-3 text-start shadow-sm transition disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto sm:min-w-72 ${
+          className={`flex min-h-16 w-full min-w-0 max-w-full items-center justify-between gap-4 rounded-lg border px-4 py-3 text-start shadow-sm transition disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto sm:min-w-72 ${
               restaurantOpen
                 ? 'border-green-200 bg-green-50 text-green-900 hover:bg-green-100 dark:border-green-900 dark:bg-green-950/40 dark:text-green-100'
                 : 'border-red-200 bg-red-50 text-red-900 hover:bg-red-100 dark:border-red-900 dark:bg-red-950/40 dark:text-red-100'
@@ -293,12 +293,12 @@ export default function DashboardOrdersPage() {
           ) : appOrders.length === 0 ? (
             <p className="py-8 text-center text-slate-500">{isArabic ? 'لا توجد طلبات بعد.' : 'No orders yet.'}</p>
           ) : (
-            <div className="space-y-3">
+            <div className="min-w-0 space-y-3">
               {appOrders.map((order) => (
-                <div key={order.id} className="rounded-md border p-4 dark:border-slate-800">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="font-semibold">{order.id}</p>
+                <div key={order.id} className="min-w-0 max-w-full overflow-hidden rounded-md border p-4 dark:border-slate-800">
+                  <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="break-all font-semibold">{order.id}</p>
                       <p className="text-sm text-slate-500">{order.customer} - {order.phone || '-'}</p>
                       <p className="text-sm text-slate-500">{order.address}</p>
                       {order.notes && (
@@ -307,12 +307,12 @@ export default function DashboardOrdersPage() {
                         </p>
                       )}
                     </div>
-                    <div className="text-right">
+                    <div className="shrink-0 text-right">
                       <p className="font-bold">{Number(order.total || 0).toFixed(2)} {currency}</p>
                       <Badge className="bg-slate-700">{label(order.status)}</Badge>
                     </div>
                   </div>
-                  <div className="mt-4 flex flex-wrap gap-2">
+                  <div className="mt-4 flex min-w-0 flex-wrap gap-2">
                     {!isDeliveryUser && <Button size="sm" variant="outline" className="gap-2" disabled={!isPrinterAvailable('cashier')} title={!isPrinterAvailable('cashier') ? (isArabic ? 'فعّل طابعة الكاشير من الإعدادات' : 'Enable cashier printer in settings') : undefined} onClick={() => printOrder(order, 'cashier')}>
                       <Printer className="h-4 w-4" />
                       {isArabic ? 'فاتورة الكاشير' : 'Cashier'}
@@ -332,8 +332,8 @@ export default function DashboardOrdersPage() {
                     ))}
                     {!isDeliveryUser && <Button size="sm" variant="destructive" onClick={() => deleteOrder(order.id)}>{isArabic ? 'حذف الطلب' : 'Delete Order'}</Button>}
                   </div>
-                  <div className="mt-4 grid gap-3 rounded-md border bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/40 md:grid-cols-[1fr_auto]">
-                    <div className="space-y-1">
+                  <div className="mt-4 grid min-w-0 gap-3 overflow-hidden rounded-md border bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/40 md:grid-cols-[minmax(0,1fr)_auto]">
+                    <div className="min-w-0 space-y-1">
                       <p className="flex items-center gap-2 text-sm font-semibold">
                         <CreditCard className="h-4 w-4 text-slate-500" />
                         {isArabic ? 'الدفع والإيصال' : 'Payment and Receipt'}
@@ -342,9 +342,9 @@ export default function DashboardOrdersPage() {
                         {paymentMethodLabel(order.payment?.method)} - {paymentStatusLabel(order.payment?.status)}
                       </p>
                       {order.payment?.receiptName && (
-                        <p className="flex items-center gap-2 text-xs text-slate-500">
+                        <p className="flex min-w-0 items-center gap-2 text-xs text-slate-500">
                           <ReceiptText className="h-3.5 w-3.5" />
-                          {order.payment.receiptName}
+                          <span className="min-w-0 truncate">{order.payment.receiptName}</span>
                         </p>
                       )}
                     </div>
@@ -360,7 +360,7 @@ export default function DashboardOrdersPage() {
                       </span>
                     )}
                   </div>
-                  <div className="mt-4 rounded-md border bg-white p-3 text-sm dark:border-slate-800 dark:bg-slate-950">
+                  <div className="mt-4 min-w-0 overflow-hidden rounded-md border bg-white p-3 text-sm dark:border-slate-800 dark:bg-slate-950">
                     <p className="font-semibold">{isArabic ? 'بيانات السائق المكلف' : 'Assigned driver'}</p>
                     {order.driver?.name && order.driver.name !== 'Pending assignment' ? (
                       <p className="mt-1 text-slate-600 dark:text-slate-300">
@@ -370,7 +370,7 @@ export default function DashboardOrdersPage() {
                       <p className="mt-1 text-slate-500">{isArabic ? 'لم يتم تعيين سائق لهذا الطلب بعد.' : 'No driver has been assigned to this order yet.'}</p>
                     )}
                   </div>
-                  {!isDeliveryUser && <div className="mt-4 grid gap-2 border-t pt-4 dark:border-slate-800 md:grid-cols-[1fr_auto]">
+                  {!isDeliveryUser && <div className="mt-4 grid min-w-0 gap-2 border-t pt-4 dark:border-slate-800 md:grid-cols-[minmax(0,1fr)_auto]">
                     <select
                       value={driverSelections[order.id] || ''}
                       onChange={(event) => setDriverSelections((current) => ({ ...current, [order.id]: event.target.value }))}

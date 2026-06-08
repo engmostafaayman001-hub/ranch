@@ -16,6 +16,7 @@ import { useAppStore } from '@/lib/app-store'
 import { PaymentStatus, TrackingStatus } from '@/lib/order-tracking'
 import { useAuthStore } from '@/lib/store'
 import { useSharedAppData } from '@/lib/use-shared-app-data'
+import { imageFileToOptimizedDataUrl } from '@/lib/client-images'
 
 export default function CheckoutPage() {
   useSharedAppData()
@@ -90,7 +91,7 @@ export default function CheckoutPage() {
     if (!PAYMENT_METHOD_OPTIONS.find((option) => option.value === value)?.requiresReceipt) setReceipt(null)
   }
 
-  const handleReceiptUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleReceiptUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
     if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
@@ -99,6 +100,19 @@ export default function CheckoutPage() {
     }
     if (file.size > 2 * 1024 * 1024) {
       setError(isArabic ? 'حجم الإيصال يجب أن يكون أقل من 2 MB.' : 'Receipt must be less than 2 MB.')
+      return
+    }
+
+    if (file.type.startsWith('image/')) {
+      try {
+        const dataUrl = await imageFileToOptimizedDataUrl(file, { maxSize: 1400, quality: 0.86 })
+        setReceipt({ name: file.name, dataUrl, type: file.type, size: Math.round(dataUrl.length * 0.75) })
+        setError(null)
+      } catch {
+        setReceipt(null)
+        setError(isArabic ? 'تعذر تجهيز صورة الإيصال.' : 'Could not prepare the receipt image.')
+      }
+      event.target.value = ''
       return
     }
 
@@ -112,6 +126,7 @@ export default function CheckoutPage() {
       }
       setReceipt({ name: file.name, dataUrl, type: file.type, size: file.size })
       setError(null)
+      event.target.value = ''
     }
     reader.onerror = () => setError(isArabic ? 'تعذر رفع الإيصال.' : 'Could not upload receipt.')
     reader.readAsDataURL(file)
@@ -273,7 +288,7 @@ export default function CheckoutPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 dark:bg-slate-950">
+    <main className="min-h-screen overflow-x-hidden bg-slate-50 dark:bg-slate-950">
       <nav className="sticky top-0 z-50 w-full border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
@@ -307,8 +322,8 @@ export default function CheckoutPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-5 lg:grid-cols-[1fr_20rem]">
-            <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
+            <form onSubmit={handleSubmit} className="min-w-0 space-y-5">
               {error && <div className="rounded border border-red-300 bg-red-50 px-4 py-3 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">{error}</div>}
 
               <Card>
@@ -388,7 +403,7 @@ export default function CheckoutPage() {
                         <input id="receipt" type="file" accept="image/*,.pdf" onChange={handleReceiptUpload} required className="sr-only" />
                         <label
                           htmlFor="receipt"
-                          className="flex min-h-32 cursor-pointer flex-col items-center justify-center gap-3 rounded-md border border-dashed border-slate-300 bg-white p-4 text-center transition hover:border-red-400 hover:bg-red-50 dark:border-slate-700 dark:bg-slate-950 dark:hover:border-red-500 dark:hover:bg-red-950/20"
+                          className="flex min-h-32 w-full max-w-full cursor-pointer flex-col items-center justify-center gap-3 overflow-hidden rounded-md border border-dashed border-slate-300 bg-white p-4 text-center transition hover:border-red-400 hover:bg-red-50 dark:border-slate-700 dark:bg-slate-950 dark:hover:border-red-500 dark:hover:bg-red-950/20"
                         >
                           <span className="flex h-11 w-11 items-center justify-center rounded-full bg-red-50 text-red-600 dark:bg-red-950">
                             <UploadCloud className="h-5 w-5" />
@@ -397,18 +412,18 @@ export default function CheckoutPage() {
                           <span className="text-xs text-slate-500">PNG, JPG, WEBP, PDF - 2 MB</span>
                         </label>
                         {receipt && (
-                          <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-800 dark:border-green-900 dark:bg-green-950 dark:text-green-200">
-                            <div className="flex min-w-0 items-center gap-3">
+                          <div className="flex w-full min-w-0 max-w-full flex-wrap items-center justify-between gap-3 overflow-hidden rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-800 dark:border-green-900 dark:bg-green-950 dark:text-green-200">
+                            <div className="flex min-w-0 flex-1 items-center gap-3">
                               {receipt.type === 'application/pdf' ? <FileText className="h-5 w-5 shrink-0" /> : <ImageIcon className="h-5 w-5 shrink-0" />}
                               <div className="min-w-0">
-                                <p className="flex items-center gap-2 font-semibold">
+                                <p className="flex min-w-0 max-w-full items-center gap-2 font-semibold">
                                   <CheckCircle2 className="h-4 w-4 shrink-0" />
-                                  <span className="truncate">{receipt.name}</span>
+                                  <span className="block min-w-0 max-w-full truncate">{receipt.name}</span>
                                 </p>
                                 <p className="text-xs text-green-700 dark:text-green-300">{receiptSizeLabel}</p>
                               </div>
                             </div>
-                            <Button type="button" size="sm" variant="outline" className="gap-2" onClick={clearReceipt}>
+                            <Button type="button" size="sm" variant="outline" className="shrink-0 gap-2" onClick={clearReceipt}>
                               <X className="h-4 w-4" />
                               {isArabic ? 'إزالة' : 'Remove'}
                             </Button>
