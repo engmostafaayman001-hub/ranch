@@ -472,26 +472,36 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
 
 function canvasToRasterEscPos(canvas: HTMLCanvasElement) {
   const context = canvas.getContext('2d')
-  if (!context) throw new Error('تعذر قراءة صورة الطباعة.')
+  if (!context) throw new Error('Could not read the print image.')
   const { data, width, height } = context.getImageData(0, 0, canvas.width, canvas.height)
   const bytesPerRow = Math.ceil(width / 8)
-  const raster = new Uint8Array(bytesPerRow * height)
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const offset = (y * width + x) * 4
-      const luminance = data[offset] * 0.299 + data[offset + 1] * 0.587 + data[offset + 2] * 0.114
-      if (luminance < 180) raster[y * bytesPerRow + (x >> 3)] |= 0x80 >> (x & 7)
+  const bands: Uint8Array[] = [new Uint8Array([0x1b, 0x40])]
+  const bandHeight = 128
+
+  for (let yStart = 0; yStart < height; yStart += bandHeight) {
+    const currentHeight = Math.min(bandHeight, height - yStart)
+    const raster = new Uint8Array(bytesPerRow * currentHeight)
+    for (let y = 0; y < currentHeight; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const offset = ((yStart + y) * width + x) * 4
+        const alpha = data[offset + 3] / 255
+        const luminance = (data[offset] * 0.299 + data[offset + 1] * 0.587 + data[offset + 2] * 0.114) * alpha + 255 * (1 - alpha)
+        if (luminance < 172) raster[y * bytesPerRow + (x >> 3)] |= 0x80 >> (x & 7)
+      }
     }
+    bands.push(new Uint8Array([0x1d, 0x76, 0x30, 0x00, bytesPerRow & 0xff, (bytesPerRow >> 8) & 0xff, currentHeight & 0xff, (currentHeight >> 8) & 0xff]))
+    bands.push(raster)
   }
-  const header = new Uint8Array([0x1b, 0x40, 0x1d, 0x76, 0x30, 0x00, bytesPerRow & 0xff, (bytesPerRow >> 8) & 0xff, height & 0xff, (height >> 8) & 0xff])
-  const feedAndCut = new Uint8Array([0x0a, 0x0a, 0x0a, 0x1d, 0x56, 0x42, 0x00])
-  const output = new Uint8Array(header.length + raster.length + feedAndCut.length)
-  output.set(header, 0)
-  output.set(raster, header.length)
-  output.set(feedAndCut, header.length + raster.length)
+
+  bands.push(new Uint8Array([0x0a, 0x0a, 0x0a, 0x1d, 0x56, 0x42, 0x00]))
+  const output = new Uint8Array(bands.reduce((total, band) => total + band.length, 0))
+  let outputOffset = 0
+  for (const band of bands) {
+    output.set(band, outputOffset)
+    outputOffset += band.length
+  }
   return output
 }
-
 function bytesToBase64(bytes: Uint8Array) {
   let binary = ''
   const chunk = 0x8000
@@ -505,6 +515,10 @@ function toArrayBuffer(bytes: Uint8Array) {
   const copy = new Uint8Array(bytes.length)
   copy.set(bytes)
   return copy.buffer
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
 export function trackedOrderToReceiptPayload(order: TrackedOrder, options: Partial<ReceiptPayload> = {}): ReceiptPayload {
@@ -803,7 +817,11 @@ export class PrinterManager {
       this.usbClaimedInterfaces[role] = endpoint.interfaceNumber
     }
 
-    await device.transferOut(endpoint.endpointNumber, toArrayBuffer(bytes))
+    const chunkSize = 4096
+    for (let index = 0; index < bytes.length; index += chunkSize) {
+      await device.transferOut(endpoint.endpointNumber, toArrayBuffer(bytes.slice(index, index + chunkSize)))
+      if (index + chunkSize < bytes.length) await wait(8)
+    }
     this.usbDevices[role] = device
     printer.deviceId = device.serialNumber || printer.deviceId || ''
     printer.deviceName = device.productName || printer.deviceName
