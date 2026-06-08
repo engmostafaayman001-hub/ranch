@@ -290,15 +290,19 @@ function normalizeNetworkPrintEndpoint(printer: ThermalPrinterSettings) {
 async function checkNetworkPrintEndpoint(printer: ThermalPrinterSettings) {
   const endpoint = normalizeNetworkPrintEndpoint(printer)
   if (!endpoint) throw new Error('Enter the printer IP or Network Bridge URL.')
+  const healthEndpoint = new URL(endpoint)
+  healthEndpoint.pathname = '/health'
+  healthEndpoint.search = ''
+  healthEndpoint.hash = ''
   const controller = new AbortController()
   const timeout = window.setTimeout(() => controller.abort(), 3500)
   try {
-    const response = await fetch(endpoint, {
-      method: 'OPTIONS',
+    const response = await fetch(healthEndpoint.toString(), {
+      method: 'GET',
       cache: 'no-store',
       signal: controller.signal,
     })
-    if (response.status >= 500) throw new Error(`Network bridge responded with ${response.status}`)
+    if (!response.ok) throw new Error(`Network bridge responded with ${response.status}`)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error || '')
     throw new Error(`Could not reach Network Bridge at ${endpoint}. ${message}`)
@@ -746,7 +750,7 @@ export class PrinterManager {
     const canvas = await renderReceiptImage(job, printer)
     const bytes = canvasToRasterEscPos(canvas)
     const method = printer.method || printer.connectionType
-    if (method === 'network') return this.printNetwork(printer, bytes, canvas)
+    if (method === 'network') return this.printNetwork(printer, bytes)
     if (method === 'system') return this.printSystem(printer, canvas)
     if (method === 'usb') return this.printUsb(job.role, printer, bytes, allowDevicePrompt)
     if (method === 'bluetooth') return this.printBluetooth(job.role, printer, bytes, allowDevicePrompt)
@@ -819,21 +823,35 @@ export class PrinterManager {
     printWindow.print()
     window.setTimeout(() => iframe.remove(), 1000)
   }
-  private async printNetwork(printer: ThermalPrinterSettings, bytes: Uint8Array, canvas: HTMLCanvasElement) {
+  private async printNetwork(printer: ThermalPrinterSettings, bytes: Uint8Array) {
     const endpoint = normalizeNetworkPrintEndpoint(printer)
     if (!endpoint) throw new Error('Enter the printer IP or Network Bridge URL.')
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        printer: printer.deviceName || printer.name,
-        paperWidth: printer.paperWidth || '80mm',
-        format: 'escpos-raster',
-        escposBase64: bytesToBase64(bytes),
-        imageDataUrl: canvas.toDataURL('image/png'),
-      }),
-    })
-    if (!response.ok) throw new Error(`Network print bridge failed: ${response.status} at ${endpoint}`)
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), 45000)
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          printer: printer.deviceName || printer.name,
+          paperWidth: printer.paperWidth || '80mm',
+          format: 'escpos-raster',
+          escposBase64: bytesToBase64(bytes),
+        }),
+      })
+      if (!response.ok) {
+        const detail = await response.json().catch(() => null) as { error?: string } | null
+        throw new Error(`Network print bridge failed: ${response.status} at ${endpoint}${detail?.error ? `. ${detail.error}` : ''}`)
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error(`Network print bridge timed out at ${endpoint}`)
+      }
+      throw error
+    } finally {
+      window.clearTimeout(timeout)
+    }
   }
   private async printUsb(role: ThermalPrinterRole, printer: ThermalPrinterSettings, bytes: Uint8Array, allowDevicePrompt = false) {
     if (!navigator.usb) throw new Error('هذا المتصفح لا يدعم WebUSB.')

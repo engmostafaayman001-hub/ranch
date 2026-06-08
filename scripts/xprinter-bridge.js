@@ -7,11 +7,12 @@ const { spawn } = require('child_process')
 
 const port = Number(process.env.XPRINTER_BRIDGE_PORT || 17878)
 const defaultPrinter = process.env.XPRINTER_NAME || ''
+let printQueue = Promise.resolve()
 
 function send(res, status, body) {
   res.writeHead(status, {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Allow-Private-Network': 'true',
     'Access-Control-Max-Age': '86400',
@@ -23,11 +24,18 @@ function send(res, status, body) {
 function readJson(req) {
   return new Promise((resolve, reject) => {
     let raw = ''
+    let rejected = false
     req.on('data', (chunk) => {
+      if (rejected) return
       raw += chunk
-      if (raw.length > 12 * 1024 * 1024) reject(new Error('Payload is too large'))
+      if (raw.length > 12 * 1024 * 1024) {
+        rejected = true
+        reject(new Error('Payload is too large'))
+        req.destroy()
+      }
     })
     req.on('end', () => {
+      if (rejected) return
       try {
         resolve(raw ? JSON.parse(raw) : {})
       } catch (error) {
@@ -36,6 +44,12 @@ function readJson(req) {
     })
     req.on('error', reject)
   })
+}
+
+function enqueuePrint(task) {
+  const next = printQueue.then(task, task)
+  printQueue = next.catch(() => undefined)
+  return next
 }
 
 function runPowerShell(script) {
@@ -186,20 +200,33 @@ $image.Dispose()
 }
 
 const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url || '/', `http://127.0.0.1:${port}`)
   if (req.method === 'OPTIONS') {
     send(res, 204, { ok: true })
     return
   }
 
-  if (req.method !== 'POST' || req.url !== '/print') {
+  if (req.method === 'GET' && (url.pathname === '/health' || url.pathname === '/print')) {
+    send(res, 200, {
+      ok: true,
+      ready: true,
+      queue: 'serial',
+      printer: String(defaultPrinter || '').trim() || 'Windows default printer',
+    })
+    return
+  }
+
+  if (req.method !== 'POST' || url.pathname !== '/print') {
     send(res, 404, { ok: false, error: 'Not found' })
     return
   }
 
   try {
     const body = await readJson(req)
-    if (body.escposBase64) await printRawEscPos(body)
-    else await printImage(body)
+    await enqueuePrint(async () => {
+      if (body.escposBase64) await printRawEscPos(body)
+      else await printImage(body)
+    })
     send(res, 200, { ok: true })
   } catch (error) {
     send(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })
