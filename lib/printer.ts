@@ -258,23 +258,33 @@ function usbAccessDeniedError(error: unknown) {
 function normalizeNetworkPrintEndpoint(printer: ThermalPrinterSettings) {
   const rawAddress = (printer.ip || printer.deviceAddress || '').trim()
   if (!rawAddress) return ''
+  const configuredPort = String(printer.port || '').trim()
 
   if (/^https?:\/\//i.test(rawAddress)) {
     try {
       const url = new URL(rawAddress)
-      const port = String(printer.port || '').trim()
-      if (!url.port && port) url.port = port
+      if (!url.port && configuredPort) url.port = configuredPort
       if (!url.pathname || url.pathname === '/') url.pathname = '/print'
       return url.toString()
     } catch {
-      const port = String(printer.port || '').trim()
       const withPath = rawAddress.endsWith('/print') ? rawAddress : `${rawAddress.replace(/\/+$/, '')}/print`
-      return port && !/:\d+(?:\/|$)/.test(rawAddress.replace(/^https?:\/\//i, '')) ? withPath.replace(/^https?:\/\/([^/]+)/i, (match) => `${match}:${port}`) : withPath
+      return configuredPort && !/:\d+(?:\/|$)/.test(rawAddress.replace(/^https?:\/\//i, '')) ? withPath.replace(/^https?:\/\/([^/]+)/i, (match) => `${match}:${configuredPort}`) : withPath
     }
   }
 
-  const port = String(printer.port || '').trim()
-  return `http://${rawAddress}${port ? `:${port}` : ''}/print`
+  const addressWithProtocol = `http://${rawAddress}`
+  try {
+    const url = new URL(addressWithProtocol)
+    if (!url.port && configuredPort) url.port = configuredPort
+    if (!url.pathname || url.pathname === '/') url.pathname = '/print'
+    return url.toString()
+  } catch {
+    const hasPort = /:\d+(?:\/|$)/.test(rawAddress)
+    const [host = '', ...pathParts] = rawAddress.split('/')
+    const path = pathParts.join('/').replace(/^\/+|\/+$/g, '')
+    const finalPath = path || 'print'
+    return `http://${host}${configuredPort && !hasPort ? `:${configuredPort}` : ''}/${finalPath}`
+  }
 }
 
 async function checkNetworkPrintEndpoint(printer: ThermalPrinterSettings) {

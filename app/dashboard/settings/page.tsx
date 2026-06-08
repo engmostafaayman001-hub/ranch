@@ -1,6 +1,6 @@
 'use client'
 
-import { ChangeEvent, useState } from 'react'
+import { ChangeEvent, useEffect, useRef, useState } from 'react'
 import { AlertCircle, Bluetooth, CheckCircle2, ClipboardCheck, PrinterCheck, QrCode, ReceiptText, Usb, Utensils, Wifi } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -22,7 +22,17 @@ export default function DashboardSettingsPage() {
   const [offerImageStatus, setOfferImageStatus] = useState('')
   const [printerStatus, setPrinterStatus] = useState<Partial<Record<PrinterRole, string>>>({})
   const [activeSection, setActiveSection] = useState<'general' | 'orders' | 'payments' | 'invoice' | 'printers'>('general')
+  const printerSaveTimers = useRef<Partial<Record<PrinterRole, number>>>({})
   const isArabic = language === 'ar'
+
+  useEffect(() => {
+    const timers = printerSaveTimers.current
+    return () => {
+      Object.values(timers).forEach((timer) => {
+        if (timer) window.clearTimeout(timer)
+      })
+    }
+  }, [])
 
   const text = {
     title: isArabic ? 'الإعدادات' : 'Settings',
@@ -120,6 +130,20 @@ export default function DashboardSettingsPage() {
       },
     })
     syncPrinterManagerSettings(printers)
+    if (printerSaveTimers.current[role]) window.clearTimeout(printerSaveTimers.current[role])
+    printerSaveTimers.current[role] = window.setTimeout(() => {
+      void saveSharedSettings(nextSettings).then((data) => {
+        if (data.settings) {
+          updateSettings(data.settings)
+          syncPrinterManagerSettings(data.settings.printers)
+        }
+      }).catch((error) => {
+        setPrinterStatus((current) => ({
+          ...current,
+          [role]: error instanceof Error ? error.message : (isArabic ? 'تعذر حفظ إعدادات الطابعة.' : 'Could not save printer settings.'),
+        }))
+      })
+    }, normalizedUpdates.method || normalizedUpdates.connectionType ? 0 : 700)
     if (normalizedUpdates.method || normalizedUpdates.connectionType) {
       void saveSharedSettings(nextSettings).catch((error) => {
         setPrinterStatus((current) => ({

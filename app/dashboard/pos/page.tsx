@@ -1,7 +1,7 @@
 'use client'
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { Banknote, CreditCard, Printer, Minus, Plus, Search, ShoppingCart, Smartphone, Trash2 } from 'lucide-react'
+import { ArrowLeft, Banknote, Bike, CreditCard, Printer, Minus, Plus, Search, ShoppingCart, Smartphone, Store, Trash2, Utensils } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -41,7 +41,7 @@ export default function DashboardPosPage() {
   const { language } = useLanguage()
   const isArabic = language === 'ar'
   const currency = isArabic ? CURRENCY : CURRENCY_EN
-  const { products, settings } = useAppStore()
+  const { categories, products, drivers, settings } = useAppStore()
   const [lines, setLines] = useState<PosLine[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(false)
@@ -52,6 +52,8 @@ export default function DashboardPosPage() {
   const [dailyExpenses, setDailyExpenses] = useState<Expense[]>([])
   const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHODS.CASH)
   const [orderType, setOrderType] = useState<PosOrderType>('dine_in')
+  const [selectedCategoryId, setSelectedCategoryId] = useState('')
+  const [selectedDriverId, setSelectedDriverId] = useState('')
   const loadingDailyClosing = useRef(false)
   const [customer, setCustomer] = useState({
     name: isArabic ? 'عميل مطعم' : 'Restaurant Customer',
@@ -71,16 +73,21 @@ export default function DashboardPosPage() {
   }
   const posPaymentLabels = { ...methodLabels, [PAYMENT_METHODS.CASH]: posPaymentLabel(PAYMENT_METHODS.CASH) }
   const orderTypeLabel = ORDER_TYPE_LABELS[orderType][isArabic ? 'ar' : 'en']
+  const selectedDriver = drivers.find((driver) => driver.id === selectedDriverId)
+  const activeDrivers = drivers.filter((driver) => driver.status === 'active')
+  const activeCategories = categories.filter((category) => category.active && products.some((product) => product.available && product.categoryId === category.id))
   const orderAddress = orderType === 'delivery' && customer.deliveryAddress.trim()
     ? `${orderTypeLabel} - ${customer.deliveryAddress.trim()}`
     : orderTypeLabel
 
   const filteredProducts = products.filter((product) => {
     if (!product.available) return false
+    if (selectedCategoryId && product.categoryId !== selectedCategoryId) return false
     const term = search.trim().toLowerCase()
     if (!term) return true
     return `${product.nameAr} ${product.nameEn}`.toLowerCase().includes(term)
   })
+  const selectedCategory = categories.find((category) => category.id === selectedCategoryId)
 
   const cartItems = useMemo(() => lines.map((line) => {
     const product = products.find((item) => item.id === line.productId)
@@ -139,6 +146,11 @@ export default function DashboardPosPage() {
       : current.map((line) => line.productId === productId ? { ...line, quantity } : line))
   }
 
+  const selectOrderType = (type: PosOrderType) => {
+    setOrderType(type)
+    if (type !== 'delivery') setSelectedDriverId('')
+  }
+
   const applyDiscount = async () => {
     setMessage('')
     setDiscountAmount(0)
@@ -173,6 +185,11 @@ export default function DashboardPosPage() {
       return
     }
 
+    if (orderType === 'delivery' && activeDrivers.length > 0 && !selectedDriverId) {
+      setMessage(isArabic ? 'اختر السائق المسؤول عن طلب الدليفري.' : 'Choose the driver responsible for this delivery order.')
+      return
+    }
+
     setLoading(true)
     setMessage('')
     try {
@@ -195,6 +212,9 @@ export default function DashboardPosPage() {
         body: JSON.stringify({
           source: 'restaurant_pos',
           customer: { name: customer.name, phone: customer.phone, address: orderAddress, notes: customer.notes },
+          driver: orderType === 'delivery' && selectedDriver
+            ? { name: selectedDriver.name, email: selectedDriver.email || '', phone: selectedDriver.phone, rating: 0 }
+            : undefined,
           phone: customer.phone,
           address: orderAddress,
           notes: customer.notes,
@@ -260,6 +280,7 @@ export default function DashboardPosPage() {
       setLines([])
       setDiscountCode('')
       setDiscountAmount(0)
+      setSelectedDriverId('')
       setCustomer((current) => ({ ...current, deliveryAddress: '', notes: '' }))
     } catch (error) {
       setMessage(error instanceof Error ? error.message : (isArabic ? 'تعذر إتمام البيع.' : 'Could not complete sale.'))
@@ -291,7 +312,48 @@ export default function DashboardPosPage() {
             <Search className="h-4 w-4 text-slate-500" />
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isArabic ? 'بحث في المنتجات' : 'Search products'} className="h-10 flex-1 bg-transparent text-sm outline-none" />
           </div>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-4">
+          {!selectedCategoryId && !search.trim() && (
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-4">
+              {activeCategories.map((category) => {
+                const count = products.filter((product) => product.available && product.categoryId === category.id).length
+                return (
+                  <button
+                    key={category.id}
+                    type="button"
+                    onClick={() => setSelectedCategoryId(category.id)}
+                    className="flex min-h-32 flex-col justify-between rounded-lg border bg-white p-4 text-start shadow-sm transition hover:border-red-300 hover:bg-red-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-red-950/20"
+                  >
+                    <span className="flex h-11 w-11 items-center justify-center rounded-md bg-red-50 text-red-600 dark:bg-red-950">
+                      <Utensils className="h-5 w-5" />
+                    </span>
+                    <span>
+                      <span className="block text-base font-bold">{isArabic ? category.nameAr : category.nameEn}</span>
+                      <span className="mt-1 block text-xs text-slate-500">{count} {isArabic ? 'منتج' : 'products'}</span>
+                    </span>
+                  </button>
+                )
+              })}
+              {activeCategories.length === 0 && (
+                <p className="col-span-full rounded-md border border-dashed p-6 text-center text-sm text-slate-500">
+                  {isArabic ? 'لا توجد أقسام بها منتجات متاحة.' : 'No categories with available products.'}
+                </p>
+              )}
+            </div>
+          )}
+          {(selectedCategoryId || search.trim()) && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-slate-50 p-2 dark:bg-slate-900">
+              <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => { setSelectedCategoryId(''); setSearch('') }}>
+                <ArrowLeft className="h-4 w-4" />
+                {isArabic ? 'رجوع للأقسام' : 'Back to categories'}
+              </Button>
+              <p className="text-sm font-semibold">
+                {search.trim()
+                  ? (isArabic ? 'نتائج البحث' : 'Search results')
+                  : selectedCategory ? (isArabic ? selectedCategory.nameAr : selectedCategory.nameEn) : ''}
+              </p>
+            </div>
+          )}
+          <div className={`${!selectedCategoryId && !search.trim() ? 'hidden' : 'grid'} grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-4`}>
             {filteredProducts.map((product) => {
               const name = isArabic ? product.nameAr : product.nameEn
               return (
@@ -309,6 +371,11 @@ export default function DashboardPosPage() {
                 </button>
               )
             })}
+            {filteredProducts.length === 0 && (
+              <p className="col-span-full rounded-md border border-dashed p-6 text-center text-sm text-slate-500">
+                {isArabic ? 'لا توجد منتجات مطابقة.' : 'No matching products.'}
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -324,11 +391,25 @@ export default function DashboardPosPage() {
 
             <div>
               <Label htmlFor="order-type">{isArabic ? 'نوع الطلب' : 'Order type'}</Label>
-              <select id="order-type" value={orderType} onChange={(event) => setOrderType(event.target.value as PosOrderType)} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950">
-                {(Object.keys(ORDER_TYPE_LABELS) as PosOrderType[]).map((type) => (
-                  <option key={type} value={type}>{ORDER_TYPE_LABELS[type][isArabic ? 'ar' : 'en']}</option>
-                ))}
-              </select>
+              <div id="order-type" className="mt-2 grid gap-2 sm:grid-cols-3">
+                {(Object.keys(ORDER_TYPE_LABELS) as PosOrderType[]).map((type) => {
+                  const selected = orderType === type
+                  const Icon = type === 'delivery' ? Bike : type === 'takeaway' ? Store : Utensils
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => selectOrderType(type)}
+                      className={`rounded-md border p-3 text-start transition ${selected ? 'border-red-500 bg-red-50 text-red-950 ring-1 ring-red-500 dark:bg-red-950/30 dark:text-red-100' : 'border-slate-200 bg-white hover:border-red-200 dark:border-slate-800 dark:bg-slate-950'}`}
+                    >
+                      <span className="flex items-center gap-2 text-sm font-bold">
+                        <Icon className="h-4 w-4 text-red-600" />
+                        {ORDER_TYPE_LABELS[type][isArabic ? 'ar' : 'en']}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
 
             {orderType === 'delivery' && (
@@ -345,6 +426,28 @@ export default function DashboardPosPage() {
                 className="mt-1 min-h-20 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-950 dark:border-slate-800 dark:bg-slate-950 dark:focus:ring-slate-300"
               />
             </div>
+
+            {orderType === 'delivery' && (
+              <div>
+                <Label htmlFor="delivery-driver">{isArabic ? 'السائق المسؤول' : 'Assigned driver'}</Label>
+                <select
+                  id="delivery-driver"
+                  value={selectedDriverId}
+                  onChange={(event) => setSelectedDriverId(event.target.value)}
+                  className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950"
+                >
+                  <option value="">{isArabic ? 'اختر السائق' : 'Choose driver'}</option>
+                  {activeDrivers.map((driver) => (
+                    <option key={driver.id} value={driver.id}>{driver.name} - {driver.phone || '-'}</option>
+                  ))}
+                </select>
+                {activeDrivers.length === 0 && (
+                  <p className="mt-1 text-xs text-amber-600 dark:text-amber-300">
+                    {isArabic ? 'لا يوجد سائقون نشطون حاليا.' : 'No active drivers are available.'}
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="space-y-2">
               {cartItems.length === 0 ? (
