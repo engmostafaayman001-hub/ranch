@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useLanguage } from '@/components/language-provider'
-import { PrinterConnection, PrinterRole, useAppStore } from '@/lib/app-store'
+import { PrinterConnection, PrinterMethod, PrinterRole, useAppStore } from '@/lib/app-store'
 import { imageFileToOptimizedDataUrl, isAcceptedImageFile } from '@/lib/client-images'
 import { printerManager, syncPrinterManagerSettings, type ThermalPrinterSettings } from '@/lib/printer'
 import { saveSharedSettings, useSharedAppData } from '@/lib/use-shared-app-data'
@@ -110,19 +110,31 @@ export default function DashboardSettingsPage() {
       ...settings.printers,
       [role]: { ...settings.printers[role], ...normalizedUpdates },
     }
+    const nextSettings = {
+      ...settings,
+      printers,
+    }
     updateSettings({
       printers: {
         ...printers,
       },
     })
     syncPrinterManagerSettings(printers)
+    if (normalizedUpdates.method || normalizedUpdates.connectionType) {
+      void saveSharedSettings(nextSettings).catch((error) => {
+        setPrinterStatus((current) => ({
+          ...current,
+          [role]: error instanceof Error ? error.message : (isArabic ? 'تعذر حفظ طريقة اتصال الطابعة.' : 'Could not save printer connection method.'),
+        }))
+      })
+    }
   }
 
-  const connectPrinter = async (role: PrinterRole) => {
-    const method = settings.printers[role].method || 'network'
+  const connectPrinter = async (role: PrinterRole, selectedMethod?: PrinterMethod) => {
+    const method = selectedMethod || settings.printers[role].method || settings.printers[role].connectionType || 'network'
     const printers = {
       ...settings.printers,
-      [role]: { ...settings.printers[role], method, connectionType: method },
+      [role]: { ...settings.printers[role], method, connectionType: method, isEnabled: true },
     }
     syncPrinterManagerSettings(printers)
     setPrinterStatus((current) => ({ ...current, [role]: isArabic ? 'جاري ربط الطابعة...' : 'Connecting printer...' }))
@@ -142,11 +154,11 @@ export default function DashboardSettingsPage() {
     }
   }
 
-  const testPrinter = async (role: PrinterRole, kind: 'connection' | 'arabic' | 'qr' | 'kitchen' | 'hall' = 'arabic') => {
-    const method = settings.printers[role].method || 'network'
+  const testPrinter = async (role: PrinterRole, kind: 'connection' | 'arabic' | 'qr' | 'kitchen' | 'hall' = 'arabic', selectedMethod?: PrinterMethod) => {
+    const method = selectedMethod || settings.printers[role].method || settings.printers[role].connectionType || 'network'
     const printers = {
       ...settings.printers,
-      [role]: { ...settings.printers[role], method, connectionType: method },
+      [role]: { ...settings.printers[role], method, connectionType: method, isEnabled: true },
     }
     syncPrinterManagerSettings(printers)
     setPrinterStatus((current) => ({ ...current, [role]: isArabic ? 'جاري اختبار الطابعة...' : 'Testing printer...' }))
@@ -453,8 +465,8 @@ function PrinterCard({
   isArabic: boolean
   statusMessage?: string
   onChange: (role: PrinterRole, updates: Partial<PrinterConnection>) => void
-  onConnect: (role: PrinterRole) => void
-  onTest: (role: PrinterRole, kind?: 'connection' | 'arabic' | 'qr' | 'kitchen' | 'hall') => void
+  onConnect: (role: PrinterRole, method?: PrinterMethod) => void
+  onTest: (role: PrinterRole, kind?: 'connection' | 'arabic' | 'qr' | 'kitchen' | 'hall', method?: PrinterMethod) => void
 }) {
   const method = printer.method || 'network'
   const enabled = printer.isEnabled === true
@@ -462,7 +474,7 @@ function PrinterCard({
   const savedDeviceName = (printer.deviceName || '').trim()
   const genericDeviceNames = new Set(['Cashier Printer', 'Kitchen Printer', 'Hall Printer', printer.name || ''])
   const deviceConnected = Boolean(printer.lastConnected && (printer.deviceId || printer.deviceAddress || (savedDeviceName && !genericDeviceNames.has(savedDeviceName))))
-  const ready = enabled && (method === 'network' ? networkReady : deviceConnected)
+  const ready = enabled && (method === 'network' ? networkReady : method === 'system' ? true : deviceConnected)
   const status = !enabled
     ? { label: isArabic ? 'غير مفعلة' : 'Disabled', className: 'bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300', icon: AlertCircle }
     : ready
@@ -478,6 +490,7 @@ function PrinterCard({
   const connectionOptions = [
     { value: 'bluetooth' as const, label: 'Bluetooth', hint: isArabic ? 'اختيار مباشر من المتصفح' : 'Browser device picker', icon: Bluetooth },
     { value: 'usb' as const, label: 'USB / OTG', hint: isArabic ? 'كابل أو محول OTG' : 'Cable or OTG adapter', icon: Usb },
+    { value: 'system' as const, label: isArabic ? 'Windows / XPrinter' : 'Windows / XPrinter', hint: isArabic ? '????? ????? ?? Windows' : 'Installed Windows printer', icon: PrinterCheck },
     { value: 'network' as const, label: isArabic ? 'Network Bridge' : 'Network Bridge', hint: isArabic ? 'خدمة http://IP:PORT/print' : 'http://IP:PORT/print service', icon: Wifi },
   ]
   const fontLabels: Record<string, string> = {
@@ -507,7 +520,7 @@ function PrinterCard({
         </label>
       </div>
 
-      <div className="mt-5 grid gap-3 md:grid-cols-3">
+      <div className="mt-5 grid gap-3 md:grid-cols-4">
         {connectionOptions.map((option) => {
           const Icon = option.icon
           const active = method === option.value
@@ -515,7 +528,7 @@ function PrinterCard({
             <button
               key={option.value}
               type="button"
-              onClick={() => onChange(role, { method: option.value, connectionType: option.value, deviceId: '', deviceAddress: '', lastConnected: '' })}
+              onClick={() => onChange(role, { method: option.value, connectionType: option.value, isEnabled: true, deviceId: '', deviceAddress: '', lastConnected: '' })}
               className={`min-h-20 rounded-md border p-3 text-start transition ${active ? 'border-blue-500 bg-blue-50 text-blue-950 ring-1 ring-blue-500 dark:bg-blue-950/40 dark:text-blue-100' : 'border-slate-200 bg-white hover:border-blue-200 dark:border-slate-800 dark:bg-slate-950'}`}
             >
               <span className="flex items-center gap-2 text-sm font-bold">
@@ -560,6 +573,10 @@ function PrinterCard({
           <Field id={`printer-${role}-ip`} label={isArabic ? 'رابط Network Bridge أو IP' : 'Network Bridge URL or IP'} value={printer.ip || ''} onChange={(value) => onChange(role, { ip: value })} />
           <Field id={`printer-${role}-port`} label={isArabic ? 'Port' : 'Port'} value={printer.port || '9100'} onChange={(value) => onChange(role, { port: value })} />
         </div>
+      ) : method === 'system' ? (
+        <div className="mt-4 rounded-md bg-blue-50 p-3 text-xs leading-6 text-blue-900 dark:bg-blue-950/40 dark:text-blue-100">
+          {'Use this when the printer appears in XPrinter or Windows printers. Testing opens the print dialog; choose XPrinter there.'}
+        </div>
       ) : (
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
           <Field id={`printer-${role}-device-id`} label={isArabic ? 'Device ID / Address اختياري' : 'Optional Device ID / Address'} value={printer.deviceId || printer.deviceAddress || ''} onChange={(value) => onChange(role, { deviceId: value, deviceAddress: value })} />
@@ -579,29 +596,29 @@ function PrinterCard({
       {printer.lastConnected && <p className="mt-3 text-xs text-slate-500">{isArabic ? 'آخر اتصال' : 'Last connected'}: {new Date(printer.lastConnected).toLocaleString(isArabic ? 'ar-EG' : 'en-US')}</p>}
 
       <div className="mt-5 flex flex-wrap gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
-        {method !== 'network' && (
-          <Button type="button" size="sm" className="gap-2 bg-blue-600 hover:bg-blue-700" onClick={() => onConnect(role)}>
+        {(method === 'bluetooth' || method === 'usb') && (
+          <Button type="button" size="sm" className="gap-2 bg-blue-600 hover:bg-blue-700" onClick={() => onConnect(role, method)}>
             {method === 'bluetooth' ? <Bluetooth className="h-4 w-4" /> : <Usb className="h-4 w-4" />}
             {deviceConnected ? (isArabic ? 'إعادة ربط الطابعة' : 'Reconnect Printer') : (isArabic ? 'ربط الطابعة' : 'Connect Printer')}
           </Button>
         )}
-        <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'connection')}>
+        <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'connection', method)}>
           <PrinterCheck className="h-4 w-4" />
           {isArabic ? 'اختبار اتصال' : 'Connection'}
         </Button>
-        <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'arabic')}>
+        <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'arabic', method)}>
           <ClipboardCheck className="h-4 w-4" />
           {isArabic ? 'اختبار عربي' : 'Arabic'}
         </Button>
-        {role === 'cashier' && <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'qr')}>
+        {role === 'cashier' && <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'qr', method)}>
           <QrCode className="h-4 w-4" />
           QR
         </Button>}
-        {role === 'kitchen' && <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'kitchen')}>
+        {role === 'kitchen' && <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'kitchen', method)}>
           <Utensils className="h-4 w-4" />
           Kitchen
         </Button>}
-        {role === 'hall' && <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'hall')}>
+        {role === 'hall' && <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'hall', method)}>
           <ReceiptText className="h-4 w-4" />
           Hall
         </Button>}

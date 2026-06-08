@@ -1,7 +1,7 @@
 import type { TrackedOrder } from '@/lib/order-tracking'
 
 export type ThermalPrinterRole = 'cashier' | 'kitchen' | 'hall'
-export type ThermalConnectionType = 'bluetooth' | 'usb' | 'network'
+export type ThermalConnectionType = 'bluetooth' | 'usb' | 'network' | 'system'
 export type ThermalPaperWidth = '58mm' | '80mm' | 58 | 80
 
 export type ThermalPrinterSettings = {
@@ -195,8 +195,8 @@ function normalizePrinter(input: Partial<ThermalPrinterSettings> | undefined, ro
   return {
     ...next,
     role,
-    method: method === 'bluetooth' || method === 'usb' || method === 'network' ? method : 'network',
-    connectionType: method === 'bluetooth' || method === 'usb' || method === 'network' ? method : 'network',
+    method: method === 'bluetooth' || method === 'usb' || method === 'network' || method === 'system' ? method : 'network',
+    connectionType: method === 'bluetooth' || method === 'usb' || method === 'network' || method === 'system' ? method : 'network',
     deviceName: next.deviceName || next.name || defaultPrinters[role].deviceName,
     retryAttempts: Math.max(1, Number(next.retryAttempts || 3)),
     fontScale: Math.min(1.6, Math.max(0.75, Number(next.fontScale || 1))),
@@ -228,6 +228,16 @@ function isDeviceChooserCancelled(error: unknown) {
 function isReconnectRequired(error: unknown) {
   if (!(error instanceof Error)) return false
   return /needs reconnect|user gesture|requestDevice/i.test(error.message)
+}
+
+function isUsbAccessDenied(error: unknown) {
+  if (!(error instanceof Error)) return false
+  return error.name === 'NotAllowedError' || /access denied|permission denied|open.*usbdevice/i.test(error.message)
+}
+
+function usbAccessDeniedError(error: unknown) {
+  const detail = error instanceof Error ? error.message : String(error || '')
+  return new Error(`تعذر فتح طابعة USB. افصل الكابل ثم وصله، أغلق أي برنامج يستخدم الطابعة، وتأكد من تشغيل Chrome كمسؤول أو تثبيت تعريف WinUSB/USB للطابعة. ${detail}`)
 }
 
 function qrUrl(value?: string) {
@@ -632,9 +642,37 @@ export class PrinterManager {
     const bytes = canvasToRasterEscPos(canvas)
     const method = printer.method || printer.connectionType
     if (method === 'network') return this.printNetwork(printer, bytes, canvas)
+    if (method === 'system') return this.printSystem(printer, canvas)
     if (method === 'usb') return this.printUsb(job.role, printer, bytes, allowDevicePrompt)
     if (method === 'bluetooth') return this.printBluetooth(job.role, printer, bytes, allowDevicePrompt)
     throw new Error('طريقة الاتصال غير مدعومة.')
+  }
+
+  private async printSystem(printer: ThermalPrinterSettings, canvas: HTMLCanvasElement) {
+    const imageDataUrl = canvas.toDataURL('image/png')
+    const width = printer.paperWidth === 58 || printer.paperWidth === '58mm' ? '58mm' : '80mm'
+    const popup = window.open('', '_blank', 'noopener,noreferrer,width=420,height=720')
+    if (!popup) {
+      throw new Error('افتح السماح بالنوافذ المنبثقة لهذه الصفحة حتى تظهر نافذة طباعة Windows/XPrinter.')
+    }
+
+    popup.document.write(`<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${printer.deviceName || printer.name || 'Receipt'}</title>
+  <style>
+    @page { size: ${width} auto; margin: 0; }
+    html, body { margin: 0; padding: 0; background: #fff; }
+    body { display: flex; justify-content: center; }
+    img { width: ${width}; max-width: 100%; height: auto; display: block; }
+  </style>
+</head>
+<body>
+  <img src="${imageDataUrl}" alt="Receipt" onload="setTimeout(() => { window.focus(); window.print(); }, 120)" />
+</body>
+</html>`)
+    popup.document.close()
   }
 
   private async printNetwork(printer: ThermalPrinterSettings, bytes: Uint8Array, canvas: HTMLCanvasElement) {
@@ -658,8 +696,22 @@ export class PrinterManager {
 
   private async printUsb(role: ThermalPrinterRole, printer: ThermalPrinterSettings, bytes: Uint8Array, allowDevicePrompt = false) {
     if (!navigator.usb) throw new Error('هذا المتصفح لا يدعم WebUSB.')
-    const device = this.usbDevices[role] || await this.getUsbDevice(role, printer, allowDevicePrompt)
-    if (!device.opened) await device.open()
+    let device = this.usbDevices[role] || await this.getUsbDevice(role, printer, allowDevicePrompt)
+    if (!device.opened) {
+      try {
+        await device.open()
+      } catch (error) {
+        delete this.usbDevices[role]
+        delete this.usbClaimedInterfaces[role]
+        if (!allowDevicePrompt || !isUsbAccessDenied(error)) throw usbAccessDeniedError(error)
+        device = await navigator.usb.requestDevice({ filters: USB_PRINTER_FILTERS })
+        try {
+          await device.open()
+        } catch (retryError) {
+          throw usbAccessDeniedError(retryError)
+        }
+      }
+    }
     if (!device.configuration) await device.selectConfiguration(1)
     const endpoint = this.findUsbOutEndpoint(device)
     if (!endpoint) throw new Error('تعذر قراءة منفذ إرسال USB للطابعة. اختر طابعة USB حرارية أو جرّب تعريف/كابل آخر.')
@@ -749,6 +801,7 @@ export class PrinterManager {
 
   private async connect(role: ThermalPrinterRole, printer: ThermalPrinterSettings, allowDevicePrompt = false) {
     const method = printer.method || printer.connectionType
+    if (method === 'system') return
     if (method === 'network') {
       const ip = (printer.ip || printer.deviceAddress || '').trim()
       if (!ip) throw new Error('أدخل IP الطابعة أو عنوان bridge الشبكي.')

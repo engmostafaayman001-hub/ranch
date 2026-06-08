@@ -48,7 +48,7 @@ export interface DeliveryDriver {
   status: 'active' | 'inactive'
 }
 
-export type PrinterMethod = 'bluetooth' | 'usb' | 'network'
+export type PrinterMethod = 'bluetooth' | 'usb' | 'network' | 'system'
 export type PrinterPaperWidth = '58mm' | '80mm'
 export type PrinterRole = 'cashier' | 'kitchen' | 'hall'
 
@@ -201,7 +201,7 @@ function mergePrinters(printers?: Partial<Record<PrinterRole, Partial<PrinterCon
   const normalize = (role: PrinterRole) => {
     const incoming = printers?.[role] || {}
     const rawMethod = incoming.method || incoming.connectionType
-    const method = rawMethod === 'usb' || rawMethod === 'bluetooth' || rawMethod === 'network'
+    const method = rawMethod === 'usb' || rawMethod === 'bluetooth' || rawMethod === 'network' || rawMethod === 'system'
       ? rawMethod
       : defaultPrinters[role].method
     return {

@@ -30,7 +30,7 @@ export interface DeliveryDriver {
   status: 'active' | 'inactive'
 }
 
-export type PrinterMethod = 'bluetooth' | 'usb' | 'network'
+export type PrinterMethod = 'bluetooth' | 'usb' | 'network' | 'system'
 export type PrinterPaperWidth = '58mm' | '80mm'
 export type PrinterRole = 'cashier' | 'kitchen' | 'hall'
 
