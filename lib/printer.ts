@@ -505,36 +505,36 @@ function canvasToRasterEscPos(canvas: HTMLCanvasElement) {
   if (!context) throw new Error('Could not read the print image.')
   const { data, width, height } = context.getImageData(0, 0, canvas.width, canvas.height)
   const bytesPerRow = Math.ceil(width / 8)
-  const bands: Uint8Array[] = [new Uint8Array([0x1b, 0x40])]
-  const bandHeight = 128
+  const inkThreshold = 198
+  const raster = new Uint8Array(bytesPerRow * height)
 
-  for (let yStart = 0; yStart < height; yStart += bandHeight) {
-    const currentHeight = Math.min(bandHeight, height - yStart)
-    const raster = new Uint8Array(bytesPerRow * currentHeight)
-    for (let y = 0; y < currentHeight; y += 1) {
-      for (let x = 0; x < width; x += 1) {
-        const offset = ((yStart + y) * width + x) * 4
-        const alpha = data[offset + 3] / 255
-        const luminance = (data[offset] * 0.299 + data[offset + 1] * 0.587 + data[offset + 2] * 0.114) * alpha + 255 * (1 - alpha)
-        if (luminance < 198) raster[y * bytesPerRow + (x >> 3)] |= 0x80 >> (x & 7)
-      }
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const offset = (y * width + x) * 4
+      const alpha = data[offset + 3] / 255
+      const luminance = (data[offset] * 0.299 + data[offset + 1] * 0.587 + data[offset + 2] * 0.114) * alpha + 255 * (1 - alpha)
+      if (luminance < inkThreshold) raster[y * bytesPerRow + (x >> 3)] |= 0x80 >> (x & 7)
     }
-    bands.push(new Uint8Array([0x1d, 0x76, 0x30, 0x00, bytesPerRow & 0xff, (bytesPerRow >> 8) & 0xff, currentHeight & 0xff, (currentHeight >> 8) & 0xff]))
-    bands.push(raster)
   }
 
-  bands.push(new Uint8Array([
+  const header = new Uint8Array([
+    0x1b, 0x40,
+    0x1d, 0x76, 0x30, 0x00,
+    bytesPerRow & 0xff,
+    (bytesPerRow >> 8) & 0xff,
+    height & 0xff,
+    (height >> 8) & 0xff,
+  ])
+  const footer = new Uint8Array([
     0x0a,
     0x0a,
     0x1b, 0x64, 0x04,
     0x1d, 0x56, 0x00,
-  ]))
-  const output = new Uint8Array(bands.reduce((total, band) => total + band.length, 0))
-  let outputOffset = 0
-  for (const band of bands) {
-    output.set(band, outputOffset)
-    outputOffset += band.length
-  }
+  ])
+  const output = new Uint8Array(header.length + raster.length + footer.length)
+  output.set(header, 0)
+  output.set(raster, header.length)
+  output.set(footer, header.length + raster.length)
   return output
 }
 function bytesToBase64(bytes: Uint8Array) {
@@ -827,7 +827,7 @@ export class PrinterManager {
     const endpoint = normalizeNetworkPrintEndpoint(printer)
     if (!endpoint) throw new Error('Enter the printer IP or Network Bridge URL.')
     const controller = new AbortController()
-    const timeout = window.setTimeout(() => controller.abort(), 45000)
+    const timeout = window.setTimeout(() => controller.abort(), 120000)
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
