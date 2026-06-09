@@ -131,6 +131,7 @@ export default function DashboardSettingsPage() {
     })
     syncPrinterManagerSettings(printers)
     if (printerSaveTimers.current[role]) window.clearTimeout(printerSaveTimers.current[role])
+    const saveDelay = normalizedUpdates.method || normalizedUpdates.connectionType ? 0 : 700
     printerSaveTimers.current[role] = window.setTimeout(() => {
       void saveSharedSettings(nextSettings).then(() => {
         syncPrinterManagerSettings(printers)
@@ -140,15 +141,7 @@ export default function DashboardSettingsPage() {
           [role]: error instanceof Error ? error.message : (isArabic ? 'تعذر حفظ إعدادات الطابعة.' : 'Could not save printer settings.'),
         }))
       })
-    }, normalizedUpdates.method || normalizedUpdates.connectionType ? 0 : 700)
-    if (normalizedUpdates.method || normalizedUpdates.connectionType) {
-      void saveSharedSettings(nextSettings).catch((error) => {
-        setPrinterStatus((current) => ({
-          ...current,
-          [role]: error instanceof Error ? error.message : (isArabic ? 'تعذر حفظ طريقة اتصال الطابعة.' : 'Could not save printer connection method.'),
-        }))
-      })
-    }
+    }, saveDelay)
   }
 
   const connectPrinter = async (role: PrinterRole, selectedMethod?: PrinterMethod) => {
@@ -549,7 +542,7 @@ function PrinterCard({
             <button
               key={option.value}
               type="button"
-              onClick={() => onChange(role, { method: option.value, connectionType: option.value, isEnabled: true, deviceId: '', deviceAddress: '', lastConnected: '' })}
+              onClick={() => onChange(role, { method: option.value, connectionType: option.value, isEnabled: true, lastConnected: method === option.value ? printer.lastConnected : '' })}
               className={`min-h-20 rounded-md border p-3 text-start transition ${active ? 'border-blue-500 bg-blue-50 text-blue-950 ring-1 ring-blue-500 dark:bg-blue-950/40 dark:text-blue-100' : 'border-slate-200 bg-white hover:border-blue-200 dark:border-slate-800 dark:bg-slate-950'}`}
             >
               <span className="flex items-center gap-2 text-sm font-bold">
@@ -591,7 +584,7 @@ function PrinterCard({
 
       {method === 'network' ? (
         <div className="mt-4 grid gap-4 lg:grid-cols-[2fr_1fr]">
-          <Field id={`printer-${role}-ip`} label={isArabic ? 'رابط Network Bridge أو IP' : 'Network Bridge URL or IP'} value={printer.ip || ''} onChange={(value) => onChange(role, { ip: value })} />
+          <Field id={`printer-${role}-ip`} label={isArabic ? 'رابط Network Bridge أو IP' : 'Network Bridge URL or IP'} value={printer.ip || printer.deviceAddress || ''} onChange={(value) => onChange(role, { ip: value, deviceAddress: value })} />
           <Field id={`printer-${role}-port`} label={isArabic ? 'Port' : 'Port'} value={printer.port || '9100'} onChange={(value) => onChange(role, { port: value })} />
         </div>
       ) : method === 'system' ? (

@@ -459,13 +459,29 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
     context.textAlign = isArabic ? 'right' : 'left'
     y += strong ? lineHeight + 4 : lineHeight
   }
-
-  const logo = await logoPromise
-  if (logo) {
+  const drawLogo = (image: HTMLImageElement | null) => {
     const logoSize = width === 384 ? 86 : 108
-    context.drawImage(logo, center - logoSize / 2, y, logoSize, logoSize)
+    if (image) {
+      context.drawImage(image, center - logoSize / 2, y, logoSize, logoSize)
+    } else {
+      context.fillStyle = '#111111'
+      context.beginPath()
+      context.arc(center, y + logoSize / 2, logoSize / 2, 0, Math.PI * 2)
+      context.fill()
+      context.fillStyle = '#ffffff'
+      context.textAlign = 'center'
+      context.textBaseline = 'middle'
+      context.font = `900 ${Math.round(logoSize * 0.52)}px Arial, Tahoma, sans-serif`
+      context.fillText('R', center, y + logoSize / 2)
+      context.textBaseline = 'top'
+      context.fillStyle = '#111111'
+      context.textAlign = isArabic ? 'right' : 'left'
+    }
     y += logoSize + 10
   }
+
+  const logo = await logoPromise
+  if (job.kind === 'cashier') drawLogo(logo)
 
   drawText(job.payload.invoiceName || (isArabic ? 'فاتورة طلب' : 'Order Receipt'), { size: 27, weight: 900, align: 'center' })
   if (job.payload.invoiceAddress) {
@@ -538,7 +554,7 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
     }
   }
 
-  y += width === 384 ? 14 : 18
+  y += width === 384 ? 28 : 36
   const finalCanvas = document.createElement('canvas')
   finalCanvas.width = width
   finalCanvas.height = y
