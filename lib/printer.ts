@@ -162,8 +162,12 @@ const USB_PRINTER_FILTERS = [
 ]
 const PRINT_EXTERNAL_ASSET_TIMEOUT_MS = 900
 const PRINT_LOCAL_ASSET_TIMEOUT_MS = 1800
+const NETWORK_HEALTH_CACHE_MS = 15000
+const NETWORK_HEALTH_TIMEOUT_MS = 2500
+const NETWORK_KEEP_ALIVE_MS = 25000
 const printAssetCache = new Map<string, Promise<HTMLImageElement | null>>()
 const qrAssetCache = new Map<string, Promise<HTMLImageElement | null>>()
+const networkHealthCache = new Map<string, { checkedAt: number; promise?: Promise<void>; token?: symbol }>()
 const defaultPrinters: Record<ThermalPrinterRole, ThermalPrinterSettings> = {
   cashier: {
     role: 'cashier',
@@ -292,28 +296,42 @@ function normalizeNetworkPrintEndpoint(printer: ThermalPrinterSettings) {
   }
 }
 
-async function checkNetworkPrintEndpoint(printer: ThermalPrinterSettings) {
+async function checkNetworkPrintEndpoint(printer: ThermalPrinterSettings, options: { force?: boolean } = {}) {
   const endpoint = normalizeNetworkPrintEndpoint(printer)
   if (!endpoint) throw new Error('Enter the printer IP or Network Bridge URL.')
+  const cached = networkHealthCache.get(endpoint)
+  const now = Date.now()
+  if (!options.force && cached?.promise) return cached.promise
+  if (!options.force && cached && now - cached.checkedAt < NETWORK_HEALTH_CACHE_MS) return
+
   const healthEndpoint = new URL(endpoint)
   healthEndpoint.pathname = '/health'
   healthEndpoint.search = ''
   healthEndpoint.hash = ''
-  const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), 3500)
-  try {
+  const token = Symbol(endpoint)
+  const task = (async () => {
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), NETWORK_HEALTH_TIMEOUT_MS)
+    try {
     const response = await fetch(healthEndpoint.toString(), {
       method: 'GET',
       cache: 'no-store',
       signal: controller.signal,
     })
     if (!response.ok) throw new Error(`Network bridge responded with ${response.status}`)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error || '')
-    throw new Error(`Could not reach Network Bridge at ${endpoint}. ${message}`)
-  } finally {
-    window.clearTimeout(timeout)
-  }
+      networkHealthCache.set(endpoint, { checkedAt: Date.now() })
+    } catch (error) {
+      networkHealthCache.delete(endpoint)
+      const message = error instanceof Error ? error.message : String(error || '')
+      throw new Error(`Could not reach Network Bridge at ${endpoint}. ${message}`)
+    } finally {
+      window.clearTimeout(timeout)
+      const latest = networkHealthCache.get(endpoint)
+      if (latest?.token === token) networkHealthCache.delete(endpoint)
+    }
+  })()
+  networkHealthCache.set(endpoint, { checkedAt: cached?.checkedAt || 0, promise: task, token })
+  return task
 }
 
 function qrValue(value?: string) {
@@ -685,9 +703,12 @@ export class PrinterManager {
   private usbClaimedInterfaces: Partial<Record<ThermalPrinterRole, number>> = {}
   private bluetoothDevices: Partial<Record<ThermalPrinterRole, BluetoothDeviceLike>> = {}
   private bluetoothCharacteristics: Partial<Record<ThermalPrinterRole, BluetoothCharacteristic>> = {}
+  private networkKeepAliveTimer?: number
+  private networkKeepAliveInFlight = false
 
   constructor(printers?: Partial<Record<ThermalPrinterRole, Partial<ThermalPrinterSettings>>>) {
     this.settings = normalizePrinters(printers || this.loadSettings())
+    this.configureNetworkKeepAlive()
   }
 
   getPrinters() {
@@ -697,11 +718,12 @@ export class PrinterManager {
   setPrinters(printers: Partial<Record<ThermalPrinterRole, Partial<ThermalPrinterSettings>>>) {
     this.settings = normalizePrinters(printers)
     this.saveSettings()
+    this.configureNetworkKeepAlive()
   }
 
   async testConnection(role: ThermalPrinterRole) {
     const printer = this.settings[role]
-    await this.connect(role, printer, true)
+    await this.connect(role, printer, true, true)
     printer.lastConnected = new Date().toISOString()
     this.saveSettings()
     return { ok: true, message: 'تم الاتصال بالطابعة بنجاح.', printer: { ...printer } }
@@ -709,7 +731,7 @@ export class PrinterManager {
 
   async connectPrinter(role: ThermalPrinterRole) {
     const printer = this.settings[role]
-    await this.connect(role, printer, true)
+    await this.connect(role, printer, true, true)
     printer.lastConnected = new Date().toISOString()
     this.saveSettings()
     return { ok: true, printer: { ...printer } }
@@ -760,6 +782,45 @@ export class PrinterManager {
     })
   }
 
+  private configureNetworkKeepAlive() {
+    if (typeof window === 'undefined') return
+    if (this.networkKeepAliveTimer) {
+      window.clearInterval(this.networkKeepAliveTimer)
+      this.networkKeepAliveTimer = undefined
+    }
+    const hasNetworkPrinter = Object.values(this.settings).some((printer) =>
+      printer.isEnabled === true &&
+      (printer.method || printer.connectionType) === 'network' &&
+      Boolean((printer.ip || printer.deviceAddress || '').trim())
+    )
+    if (!hasNetworkPrinter) return
+
+    void this.keepNetworkPrintersWarm()
+    this.networkKeepAliveTimer = window.setInterval(() => {
+      void this.keepNetworkPrintersWarm()
+    }, NETWORK_KEEP_ALIVE_MS)
+  }
+
+  private async keepNetworkPrintersWarm() {
+    if (this.networkKeepAliveInFlight) return
+    this.networkKeepAliveInFlight = true
+    try {
+      const entries = Object.entries(this.settings) as Array<[ThermalPrinterRole, ThermalPrinterSettings]>
+      await Promise.all(entries.map(async ([role, printer]) => {
+        if (!printer.isEnabled || (printer.method || printer.connectionType) !== 'network' || !(printer.ip || printer.deviceAddress || '').trim()) return
+        try {
+          await checkNetworkPrintEndpoint(printer)
+          printer.lastConnected = new Date().toISOString()
+        } catch (error) {
+          console.info(`[PrinterManager] ${role} Network Bridge keep-alive missed.`, error)
+        }
+      }))
+      this.saveSettings()
+    } finally {
+      this.networkKeepAliveInFlight = false
+    }
+  }
+
   private enqueue(job: PrintJob) {
     const task = this.queue.then(() => this.printWithRetry(job))
     this.queue = task.catch(() => undefined)
@@ -786,7 +847,7 @@ export class PrinterManager {
         console.info(`[PrinterManager] Printing ${job.kind} on ${job.role}. Attempt ${attempt}/${attempts}.`)
         const promptAlreadyHandled = job.allowDevicePrompt === true && (method === 'usb' || method === 'bluetooth')
         if (promptAlreadyHandled) {
-          await this.connect(job.role, printer, true)
+          await this.connect(job.role, printer, true, true)
         }
         await this.print(job, printer, promptAlreadyHandled ? false : job.allowDevicePrompt === true)
         printer.lastConnected = new Date().toISOString()
@@ -804,7 +865,10 @@ export class PrinterManager {
         }
         console.error(`[PrinterManager] ${job.role} print failed:`, error)
         await this.disconnect(job.role)
-        if (attempt < attempts) await new Promise((resolve) => window.setTimeout(resolve, 350 * attempt))
+        if (attempt < attempts) {
+          const retryDelay = Math.min(5000, 350 * (2 ** (attempt - 1)))
+          await wait(retryDelay)
+        }
       }
     }
     throw lastError instanceof Error ? lastError : new Error('تعذر إرسال أمر الطباعة.')
@@ -890,6 +954,7 @@ export class PrinterManager {
   private async printNetwork(printer: ThermalPrinterSettings, bytes: Uint8Array) {
     const endpoint = normalizeNetworkPrintEndpoint(printer)
     if (!endpoint) throw new Error('Enter the printer IP or Network Bridge URL.')
+    await checkNetworkPrintEndpoint(printer)
     const controller = new AbortController()
     const timeout = window.setTimeout(() => controller.abort(), 120000)
     try {
@@ -908,7 +973,9 @@ export class PrinterManager {
         const detail = await response.json().catch(() => null) as { error?: string } | null
         throw new Error(`Network print bridge failed: ${response.status} at ${endpoint}${detail?.error ? `. ${detail.error}` : ''}`)
       }
+      networkHealthCache.set(endpoint, { checkedAt: Date.now() })
     } catch (error) {
+      networkHealthCache.delete(endpoint)
       if (error instanceof Error && error.name === 'AbortError') {
         throw new Error(`Network print bridge timed out at ${endpoint}`)
       }
@@ -1040,11 +1107,11 @@ export class PrinterManager {
     }
   }
 
-  private async connect(role: ThermalPrinterRole, printer: ThermalPrinterSettings, allowDevicePrompt = false) {
+  private async connect(role: ThermalPrinterRole, printer: ThermalPrinterSettings, allowDevicePrompt = false, forceHealthCheck = false) {
     const method = printer.method || printer.connectionType
     if (method === 'system') return
     if (method === 'network') {
-      await checkNetworkPrintEndpoint(printer)
+      await checkNetworkPrintEndpoint(printer, { force: forceHealthCheck })
       return
     }
     if (method === 'usb') {

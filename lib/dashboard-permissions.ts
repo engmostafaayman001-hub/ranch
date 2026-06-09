@@ -14,7 +14,7 @@ export const DASHBOARD_ROUTE_ROLES: Record<string, readonly string[]> = {
   [ROUTES.DASHBOARD_PAYMENTS]: ['super_admin', 'admin', 'cashier'],
   [ROUTES.DASHBOARD_NOTIFICATIONS]: ['super_admin', 'admin'],
   [ROUTES.DASHBOARD_POS]: ['super_admin', 'admin', 'manager', 'cashier'],
-  [ROUTES.DASHBOARD_EXPENSES]: ['super_admin', 'admin', 'manager'],
+  [ROUTES.DASHBOARD_EXPENSES]: ['super_admin', 'admin', 'manager', 'cashier'],
   [ROUTES.DASHBOARD_REPORTS]: ['super_admin', 'admin', 'manager'],
   [ROUTES.DASHBOARD_SETTINGS]: ['super_admin', 'admin'],
 }

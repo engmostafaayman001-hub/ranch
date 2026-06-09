@@ -1,7 +1,7 @@
 'use client'
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Banknote, Bike, CreditCard, Printer, Minus, Plus, Search, ShoppingCart, Smartphone, Store, Trash2, Utensils } from 'lucide-react'
+import { ArrowLeft, Banknote, Bike, CreditCard, Printer, Minus, Plus, Search, ShoppingCart, Smartphone, Store, Trash2, Truck, Utensils } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -13,6 +13,7 @@ import { isDisplayableImage } from '@/lib/client-images'
 import { TrackedOrder } from '@/lib/order-tracking'
 import { printerManager, syncPrinterManagerSettings } from '@/lib/printer'
 import { createClosingReceiptPayload } from '@/lib/closing-print'
+import { createDriverClosingReceiptPayload } from '@/lib/driver-closing-print'
 import { useSharedAppData } from '@/lib/use-shared-app-data'
 
 type PosLine = {
@@ -356,10 +357,16 @@ export default function DashboardPosPage() {
           <h2 className="text-xl font-bold">{isArabic ? 'نقطة البيع' : 'Point of Sale'}</h2>
           <p className="text-sm text-slate-500">{isArabic ? 'إتمام البيع وطباعة التقفيل اليومي من نفس الشاشة.' : 'Complete sales and print the daily closing from the same screen.'}</p>
         </div>
-        <Button type="button" variant="outline" className="gap-2" onClick={() => printPosDailyClosing({ orders: dailyOrders, expenses: dailyExpenses, isArabic, currency, paymentLabels: posPaymentLabels, settings, setMessage })}>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" className="gap-2" onClick={() => printPosDailyClosing({ orders: dailyOrders, expenses: dailyExpenses, isArabic, currency, paymentLabels: posPaymentLabels, settings, setMessage })}>
           <Printer className="h-4 w-4" />
           {isArabic ? 'طباعة تقفيل اليوم' : 'Print Daily Closing'}
-        </Button>
+          </Button>
+          <Button type="button" variant="outline" className="gap-2" onClick={() => printPosDriverClosing({ orders: dailyOrders, isArabic, currency, settings, setMessage })}>
+            <Truck className="h-4 w-4" />
+            {isArabic ? 'تقفيل السائقين' : 'Driver Closing'}
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
@@ -610,6 +617,57 @@ export default function DashboardPosPage() {
       </div>
     </div>
   )
+}
+
+async function printPosDriverClosing({
+  orders,
+  isArabic,
+  currency,
+  settings,
+  setMessage,
+}: {
+  orders: TrackedOrder[]
+  isArabic: boolean
+  currency: string
+  settings: AppSettings
+  setMessage: (message: string) => void
+}) {
+  const today = new Date()
+  const start = new Date(today)
+  start.setHours(0, 0, 0, 0)
+  const end = new Date(today)
+  end.setHours(23, 59, 59, 999)
+  const dayOrders = orders.filter((order) => {
+    const date = new Date(order.createdAt || '')
+    return !Number.isNaN(date.getTime()) && date.getTime() >= start.getTime() && date.getTime() <= end.getTime()
+  })
+  const cashierPrinter = settings.printers.cashier
+  if (!cashierPrinter?.isEnabled) {
+    setMessage(isArabic ? 'فعّل طابعة الكاشير من الإعدادات قبل طباعة تقفيل السائقين.' : 'Enable the cashier printer in settings before printing the driver closing.')
+    return
+  }
+
+  syncPrinterManagerSettings(settings.printers)
+  try {
+    const result = await printerManager.printCashierReceipt(createDriverClosingReceiptPayload({
+      title: isArabic ? 'تقفيل السائقين - نقطة البيع' : 'Driver Closing - POS',
+      dateLabel: today.toISOString().slice(0, 10),
+      orders: dayOrders,
+      currency,
+      isArabic,
+      invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
+      invoiceAddress: isArabic ? settings.addressAr : settings.addressEn,
+      invoicePhone: settings.phone,
+      logoUrl: settings.invoiceLogo || settings.heroImage,
+    })) as { skipped?: boolean; reason?: string }
+    if (result?.skipped) {
+      setMessage(result.reason || (isArabic ? 'لم يتم إرسال تقفيل السائقين لأن الطابعة غير مكتملة الإعداد.' : 'Driver closing was not sent because the printer is not fully configured.'))
+      return
+    }
+    setMessage(isArabic ? 'تم إرسال تقفيل السائقين إلى طابعة الكاشير.' : 'Driver closing sent to the cashier printer.')
+  } catch (error) {
+    setMessage(error instanceof Error ? error.message : (isArabic ? 'تعذر طباعة تقفيل السائقين.' : 'Could not print the driver closing.'))
+  }
 }
 
 async function printPosDailyClosing({

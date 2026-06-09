@@ -28,7 +28,7 @@ export const dashboardLinks = [
   { href: ROUTES.DASHBOARD_PRODUCTS, labelAr: 'المنتجات', labelEn: 'Products', icon: Package, roles: ['super_admin', 'admin', 'manager'] },
   { href: ROUTES.DASHBOARD_TEAM, labelAr: 'الفريق', labelEn: 'Team', icon: UserRoundCog, roles: ['super_admin', 'admin'] },
   { href: ROUTES.DASHBOARD_NOTIFICATIONS, labelAr: 'العروض والإشعارات', labelEn: 'Offers & Notifications', icon: BellRing, roles: ['super_admin', 'admin'] },
-  { href: ROUTES.DASHBOARD_EXPENSES, labelAr: 'المصروفات', labelEn: 'Expenses', icon: DollarSign, roles: ['super_admin', 'admin', 'manager'] },
+  { href: ROUTES.DASHBOARD_EXPENSES, labelAr: 'المصروفات', labelEn: 'Expenses', icon: DollarSign, roles: ['super_admin', 'admin', 'manager', 'cashier'] },
   { href: ROUTES.DASHBOARD_REPORTS, labelAr: 'التقارير', labelEn: 'Reports', icon: BarChart3, roles: ['super_admin', 'admin', 'manager'] },
   { href: ROUTES.DASHBOARD_SETTINGS, labelAr: 'الإعدادات', labelEn: 'Settings', icon: Settings, roles: ['super_admin', 'admin'] },
 ] as const

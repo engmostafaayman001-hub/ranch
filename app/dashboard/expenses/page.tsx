@@ -1,7 +1,7 @@
 'use client'
 
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { Search } from 'lucide-react'
+import { CalendarDays, ReceiptText, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -18,6 +18,15 @@ type Expense = {
   createdAt?: string
 }
 
+function expenseDayKey(expense: Expense) {
+  const date = new Date(expense.date || expense.createdAt || expense.id || '')
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10)
+}
+
+function money(value: number, currency: string) {
+  return `${Number(value || 0).toFixed(2)} ${currency}`
+}
+
 export default function DashboardExpensesPage() {
   const { language } = useLanguage()
   const isArabic = language === 'ar'
@@ -28,6 +37,7 @@ export default function DashboardExpensesPage() {
   const [formOpen, setFormOpen] = useState(false)
   const [form, setForm] = useState({ name: '', amount: '', date: new Date().toISOString().slice(0, 10), note: '' })
   const [search, setSearch] = useState('')
+  const todayKey = new Date().toISOString().slice(0, 10)
 
   const loadExpenses = async () => {
     try {
@@ -51,11 +61,15 @@ export default function DashboardExpensesPage() {
   }, [])
 
   const total = useMemo(() => expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0), [expenses])
+  const dailyTotal = useMemo(() => expenses
+    .filter((expense) => expenseDayKey(expense) === todayKey)
+    .reduce((sum, expense) => sum + Number(expense.amount || 0), 0), [expenses, todayKey])
   const filteredExpenses = useMemo(() => {
     const term = search.trim().toLowerCase()
     if (!term) return expenses
     return expenses.filter((expense) => `${expense.name} ${expense.note} ${expense.date} ${expense.amount}`.toLowerCase().includes(term))
   }, [expenses, search])
+  const filteredTotal = useMemo(() => filteredExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0), [filteredExpenses])
 
   const closeForm = () => {
     setForm({ name: '', amount: '', date: new Date().toISOString().slice(0, 10), note: '' })
@@ -99,6 +113,27 @@ export default function DashboardExpensesPage() {
           {message && <p className="mt-2 text-sm text-green-600">{message}</p>}
         </div>
         <Button onClick={() => setFormOpen(true)} className="bg-red-600 hover:bg-red-700">{isArabic ? 'إضافة مصروف' : 'Add Expense'}</Button>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <ExpenseSummaryCard
+          title={isArabic ? 'إجمالي مصروفات اليوم' : 'Today Expenses'}
+          value={money(dailyTotal, currency)}
+          hint={isArabic ? 'مصروفات تاريخ اليوم فقط' : 'Only expenses dated today'}
+          icon={CalendarDays}
+        />
+        <ExpenseSummaryCard
+          title={isArabic ? 'إجمالي المصروفات' : 'All Expenses'}
+          value={money(total, currency)}
+          hint={`${expenses.length} ${isArabic ? 'مصروف' : 'expenses'}`}
+          icon={ReceiptText}
+        />
+        <ExpenseSummaryCard
+          title={isArabic ? 'إجمالي نتائج البحث' : 'Search Total'}
+          value={money(filteredTotal, currency)}
+          hint={search.trim() ? (isArabic ? 'حسب البحث الحالي' : 'For current search') : (isArabic ? 'كل السجل الحالي' : 'Current ledger')}
+          icon={Search}
+        />
       </div>
 
       {formOpen && (
@@ -165,5 +200,20 @@ function Field({ id, label, value, onChange, type = 'text' }: { id: string; labe
       <Label htmlFor={id}>{label}</Label>
       <Input id={id} type={type} value={value} onChange={(event) => onChange(event.target.value)} />
     </div>
+  )
+}
+
+function ExpenseSummaryCard({ title, value, hint, icon: Icon }: { title: string; value: string; hint: string; icon: React.ComponentType<{ className?: string }> }) {
+  return (
+    <Card>
+      <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        <Icon className="h-4 w-4 text-red-600" />
+      </CardHeader>
+      <CardContent>
+        <p className="text-2xl font-bold">{value}</p>
+        <p className="mt-1 text-xs text-slate-500">{hint}</p>
+      </CardContent>
+    </Card>
   )
 }

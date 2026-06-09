@@ -8,6 +8,8 @@ const { spawn } = require('child_process')
 const port = Number(process.env.XPRINTER_BRIDGE_PORT || 17878)
 const defaultPrinter = process.env.XPRINTER_NAME || ''
 let printQueue = Promise.resolve()
+let activePrintJob = false
+let queuedPrintJobs = 0
 
 function send(res, status, body) {
   res.writeHead(status, {
@@ -47,7 +49,17 @@ function readJson(req) {
 }
 
 function enqueuePrint(task) {
-  const next = printQueue.then(task, task)
+  queuedPrintJobs += 1
+  const run = async () => {
+    queuedPrintJobs = Math.max(0, queuedPrintJobs - 1)
+    activePrintJob = true
+    try {
+      return await task()
+    } finally {
+      activePrintJob = false
+    }
+  }
+  const next = printQueue.then(run, run)
   printQueue = next.catch(() => undefined)
   return next
 }
@@ -211,7 +223,11 @@ const server = http.createServer(async (req, res) => {
       ok: true,
       ready: true,
       queue: 'serial',
+      queueDepth: queuedPrintJobs,
+      active: activePrintJob,
       printer: String(defaultPrinter || '').trim() || 'Windows default printer',
+      pid: process.pid,
+      uptimeSeconds: Math.round(process.uptime()),
     })
     return
   }
@@ -232,6 +248,9 @@ const server = http.createServer(async (req, res) => {
     send(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })
   }
 })
+
+server.keepAliveTimeout = 65000
+server.headersTimeout = 66000
 
 server.listen(port, '127.0.0.1', () => {
   console.log(`XPrinter bridge ready: http://127.0.0.1:${port}/print`)

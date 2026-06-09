@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, BarChart3, CalendarDays, CheckCircle2, Printer, ReceiptText, X } from 'lucide-react'
+import { Activity, BarChart3, CalendarDays, CheckCircle2, Printer, ReceiptText, Truck, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -11,6 +11,7 @@ import { CURRENCY, CURRENCY_EN, ORDER_STATUS_LABELS, ORDER_STATUS_LABELS_EN, PAY
 import { TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
 import { useAppStore } from '@/lib/app-store'
 import { createClosingReceiptPayload } from '@/lib/closing-print'
+import { createDriverClosingReceiptPayload, getDriverClosingGroups } from '@/lib/driver-closing-print'
 import { printerManager, syncPrinterManagerSettings } from '@/lib/printer'
 
 interface Customer {
@@ -114,6 +115,7 @@ export default function DashboardReportsPage() {
   const [loading, setLoading] = useState(true)
   const [closingDate, setClosingDate] = useState(todayKey)
   const [closingOpen, setClosingOpen] = useState(false)
+  const [driverClosingOpen, setDriverClosingOpen] = useState(false)
   const [printStatus, setPrintStatus] = useState('')
   const loadingReports = useRef(false)
 
@@ -198,6 +200,10 @@ export default function DashboardReportsPage() {
     }, {})
   }, [closingSummary.orders])
 
+  const driverClosingGroups = useMemo(() => getDriverClosingGroups(closingSummary.orders), [closingSummary.orders])
+  const driverClosingTotal = useMemo(() => driverClosingGroups.reduce((sum, group) => sum + group.total, 0), [driverClosingGroups])
+  const driverClosingOrderCount = useMemo(() => driverClosingGroups.reduce((sum, group) => sum + group.orders.length, 0), [driverClosingGroups])
+
   const statusLabel = (status: string) => {
     const labels = isArabic ? ORDER_STATUS_LABELS : ORDER_STATUS_LABELS_EN
     return labels[status as keyof typeof ORDER_STATUS_LABELS] || status
@@ -246,6 +252,38 @@ export default function DashboardReportsPage() {
     }
   }
 
+  const printDriverClosing = async () => {
+    setPrintStatus('')
+    const cashierPrinter = settings.printers.cashier
+    if (!cashierPrinter?.isEnabled) {
+      setPrintStatus(isArabic ? 'فعّل طابعة الكاشير من الإعدادات قبل طباعة تقفيل السائقين.' : 'Enable the cashier printer in settings before printing the driver closing report.')
+      return
+    }
+
+    syncPrinterManagerSettings(settings.printers)
+    try {
+      const result = await printerManager.printCashierReceipt(createDriverClosingReceiptPayload({
+        title: isArabic ? 'تقفيل السائقين' : 'Driver Closing',
+        dateLabel: closingDate,
+        orders: closingSummary.orders,
+        currency,
+        isArabic,
+        invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
+        invoiceAddress: isArabic ? settings.addressAr : settings.addressEn,
+        invoicePhone: settings.phone,
+        logoUrl: settings.invoiceLogo || settings.heroImage,
+      })) as { skipped?: boolean; reason?: string }
+
+      if (result?.skipped) {
+        setPrintStatus(result.reason || (isArabic ? 'لم يتم إرسال تقفيل السائقين لأن الطابعة غير مكتملة الإعداد.' : 'Driver closing report was not sent because the printer is not fully configured.'))
+        return
+      }
+      setPrintStatus(isArabic ? 'تم إرسال تقفيل السائقين إلى طابعة الكاشير.' : 'Driver closing report sent to the cashier printer.')
+    } catch (error) {
+      setPrintStatus(error instanceof Error ? error.message : (isArabic ? 'تعذر طباعة تقفيل السائقين.' : 'Could not print the driver closing report.'))
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -263,6 +301,10 @@ export default function DashboardReportsPage() {
           <Button className="gap-2 bg-red-600 hover:bg-red-700" onClick={() => setClosingOpen(true)}>
             <CalendarDays className="h-4 w-4" />
             {isArabic ? 'تقفيل يومي' : 'Daily Closing'}
+          </Button>
+          <Button className="gap-2 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200" onClick={() => setDriverClosingOpen(true)}>
+            <Truck className="h-4 w-4" />
+            {isArabic ? 'تقفيل السائقين' : 'Driver Closing'}
           </Button>
         </div>
       </div>
@@ -407,6 +449,69 @@ export default function DashboardReportsPage() {
                             <p className="text-slate-500">{order.customer || '-'} - {paymentLabel(order.payment?.method || 'cash')}</p>
                           </div>
                           <strong>{money(Number(order.total || 0), currency)}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {driverClosingOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-md bg-white shadow-xl dark:bg-slate-950">
+            <div className="sticky top-0 flex items-start justify-between gap-3 border-b border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+              <div>
+                <h3 className="text-xl font-bold">{isArabic ? 'تقفيل السائقين' : 'Driver Closing'}</h3>
+                <p className="text-sm text-slate-500">{closingDate}</p>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" className="gap-2" onClick={printDriverClosing}>
+                  <Printer className="h-4 w-4" />
+                  {isArabic ? 'طباعة' : 'Print'}
+                </Button>
+                <Button variant="ghost" size="icon" onClick={() => setDriverClosingOpen(false)}>
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-4 p-4">
+              {printStatus && <p className="rounded-md bg-slate-100 p-3 text-sm dark:bg-slate-900">{printStatus}</p>}
+              <div className="grid gap-3 md:grid-cols-3">
+                <SummaryPanel label={isArabic ? 'إجمالي التحصيل' : 'Collection Total'} value={money(driverClosingTotal, currency)} />
+                <SummaryPanel label={isArabic ? 'عدد السائقين' : 'Drivers'} value={String(driverClosingGroups.length)} />
+                <SummaryPanel label={isArabic ? 'طلبات عند الاستلام' : 'COD Orders'} value={String(driverClosingOrderCount)} />
+              </div>
+              <Card>
+                <CardHeader><CardTitle>{isArabic ? 'حساب كل سائق' : 'Driver Accounts'}</CardTitle></CardHeader>
+                <CardContent>
+                  {driverClosingGroups.length === 0 ? (
+                    <p className="py-6 text-center text-sm text-slate-500">{isArabic ? 'لا توجد طلبات دفع عند الاستلام معيّنة لسائقين في هذا اليوم.' : 'No assigned cash-on-delivery orders for this day.'}</p>
+                  ) : (
+                    <div className="space-y-4">
+                      {driverClosingGroups.map((group) => (
+                        <div key={group.key} className="rounded-md border border-slate-200 p-4 dark:border-slate-800">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <p className="text-lg font-bold">{group.name}</p>
+                              <p className="text-sm text-slate-500">{group.phone}</p>
+                            </div>
+                            <div className="text-end">
+                              <p className="text-xl font-bold text-red-600">{money(group.total, currency)}</p>
+                              <p className="text-xs text-slate-500">{group.orders.length} {isArabic ? 'طلب' : 'orders'}</p>
+                            </div>
+                          </div>
+                          <div className="mt-3 space-y-2">
+                            {group.orders.map((order) => (
+                              <div key={order.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-slate-50 px-3 py-2 text-sm dark:bg-slate-900">
+                                <span className="font-medium">{order.id} - {order.customer || '-'}</span>
+                                <strong>{money(Number(order.total || 0), currency)}</strong>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       ))}
                     </div>
