@@ -160,8 +160,8 @@ const USB_PRINTER_FILTERS = [
   { vendorId: 0x10c4 },
   { vendorId: 0x0403 },
 ]
-const PRINT_EXTERNAL_ASSET_TIMEOUT_MS = 1200
-const PRINT_LOCAL_ASSET_TIMEOUT_MS = 5000
+const PRINT_EXTERNAL_ASSET_TIMEOUT_MS = 900
+const PRINT_LOCAL_ASSET_TIMEOUT_MS = 1800
 const printAssetCache = new Map<string, Promise<HTMLImageElement | null>>()
 const qrAssetCache = new Map<string, Promise<HTMLImageElement | null>>()
 const defaultPrinters: Record<ThermalPrinterRole, ThermalPrinterSettings> = {
@@ -325,9 +325,16 @@ function isLocalAsset(url: string) {
   return /^data:|^blob:/i.test(url) || url.startsWith('/') || (typeof window !== 'undefined' && url.startsWith(window.location.origin))
 }
 
+function normalizePrintAssetUrl(url?: string) {
+  const trimmed = (url || '').trim()
+  if (!trimmed) return ''
+  return trimmed === '/logo.png' || trimmed.endsWith('/logo.png') ? '/logo.svg' : trimmed
+}
+
 async function loadImage(url?: string) {
-  if (!url) return null
-  if (printAssetCache.has(url)) return printAssetCache.get(url) || null
+  const source = normalizePrintAssetUrl(url)
+  if (!source) return null
+  if (printAssetCache.has(source)) return printAssetCache.get(source) || null
   const task = new Promise<HTMLImageElement | null>((resolve) => {
     const image = new Image()
     let settled = false
@@ -335,16 +342,16 @@ async function loadImage(url?: string) {
       if (settled) return
       settled = true
       window.clearTimeout(timeout)
-      if (!value) printAssetCache.delete(url)
+      if (!value) printAssetCache.delete(source)
       resolve(value)
     }
-    const timeout = window.setTimeout(() => finish(null), isLocalAsset(url) ? PRINT_LOCAL_ASSET_TIMEOUT_MS : PRINT_EXTERNAL_ASSET_TIMEOUT_MS)
-    image.crossOrigin = 'anonymous'
+    const timeout = window.setTimeout(() => finish(null), isLocalAsset(source) ? PRINT_LOCAL_ASSET_TIMEOUT_MS : PRINT_EXTERNAL_ASSET_TIMEOUT_MS)
+    if (!isLocalAsset(source)) image.crossOrigin = 'anonymous'
     image.onload = () => finish(image)
     image.onerror = () => finish(null)
-    image.src = url
+    image.src = source
   })
-  printAssetCache.set(url, task)
+  printAssetCache.set(source, task)
   return task
 }
 
@@ -531,6 +538,7 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
     }
   }
 
+  y += width === 384 ? 14 : 18
   const finalCanvas = document.createElement('canvas')
   finalCanvas.width = width
   finalCanvas.height = y
@@ -548,30 +556,36 @@ function canvasToRasterEscPos(canvas: HTMLCanvasElement) {
   const { data, width, height } = context.getImageData(0, 0, canvas.width, canvas.height)
   const bytesPerRow = Math.ceil(width / 8)
   const inkThreshold = 198
-  const raster = new Uint8Array(bytesPerRow * height)
+  const parts: Uint8Array[] = [new Uint8Array([0x1b, 0x40])]
+  const bandHeight = 384
 
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const offset = (y * width + x) * 4
-      const alpha = data[offset + 3] / 255
-      const luminance = (data[offset] * 0.299 + data[offset + 1] * 0.587 + data[offset + 2] * 0.114) * alpha + 255 * (1 - alpha)
-      if (luminance < inkThreshold) raster[y * bytesPerRow + (x >> 3)] |= 0x80 >> (x & 7)
+  for (let yStart = 0; yStart < height; yStart += bandHeight) {
+    const currentHeight = Math.min(bandHeight, height - yStart)
+    const raster = new Uint8Array(bytesPerRow * currentHeight)
+    for (let y = 0; y < currentHeight; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const offset = ((yStart + y) * width + x) * 4
+        const alpha = data[offset + 3] / 255
+        const luminance = (data[offset] * 0.299 + data[offset + 1] * 0.587 + data[offset + 2] * 0.114) * alpha + 255 * (1 - alpha)
+        if (luminance < inkThreshold) raster[y * bytesPerRow + (x >> 3)] |= 0x80 >> (x & 7)
+      }
     }
+    parts.push(new Uint8Array([
+      0x1d, 0x76, 0x30, 0x00,
+      bytesPerRow & 0xff,
+      (bytesPerRow >> 8) & 0xff,
+      currentHeight & 0xff,
+      (currentHeight >> 8) & 0xff,
+    ]))
+    parts.push(raster)
   }
 
-  const header = new Uint8Array([
-    0x1b, 0x40,
-    0x1d, 0x76, 0x30, 0x00,
-    bytesPerRow & 0xff,
-    (bytesPerRow >> 8) & 0xff,
-    height & 0xff,
-    (height >> 8) & 0xff,
-  ])
-  const footer = new Uint8Array([])
-  const output = new Uint8Array(header.length + raster.length + footer.length)
-  output.set(header, 0)
-  output.set(raster, header.length)
-  output.set(footer, header.length + raster.length)
+  const output = new Uint8Array(parts.reduce((total, part) => total + part.length, 0))
+  let offset = 0
+  for (const part of parts) {
+    output.set(part, offset)
+    offset += part.length
+  }
   return output
 }
 function bytesToBase64(bytes: Uint8Array) {
