@@ -337,10 +337,10 @@ export default function DashboardSettingsPage() {
                 <FileInput id="invoice-logo" accept="image/*" onChange={handleInvoiceLogoFile} className="mt-1" />
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" onClick={() => updateSettings({ invoiceLogo: settings.heroImage || '/logo.png' })}>
+                <Button type="button" variant="outline" onClick={() => updateSettings({ invoiceLogo: settings.heroImage || '/favicon.png' })}>
                   {isArabic ? 'استخدام صورة التطبيق' : 'Use app image'}
                 </Button>
-                <Button type="button" variant="outline" onClick={() => updateSettings({ invoiceLogo: '/logo.png' })}>
+                <Button type="button" variant="outline" onClick={() => updateSettings({ invoiceLogo: '/favicon.png' })}>
                   {isArabic ? 'استخدام اللوجو الافتراضي' : 'Use default logo'}
                 </Button>
               </div>

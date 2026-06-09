@@ -328,7 +328,7 @@ function isLocalAsset(url: string) {
 function normalizePrintAssetUrl(url?: string) {
   const trimmed = (url || '').trim()
   if (!trimmed) return ''
-  return trimmed === '/logo.png' || trimmed.endsWith('/logo.png') ? '/logo.svg' : trimmed
+  return trimmed === '/logo.png' || trimmed.endsWith('/logo.png') ? '/favicon.png' : trimmed
 }
 
 async function loadImage(url?: string) {
@@ -416,7 +416,7 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
   const right = width - padding
   const textX = isArabic ? right : left
   const center = width / 2
-  const logoPromise = loadImage(job.kind === 'cashier' ? job.payload.logoUrl || '/logo.svg' : undefined)
+  const logoPromise = loadImage(job.kind === 'cashier' ? job.payload.logoUrl || '/favicon.png' : undefined)
   const qrImagesPromise = job.kind === 'cashier'
     ? Promise.all([
       loadQrImage(job.payload.invoiceQrUrl),
@@ -462,7 +462,12 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
   const drawLogo = (image: HTMLImageElement | null) => {
     const logoSize = width === 384 ? 86 : 108
     if (image) {
-      context.drawImage(image, center - logoSize / 2, y, logoSize, logoSize)
+      const imageWidth = image.naturalWidth || image.width || logoSize
+      const imageHeight = image.naturalHeight || image.height || logoSize
+      const ratio = Math.min(logoSize / imageWidth, logoSize / imageHeight)
+      const drawWidth = Math.max(1, imageWidth * ratio)
+      const drawHeight = Math.max(1, imageHeight * ratio)
+      context.drawImage(image, center - drawWidth / 2, y + (logoSize - drawHeight) / 2, drawWidth, drawHeight)
     } else {
       context.fillStyle = '#111111'
       context.beginPath()

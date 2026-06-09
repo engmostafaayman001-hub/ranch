@@ -233,7 +233,7 @@ const server = http.createServer(async (req, res) => {
   }
 })
 
-server.listen(port, '127.0.0.1', () => {
+server.listen(port, '127.0.0.0', () => {
   console.log(`XPrinter bridge ready: http://127.0.0.1:${port}/print`)
   console.log('Set dashboard printer method to Network Bridge and URL to this address.')
   if (defaultPrinter) console.log(`Default printer: ${defaultPrinter}`)

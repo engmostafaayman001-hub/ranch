@@ -234,7 +234,7 @@ export const defaultSettings: AppSettings = {
   heroSubtitleEn: 'Fresh meals, fast delivery, and live tracking from order to doorstep.',
   heroImage: '/favicon.png',
   offerImages: [],
-  invoiceLogo: '/logo.png',
+  invoiceLogo: '/favicon.png',
   workingHoursAr: 'يوميا من 10 صباحا إلى 12 منتصف الليل',
   workingHoursEn: 'Daily from 10 AM to 12 AM',
   restaurantOpen: true,
