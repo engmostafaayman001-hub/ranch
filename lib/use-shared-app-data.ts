@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { AppSettings, DeliveryDriver, MenuCategory, MenuProduct, useAppStore } from '@/lib/app-store'
+import { fetchWithRetry } from '@/lib/fetch-with-retry'
 
 type SharedAppData = {
   categories?: MenuCategory[]
@@ -24,7 +25,7 @@ export function useSharedAppData(options: { poll?: boolean } = {}) {
       if (loadingRef.current) return
       loadingRef.current = true
       try {
-        const response = await fetch('/api/app-data', { cache: 'no-store' })
+        const response = await fetchWithRetry('/api/app-data', { cache: 'no-store' }, { retries: 3 })
         const data = (await response.json().catch(() => ({}))) as SharedAppData
         if (!active || !response.ok) return
 
@@ -56,7 +57,7 @@ export function useSharedAppData(options: { poll?: boolean } = {}) {
 }
 
 export async function saveSharedCatalog(categories: MenuCategory[], products: MenuProduct[]) {
-  const response = await fetch('/api/app-data', {
+  const response = await fetchWithRetry('/api/app-data', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ type: 'catalog', categories, products }),
@@ -67,7 +68,7 @@ export async function saveSharedCatalog(categories: MenuCategory[], products: Me
 }
 
 export async function saveSharedSettings(settings: AppSettings) {
-  const response = await fetch('/api/app-data', {
+  const response = await fetchWithRetry('/api/app-data', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ type: 'settings', settings }),
@@ -78,7 +79,7 @@ export async function saveSharedSettings(settings: AppSettings) {
 }
 
 export async function saveSharedDrivers(drivers: DeliveryDriver[]) {
-  const response = await fetch('/api/drivers', {
+  const response = await fetchWithRetry('/api/drivers', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ drivers }),
@@ -89,7 +90,7 @@ export async function saveSharedDrivers(drivers: DeliveryDriver[]) {
 }
 
 export async function fetchSharedDrivers() {
-  const response = await fetch('/api/drivers', { cache: 'no-store' })
+  const response = await fetchWithRetry('/api/drivers', { cache: 'no-store' }, { retries: 3 })
   const data = await response.json().catch(() => ({}))
   if (!response.ok || !Array.isArray(data.drivers)) {
     throw new Error(data.message || data.error || 'Could not load drivers')

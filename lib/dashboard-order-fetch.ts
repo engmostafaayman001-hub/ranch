@@ -1,4 +1,5 @@
 import { TrackedOrder } from '@/lib/order-tracking'
+import { fetchWithRetry } from '@/lib/fetch-with-retry'
 
 type OrderSource = 'app' | 'restaurant_pos'
 
@@ -9,7 +10,7 @@ function matchesSource(order: TrackedOrder, source: OrderSource) {
 }
 
 async function fetchOrdersJson(url: string) {
-  const response = await fetch(url, { cache: 'no-store' })
+  const response = await fetchWithRetry(url, { cache: 'no-store' }, { retries: 3 })
   const data = await response.json().catch(() => ({}))
   if (!response.ok || !Array.isArray(data.orders)) {
     throw new Error(data.message || data.error || 'Could not load orders')

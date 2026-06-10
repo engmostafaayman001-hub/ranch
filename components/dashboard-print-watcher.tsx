@@ -5,6 +5,7 @@ import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN } from '@/lib/constants'
 import { useAppStore } from '@/lib/app-store'
 import { fetchDashboardOrderDetails } from '@/lib/dashboard-order-fetch'
+import { fetchWithRetry } from '@/lib/fetch-with-retry'
 import { printerManager, syncPrinterManagerSettings, trackedOrderToReceiptPayload } from '@/lib/printer'
 import { TrackedOrder } from '@/lib/order-tracking'
 
@@ -131,6 +132,7 @@ export function DashboardPrintWatcher() {
   const printingJobs = useRef(new Set<string>())
   const watcherStartedAt = useRef<number | null>(null)
   const checkingOrders = useRef(false)
+  const lastNetworkWarningAt = useRef(0)
 
   const createPrintPayload = useCallback((order: TrackedOrder) => trackedOrderToReceiptPayload(order, {
     isArabic,
@@ -146,7 +148,7 @@ export function DashboardPrintWatcher() {
 
   useEffect(() => {
     let active = true
-    fetch('/api/auth/dashboard-access', { cache: 'no-store' })
+    fetchWithRetry('/api/auth/dashboard-access', { cache: 'no-store' }, { retries: 2 })
       .then((response) => response.json())
       .then((data) => {
         if (active) setDashboardRole(typeof data.role === 'string' ? data.role : null)
@@ -169,7 +171,7 @@ export function DashboardPrintWatcher() {
       checkingOrders.current = true
       try {
         if (!watcherStartedAt.current) watcherStartedAt.current = Date.now()
-        const response = await fetch('/api/pos/orders?source=app&limit=40', { cache: 'no-store' })
+        const response = await fetchWithRetry('/api/pos/orders?source=app&limit=40', { cache: 'no-store' }, { retries: 3 })
         const data = await response.json().catch(() => ({}))
         if (!active) return
 
@@ -260,7 +262,11 @@ export function DashboardPrintWatcher() {
           }
         }
       } catch (error) {
-        console.error('[DashboardPrintWatcher] Could not check app orders:', error)
+        const now = Date.now()
+        if (now - lastNetworkWarningAt.current > 15000) {
+          lastNetworkWarningAt.current = now
+          console.warn('[DashboardPrintWatcher] App order polling is waiting for the network to recover:', error)
+        }
       } finally {
         checkingOrders.current = false
       }
