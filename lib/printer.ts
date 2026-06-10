@@ -812,8 +812,11 @@ export class PrinterManager {
       const nextMethod = nextSettings[role]?.method || nextSettings[role]?.connectionType
       if (previousMethod && nextMethod && previousMethod !== nextMethod) {
         void this.disconnect(role)
-        nextSettings[role].lastConnected = ''
-        nextSettings[role].lastConnectedMethod = ''
+        const hasVerifiedConnection = Boolean(nextSettings[role].lastConnected && nextSettings[role].lastConnectedMethod === nextMethod)
+        if (!hasVerifiedConnection) {
+          nextSettings[role].lastConnected = ''
+          nextSettings[role].lastConnectedMethod = ''
+        }
       }
     }
     this.settings = nextSettings
@@ -852,9 +855,10 @@ export class PrinterManager {
   }
 
   printTest(role: ThermalPrinterRole, kind: PrintJob['kind'] = 'diagnostic', payload?: Partial<ReceiptPayload>) {
+    const resolvedKind = kind === 'diagnostic' ? (role === 'cashier' ? 'cashier' : role) : kind
     return this.enqueue({
       role,
-      kind: kind === 'diagnostic' ? (role === 'cashier' ? 'cashier' : role) : kind,
+      kind: resolvedKind,
       strict: true,
       allowDevicePrompt: true,
       payload: {
@@ -862,21 +866,20 @@ export class PrinterManager {
         orderType: role === 'hall' ? 'DINE_IN' : 'TEST',
         tableNumber: '1',
         createdAt: new Date().toISOString(),
-        customer: { name: 'اختبار الطابعة', phone: '01000000000', address: 'اختبار الاتصال', notes: 'النص العربي يجب أن يظهر واضحا بدون رموز مشوهة.' },
+        customer: { name: 'اختبار الطابعة' },
         lines: [
-          { name: 'برجر دجاج', quantity: 2, price: 95, notes: 'بدون بصل', additions: ['جبنة', 'صوص'] },
-          { name: 'بطاطس', quantity: 1, price: 35 },
+          { name: resolvedKind === 'kitchen' ? 'اختبار مطبخ' : resolvedKind === 'hall' ? 'اختبار صالة' : 'اختبار طباعة', quantity: 1, price: 0, hidePrice: true },
         ],
-        subtotal: 225,
-        tax: 22.5,
-        discountAmount: 10,
-        total: 237.5,
+        subtotal: 0,
+        tax: 0,
+        discountAmount: 0,
+        total: 0,
         paymentMethod: 'Cash',
         currency: 'ج.م',
         invoiceName: 'Baseeta POS',
-        invoiceAddress: 'Cairo, Egypt',
-        invoiceMessage: 'شكرا لطلبك',
-        invoiceQrUrl: 'https://markode.co',
+        invoiceAddress: '',
+        invoiceMessage: 'تم اختبار الطابعة بنجاح',
+        invoiceQrUrl: '',
         invoiceQrUrl2: '',
         isArabic: true,
         ...payload,

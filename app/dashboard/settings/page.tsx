@@ -83,7 +83,8 @@ export default function DashboardSettingsPage() {
     try {
       const logo = await imageFileToOptimizedDataUrl(file, { maxSize: 700, quality: 0.9 })
       updateSettings({ invoiceLogo: logo })
-      setOfferImageStatus(isArabic ? 'تم تحديث لوجو الفاتورة.' : 'Invoice logo updated.')
+      event.target.value = ''
+      setOfferImageStatus(isArabic ? 'تم تجهيز لوجو الفاتورة. اضغط حفظ التغييرات لاعتماده.' : 'Invoice logo is ready. Press Save Changes to publish it.')
     } catch {
       setOfferImageStatus(isArabic ? 'تعذر رفع لوجو الفاتورة.' : 'Could not upload invoice logo.')
     }
@@ -109,7 +110,8 @@ export default function DashboardSettingsPage() {
         : updates
     const nextMethod = normalizedUpdates.method || normalizedUpdates.connectionType
     const methodChanged = Boolean(nextMethod && nextMethod !== (currentPrinter.method || currentPrinter.connectionType))
-    const isolatedUpdates: Partial<PrinterConnection> = methodChanged
+    const hasVerifiedConnection = Boolean(normalizedUpdates.lastConnected || normalizedUpdates.lastConnectedMethod)
+    const isolatedUpdates: Partial<PrinterConnection> = methodChanged && !hasVerifiedConnection
       ? {
           ...normalizedUpdates,
           lastConnected: '',
@@ -132,6 +134,7 @@ export default function DashboardSettingsPage() {
       ...settings.printers,
       [role]: { ...settings.printers[role], method, connectionType: method, isEnabled: true },
     }
+    updateSettings({ printers: { ...printers } })
     syncPrinterManagerSettings(printers)
     setPrinterStatus((current) => ({ ...current, [role]: isArabic ? 'جاري ربط الطابعة...' : 'Connecting printer...' }))
     try {
@@ -158,6 +161,7 @@ export default function DashboardSettingsPage() {
       ...settings.printers,
       [role]: { ...settings.printers[role], method, connectionType: method, isEnabled: true },
     }
+    updateSettings({ printers: { ...printers } })
     syncPrinterManagerSettings(printers)
     setPrinterStatus((current) => ({ ...current, [role]: isArabic ? 'جاري اختبار الطابعة...' : 'Testing printer...' }))
     try {
@@ -170,8 +174,8 @@ export default function DashboardSettingsPage() {
           invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
           invoiceAddress: isArabic ? settings.addressAr : settings.addressEn,
           invoicePhone: settings.phone,
-          invoiceQrUrl: kind === 'qr' ? settings.invoiceQrUrl || 'https://markode.co' : settings.invoiceQrUrl,
-          invoiceQrUrl2: kind === 'qr' ? settings.invoiceQrUrl2 : settings.invoiceQrUrl2,
+          invoiceQrUrl: kind === 'qr' ? settings.invoiceQrUrl || 'https://markode.co' : '',
+          invoiceQrUrl2: kind === 'qr' ? settings.invoiceQrUrl2 : '',
           invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
           logoUrl: settings.invoiceLogo,
           isArabic,
@@ -322,14 +326,6 @@ export default function DashboardSettingsPage() {
                 <Label htmlFor="invoice-logo">{isArabic ? 'لوجو الفاتورة' : 'Invoice logo'}</Label>
                 <FileInput id="invoice-logo" accept="image/*" onChange={handleInvoiceLogoFile} className="mt-1" />
               </div>
-              <div className="hidden">
-                <Button type="button" variant="outline" onClick={() => updateSettings({ invoiceLogo: '' })}>
-                  {isArabic ? 'استخدام صورة التطبيق' : 'Use app image'}
-                </Button>
-                <Button type="button" variant="outline" onClick={() => updateSettings({ invoiceLogo: '' })}>
-                  {isArabic ? 'استخدام اللوجو الافتراضي' : 'Use default logo'}
-                </Button>
-              </div>
               <p className="text-xs text-slate-500">
                 {isArabic ? 'سيظهر هذا اللوجو أعلى فاتورة الكاشير فقط، ولا يظهر في تذاكر المطبخ أو الصالة.' : 'This logo appears at the top of cashier receipts only, not kitchen or hall tickets.'}
               </p>
@@ -404,10 +400,6 @@ export default function DashboardSettingsPage() {
           </div>
         </CardContent>
       </Card>}
-
-      <div className="flex justify-end">
-        <Button onClick={handleSave} className="bg-red-600 hover:bg-red-700">{text.save}</Button>
-      </div>
     </div>
   )
 }
