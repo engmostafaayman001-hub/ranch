@@ -4,6 +4,30 @@ import QRCode from 'qrcode'
 export type ThermalPrinterRole = 'cashier' | 'kitchen' | 'hall'
 export type ThermalConnectionType = 'bluetooth' | 'usb' | 'network' | 'system'
 export type ThermalPaperWidth = '58mm' | '80mm' | 58 | 80
+export type PrinterModelFamily =
+  | 'xprinter'
+  | 'epson'
+  | 'sunmi'
+  | 'bixolon'
+  | 'rongta'
+  | 'goojprt'
+  | 'hprt'
+  | 'star'
+  | 'zebra'
+  | 'generic'
+
+export type PrinterCapabilityProfile = {
+  modelFamily: PrinterModelFamily
+  paperWidth: '58mm' | '80mm'
+  supportsCut: boolean
+  supportsCashDrawer: boolean
+  supportsRasterImage: boolean
+  supportsQr: boolean
+  codePages: Array<'utf8' | 'cp864' | 'cp720' | 'cp1256'>
+  usbChunkSize: number
+  bluetoothChunkSize: number
+  bluetoothChunkDelayMs: number
+}
 
 export type ThermalPrinterSettings = {
   role: ThermalPrinterRole
@@ -22,6 +46,11 @@ export type ThermalPrinterSettings = {
   lastConnected?: string
   printsMainInvoice?: boolean
   printsQr?: boolean
+  modelFamily?: PrinterModelFamily
+  supportsCut?: boolean
+  supportsCashDrawer?: boolean
+  supportsQr?: boolean
+  codePage?: 'utf8' | 'cp864' | 'cp720' | 'cp1256' | 'auto'
 }
 
 export type ReceiptLine = {
@@ -168,6 +197,7 @@ const NETWORK_KEEP_ALIVE_MS = 25000
 const printAssetCache = new Map<string, Promise<HTMLImageElement | null>>()
 const qrAssetCache = new Map<string, Promise<HTMLImageElement | null>>()
 const networkHealthCache = new Map<string, { checkedAt: number; promise?: Promise<void>; token?: symbol }>()
+const DUPLICATE_JOB_WINDOW_MS = 1800
 const defaultPrinters: Record<ThermalPrinterRole, ThermalPrinterSettings> = {
   cashier: {
     role: 'cashier',
@@ -213,12 +243,48 @@ const defaultPrinters: Record<ThermalPrinterRole, ThermalPrinterSettings> = {
   },
 }
 
+function inferPrinterModelFamily(printer: Partial<ThermalPrinterSettings> | undefined): PrinterModelFamily {
+  const label = `${printer?.modelFamily || ''} ${printer?.deviceName || ''} ${printer?.name || ''}`.toLowerCase()
+  if (/xprinter|xp-?|x-print/.test(label)) return 'xprinter'
+  if (/epson|tm-/.test(label)) return 'epson'
+  if (/sunmi/.test(label)) return 'sunmi'
+  if (/bixolon|spp-|srp-/.test(label)) return 'bixolon'
+  if (/rongta|rp-/.test(label)) return 'rongta'
+  if (/goojprt|gooj/.test(label)) return 'goojprt'
+  if (/hprt/.test(label)) return 'hprt'
+  if (/star/.test(label)) return 'star'
+  if (/zebra|zd|zt|gk|gx/.test(label)) return 'zebra'
+  return 'generic'
+}
+
+function getPrinterCapabilityProfile(printer: ThermalPrinterSettings): PrinterCapabilityProfile {
+  const modelFamily = printer.modelFamily || inferPrinterModelFamily(printer)
+  const paperWidth = printer.paperWidth === 58 || printer.paperWidth === '58mm' ? '58mm' : '80mm'
+  const conservativeBluetooth = modelFamily === 'goojprt' || modelFamily === 'hprt' || modelFamily === 'generic'
+  return {
+    modelFamily,
+    paperWidth,
+    supportsCut: printer.supportsCut ?? (paperWidth === '80mm' && modelFamily !== 'zebra'),
+    supportsCashDrawer: printer.supportsCashDrawer ?? (modelFamily !== 'zebra' && modelFamily !== 'sunmi'),
+    supportsRasterImage: true,
+    supportsQr: printer.supportsQr ?? printer.printsQr !== false,
+    codePages: printer.codePage && printer.codePage !== 'auto'
+      ? [printer.codePage]
+      : ['utf8', 'cp864', 'cp720', 'cp1256'],
+    usbChunkSize: modelFamily === 'sunmi' || modelFamily === 'zebra' ? 2048 : 4096,
+    bluetoothChunkSize: conservativeBluetooth ? 64 : 96,
+    bluetoothChunkDelayMs: conservativeBluetooth ? 35 : 25,
+  }
+}
+
 function normalizePrinter(input: Partial<ThermalPrinterSettings> | undefined, role: ThermalPrinterRole): ThermalPrinterSettings {
   const next = { ...defaultPrinters[role], ...(input || {}) }
   const method = next.method || next.connectionType
+  const modelFamily = next.modelFamily || inferPrinterModelFamily(next)
   return {
     ...next,
     role,
+    modelFamily,
     method: method === 'bluetooth' || method === 'usb' || method === 'network' || method === 'system' ? method : 'network',
     connectionType: method === 'bluetooth' || method === 'usb' || method === 'network' || method === 'system' ? method : 'network',
     deviceName: next.deviceName || next.name || defaultPrinters[role].deviceName,
@@ -699,6 +765,7 @@ export function trackedOrderToReceiptPayload(order: TrackedOrder, options: Parti
 export class PrinterManager {
   private settings: Record<ThermalPrinterRole, ThermalPrinterSettings>
   private queue: Promise<unknown> = Promise.resolve()
+  private recentJobSignatures = new Map<string, number>()
   private usbDevices: Partial<Record<ThermalPrinterRole, UsbDevice>> = {}
   private usbClaimedInterfaces: Partial<Record<ThermalPrinterRole, number>> = {}
   private bluetoothDevices: Partial<Record<ThermalPrinterRole, BluetoothDeviceLike>> = {}
@@ -822,21 +889,45 @@ export class PrinterManager {
   }
 
   private enqueue(job: PrintJob) {
+    const signature = this.jobSignature(job)
+    const now = Date.now()
+    const recentAt = this.recentJobSignatures.get(signature) || 0
+    if (now - recentAt < DUPLICATE_JOB_WINDOW_MS) {
+      console.info(`[PrinterManager] Duplicate ${job.kind} job ${job.payload.orderId || ''} ignored.`)
+      return Promise.resolve({ ok: true, skipped: true, duplicate: true, reason: 'Duplicate print request ignored' })
+    }
+    this.recentJobSignatures.set(signature, now)
+    for (const [key, at] of this.recentJobSignatures) {
+      if (now - at > DUPLICATE_JOB_WINDOW_MS * 4) this.recentJobSignatures.delete(key)
+    }
     const task = this.queue.then(() => this.printWithRetry(job))
     this.queue = task.catch(() => undefined)
     return task
+  }
+
+  private jobSignature(job: PrintJob) {
+    return [
+      job.role,
+      job.kind,
+      job.payload.orderId || '',
+      job.payload.createdAt || '',
+      job.payload.total ?? '',
+      job.payload.lines.length,
+    ].join('|')
   }
 
   private async printWithRetry(job: PrintJob) {
     const printer = this.settings[job.role]
     if (!printer.isEnabled) {
       console.info(`[PrinterManager] ${job.role} disabled. Skipping print job.`)
+      if (this.shouldFallbackToCashier(job)) return this.printFallbackToCashier(job, `${job.role} printer is disabled`)
       return { ok: true, skipped: true, reason: `${job.role} printer is disabled` }
     }
     const configurationIssue = this.getConfigurationIssue(printer)
     if (configurationIssue) {
       if (job.strict) throw new Error(configurationIssue)
       console.info(`[PrinterManager] ${job.role} is not configured. Skipping print job: ${configurationIssue}`)
+      if (this.shouldFallbackToCashier(job)) return this.printFallbackToCashier(job, configurationIssue)
       return { ok: true, skipped: true, reason: configurationIssue }
     }
     let lastError: unknown
@@ -871,7 +962,38 @@ export class PrinterManager {
         }
       }
     }
+    if (this.shouldFallbackToCashier(job)) {
+      const reason = lastError instanceof Error ? lastError.message : `${job.role} printer failed`
+      return this.printFallbackToCashier(job, reason)
+    }
     throw lastError instanceof Error ? lastError : new Error('تعذر إرسال أمر الطباعة.')
+  }
+
+  private shouldFallbackToCashier(job: PrintJob) {
+    return !job.strict && job.role !== 'cashier' && (job.kind === 'kitchen' || job.kind === 'hall')
+  }
+
+  private async printFallbackToCashier(job: PrintJob, reason: string) {
+    const cashier = this.settings.cashier
+    const configurationIssue = this.getConfigurationIssue(cashier)
+    if (!cashier.isEnabled || configurationIssue) {
+      const fallbackReason = !cashier.isEnabled ? 'cashier printer is disabled' : configurationIssue
+      console.warn(`[PrinterManager] ${job.role} fallback failed: ${fallbackReason}`)
+      return { ok: true, skipped: true, fallbackFailed: true, reason: `${reason}. Fallback unavailable: ${fallbackReason}` }
+    }
+    console.warn(`[PrinterManager] ${job.role} ${job.kind} routed to cashier fallback: ${reason}`)
+    try {
+      await this.printWithRetry({
+        ...job,
+        role: 'cashier',
+        strict: false,
+        allowDevicePrompt: false,
+      })
+      return { ok: true, fallback: true, fromRole: job.role, toRole: 'cashier', reason }
+    } catch (error) {
+      const fallbackReason = error instanceof Error ? error.message : String(error || 'cashier fallback failed')
+      return { ok: true, skipped: true, fallbackFailed: true, reason: `${reason}. Fallback failed: ${fallbackReason}` }
+    }
   }
 
   private async print(job: PrintJob, printer: ThermalPrinterSettings, allowDevicePrompt = false) {
@@ -955,6 +1077,7 @@ export class PrinterManager {
     const endpoint = normalizeNetworkPrintEndpoint(printer)
     if (!endpoint) throw new Error('Enter the printer IP or Network Bridge URL.')
     await checkNetworkPrintEndpoint(printer)
+    const profile = getPrinterCapabilityProfile(printer)
     const controller = new AbortController()
     const timeout = window.setTimeout(() => controller.abort(), 120000)
     try {
@@ -966,6 +1089,13 @@ export class PrinterManager {
           printer: printer.deviceName || printer.name,
           paperWidth: printer.paperWidth || '80mm',
           format: 'escpos-raster',
+          modelFamily: profile.modelFamily,
+          capabilities: {
+            supportsCut: profile.supportsCut,
+            supportsCashDrawer: profile.supportsCashDrawer,
+            supportsQr: profile.supportsQr,
+            codePages: profile.codePages,
+          },
           escposBase64: bytesToBase64(bytes),
         }),
       })
@@ -1016,7 +1146,8 @@ export class PrinterManager {
       this.usbClaimedInterfaces[role] = endpoint.interfaceNumber
     }
 
-    const chunkSize = 4096
+    const profile = getPrinterCapabilityProfile(printer)
+    const chunkSize = profile.usbChunkSize
     for (let index = 0; index < bytes.length; index += chunkSize) {
       await device.transferOut(endpoint.endpointNumber, toArrayBuffer(bytes.slice(index, index + chunkSize)))
       if (index + chunkSize < bytes.length) await wait(8)
@@ -1087,11 +1218,12 @@ export class PrinterManager {
 
   private async printBluetooth(role: ThermalPrinterRole, printer: ThermalPrinterSettings, bytes: Uint8Array, allowDevicePrompt = false) {
     let characteristic = this.bluetoothCharacteristics[role] || await this.connectBluetooth(role, printer, allowDevicePrompt)
-    const chunkSize = 96
+    const profile = getPrinterCapabilityProfile(printer)
+    const chunkSize = profile.bluetoothChunkSize
     try {
       for (let index = 0; index < bytes.length; index += chunkSize) {
         await writeBluetoothBytes(characteristic, bytes.slice(index, index + chunkSize))
-        if (index + chunkSize < bytes.length) await wait(25)
+        if (index + chunkSize < bytes.length) await wait(profile.bluetoothChunkDelayMs)
       }
     } catch (error) {
       delete this.bluetoothCharacteristics[role]
@@ -1099,7 +1231,7 @@ export class PrinterManager {
         characteristic = await this.connectBluetooth(role, printer, false)
         for (let index = 0; index < bytes.length; index += chunkSize) {
           await writeBluetoothBytes(characteristic, bytes.slice(index, index + chunkSize))
-          if (index + chunkSize < bytes.length) await wait(35)
+          if (index + chunkSize < bytes.length) await wait(profile.bluetoothChunkDelayMs + 10)
         }
         return
       }
