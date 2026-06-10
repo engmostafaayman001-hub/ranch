@@ -321,11 +321,25 @@ export default function DashboardPosPage() {
         logoUrl: settings.invoiceLogo || settings.heroImage,
         isArabic,
       }
-      const printResults = await Promise.allSettled([
-        printerManager.printCashierReceipt(receiptPayload),
+      setMessage(isArabic ? 'تم البيع وإنشاء الطلب - جاري الطباعة...' : 'Sale completed - printing...')
+      const cashierResult = await printerManager.printCashierReceipt(receiptPayload).catch((error) => ({ failed: true, error }))
+      const cashierValue = cashierResult as { skipped?: boolean; reason?: string; failed?: boolean; error?: unknown }
+      if (cashierValue.failed) {
+        const error = cashierValue.error
+        setMessage(error instanceof Error ? error.message : (isArabic ? 'تم البيع، لكن تعذر إرسال فاتورة الكاشير.' : 'Sale completed, but the cashier receipt could not be sent.'))
+      } else if (cashierValue.skipped) {
+        setMessage(cashierValue.reason || (isArabic ? 'تم البيع، لكن لم ترسل فاتورة الكاشير لأن إعدادات الطابعة غير مكتملة.' : 'Sale completed, but the cashier receipt was not sent because printer settings are incomplete.'))
+      } else {
+        setMessage(isArabic ? `تم البيع وإنشاء الطلب: ${data.order?.id || ''}` : `Sale completed and order created: ${data.order?.id || ''}`)
+      }
+      void Promise.allSettled([
         printerManager.printKitchenTicket(receiptPayload),
         ...(orderType === 'dine_in' ? [printerManager.printHallTicket(receiptPayload)] : []),
-      ])
+      ]).then((results) => {
+        const failedSidePrints = results.filter((result) => result.status === 'rejected').length
+        if (failedSidePrints) console.warn(`[POS] ${failedSidePrints} background print job(s) failed.`)
+      })
+      const printResults: Array<PromiseSettledResult<unknown>> = []
       const failedPrints = printResults.filter((result) => result.status === 'rejected')
       const skippedPrints = printResults.filter((result) => result.status === 'fulfilled' && (result.value as { skipped?: boolean } | undefined)?.skipped)
       const sentPrints = printResults.filter((result) => result.status === 'fulfilled' && (result.value as { skipped?: boolean } | undefined)?.skipped !== true)

@@ -189,10 +189,10 @@ const USB_PRINTER_FILTERS = [
   { vendorId: 0x10c4 },
   { vendorId: 0x0403 },
 ]
-const PRINT_EXTERNAL_ASSET_TIMEOUT_MS = 900
-const PRINT_LOCAL_ASSET_TIMEOUT_MS = 1800
-const NETWORK_HEALTH_CACHE_MS = 15000
-const NETWORK_HEALTH_TIMEOUT_MS = 2500
+const PRINT_EXTERNAL_ASSET_TIMEOUT_MS = 600
+const PRINT_LOCAL_ASSET_TIMEOUT_MS = 800
+const NETWORK_HEALTH_CACHE_MS = 45000
+const NETWORK_HEALTH_TIMEOUT_MS = 900
 const NETWORK_KEEP_ALIVE_MS = 25000
 const printAssetCache = new Map<string, Promise<HTMLImageElement | null>>()
 const qrAssetCache = new Map<string, Promise<HTMLImageElement | null>>()
@@ -412,12 +412,18 @@ function isLocalAsset(url: string) {
 function normalizePrintAssetUrl(url?: string) {
   const trimmed = (url || '').trim()
   if (!trimmed) return ''
-  return trimmed === '/logo.png' || trimmed.endsWith('/logo.png') ? '/favicon.png' : trimmed
+  const normalized = trimmed === '/logo.png' || trimmed.endsWith('/logo.png') ? '/favicon.png' : trimmed
+  if (typeof window === 'undefined' || /^data:|^blob:/i.test(normalized)) return normalized
+  try {
+    return new URL(normalized, window.location.origin).toString()
+  } catch {
+    return normalized
+  }
 }
 
-async function loadImage(url?: string) {
+async function loadImage(url?: string, fallbackUrl?: string): Promise<HTMLImageElement | null> {
   const source = normalizePrintAssetUrl(url)
-  if (!source) return null
+  if (!source) return fallbackUrl ? loadImage(fallbackUrl) : null
   if (printAssetCache.has(source)) return printAssetCache.get(source) || null
   const task = new Promise<HTMLImageElement | null>((resolve) => {
     const image = new Image()
@@ -432,7 +438,14 @@ async function loadImage(url?: string) {
     const timeout = window.setTimeout(() => finish(null), isLocalAsset(source) ? PRINT_LOCAL_ASSET_TIMEOUT_MS : PRINT_EXTERNAL_ASSET_TIMEOUT_MS)
     if (!isLocalAsset(source)) image.crossOrigin = 'anonymous'
     image.onload = () => finish(image)
-    image.onerror = () => finish(null)
+    image.onerror = () => {
+      printAssetCache.delete(source)
+      if (fallbackUrl && normalizePrintAssetUrl(fallbackUrl) !== source) {
+        loadImage(fallbackUrl).then(finish).catch(() => finish(null))
+        return
+      }
+      finish(null)
+    }
     image.src = source
   })
   printAssetCache.set(source, task)
@@ -500,7 +513,7 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
   const right = width - padding
   const textX = isArabic ? right : left
   const center = width / 2
-  const logoPromise = loadImage(job.kind === 'cashier' ? job.payload.logoUrl || '/favicon.png' : undefined)
+  const logoPromise = loadImage(job.kind === 'cashier' ? job.payload.logoUrl || '/favicon.png' : undefined, '/favicon.png')
   const qrImagesPromise = job.kind === 'cashier'
     ? Promise.all([
       loadQrImage(job.payload.invoiceQrUrl),
@@ -932,10 +945,11 @@ export class PrinterManager {
     }
     let lastError: unknown
     const method = printer.method || printer.connectionType
-    const attempts = method === 'system' ? 1 : Math.max(1, Number(printer.retryAttempts || 3))
+    const configuredAttempts = method === 'system' ? 1 : Math.max(1, Number(printer.retryAttempts || 3))
+    const attempts = this.shouldFallbackToCashier(job) ? 1 : configuredAttempts
+    console.info(`[PrinterManager] جاري الطباعة - ${job.kind} على ${job.role}.`)
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       try {
-        console.info(`[PrinterManager] Printing ${job.kind} on ${job.role}. Attempt ${attempt}/${attempts}.`)
         const promptAlreadyHandled = job.allowDevicePrompt === true && (method === 'usb' || method === 'bluetooth')
         if (promptAlreadyHandled) {
           await this.connect(job.role, printer, true, true)
@@ -954,14 +968,15 @@ export class PrinterManager {
         if (isDeviceChooserCancelled(error)) {
           throw new Error('تم إلغاء اختيار الطابعة. افتح نافذة الاختيار مرة أخرى واختر الجهاز عند الطباعة.')
         }
-        console.error(`[PrinterManager] ${job.role} print failed:`, error)
         await this.disconnect(job.role)
         if (attempt < attempts) {
+          console.warn(`[PrinterManager] جاري الطباعة - يتم استكمال الاتصال بالطابعة.`)
           const retryDelay = Math.min(5000, 350 * (2 ** (attempt - 1)))
           await wait(retryDelay)
         }
       }
     }
+    console.error(`[PrinterManager] ${job.role} print failed:`, lastError)
     if (this.shouldFallbackToCashier(job)) {
       const reason = lastError instanceof Error ? lastError.message : `${job.role} printer failed`
       return this.printFallbackToCashier(job, reason)
@@ -1079,7 +1094,7 @@ export class PrinterManager {
     await checkNetworkPrintEndpoint(printer)
     const profile = getPrinterCapabilityProfile(printer)
     const controller = new AbortController()
-    const timeout = window.setTimeout(() => controller.abort(), 120000)
+    const timeout = window.setTimeout(() => controller.abort(), 15000)
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
