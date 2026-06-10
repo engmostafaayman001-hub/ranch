@@ -1005,7 +1005,7 @@ export class PrinterManager {
   }
 
   private shouldFallbackToCashier(job: PrintJob) {
-    return !job.strict && job.role !== 'cashier' && (job.kind === 'kitchen' || job.kind === 'hall')
+    return !job.strict && job.role === 'kitchen' && job.kind === 'kitchen'
   }
 
   private async printFallbackToCashier(job: PrintJob, reason: string) {
@@ -1286,12 +1286,12 @@ export class PrinterManager {
       return
     }
     if (method === 'bluetooth') {
-      await this.connectBluetooth(role, printer, allowDevicePrompt)
+      await this.connectBluetooth(role, printer, allowDevicePrompt, forceHealthCheck)
       return
     }
   }
 
-  private async connectBluetooth(role: ThermalPrinterRole, printer: ThermalPrinterSettings, allowDevicePrompt = false) {
+  private async connectBluetooth(role: ThermalPrinterRole, printer: ThermalPrinterSettings, allowDevicePrompt = false, verifyWrite = false) {
     if (!navigator.bluetooth) throw new Error('هذا المتصفح لا يدعم Web Bluetooth.')
     const device = await this.getBluetoothDevice(role, printer, allowDevicePrompt)
     if (!device.gatt) throw new Error('تعذر فتح اتصال Bluetooth.')
@@ -1307,6 +1307,9 @@ export class PrinterManager {
         for (const charId of BLUETOOTH_PRINT_CHARACTERISTICS) {
           try {
             const characteristic = await service.getCharacteristic(charId)
+            if (verifyWrite) {
+              await writeBluetoothBytes(characteristic, new Uint8Array([0x1b, 0x40]))
+            }
             this.bluetoothCharacteristics[role] = characteristic
             printer.deviceId = device.id || printer.deviceId
             printer.deviceName = device.name || printer.deviceName

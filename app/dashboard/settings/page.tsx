@@ -1,6 +1,6 @@
 'use client'
 
-import { ChangeEvent, useRef, useState } from 'react'
+import { ChangeEvent, useState } from 'react'
 import { AlertCircle, Bluetooth, CheckCircle2, ClipboardCheck, PrinterCheck, QrCode, ReceiptText, Usb, Utensils, Wifi } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -22,7 +22,6 @@ export default function DashboardSettingsPage() {
   const [offerImageStatus, setOfferImageStatus] = useState('')
   const [printerStatus, setPrinterStatus] = useState<Partial<Record<PrinterRole, string>>>({})
   const [activeSection, setActiveSection] = useState<'general' | 'orders' | 'payments' | 'invoice' | 'printers'>('general')
-  const printerSaveTimers = useRef<Partial<Record<PrinterRole, number>>>({})
   const isArabic = language === 'ar'
 
   const text = {
@@ -117,35 +116,16 @@ export default function DashboardSettingsPage() {
           lastConnectedMethod: '',
           ...(nextMethod === 'network'
             ? { deviceId: '', deviceName: currentPrinter.name, deviceAddress: currentPrinter.ip || currentPrinter.deviceAddress || '' }
-            : nextMethod === 'bluetooth' || nextMethod === 'usb'
-              ? { ip: '', deviceAddress: '', deviceId: '', deviceName: currentPrinter.name }
-              : { ip: '', deviceAddress: '', deviceId: '', deviceName: currentPrinter.name }),
+            : { ip: '', deviceAddress: '', deviceId: '', deviceName: currentPrinter.name }),
         }
       : normalizedUpdates
     const printers = {
       ...settings.printers,
       [role]: { ...settings.printers[role], ...isolatedUpdates },
     }
-    updateSettings({
-      printers: {
-        ...printers,
-      },
-    })
+    updateSettings({ printers: { ...printers } })
     syncPrinterManagerSettings(printers)
-    if (printerSaveTimers.current[role]) window.clearTimeout(printerSaveTimers.current[role])
-    const saveDelay = normalizedUpdates.method || normalizedUpdates.connectionType ? 0 : 700
-    printerSaveTimers.current[role] = window.setTimeout(() => {
-      void Promise.resolve().then(() => {
-        syncPrinterManagerSettings(printers)
-      }).catch((error) => {
-        setPrinterStatus((current) => ({
-          ...current,
-          [role]: error instanceof Error ? error.message : (isArabic ? 'تعذر حفظ إعدادات الطابعة.' : 'Could not save printer settings.'),
-        }))
-      })
-    }, saveDelay)
   }
-
   const connectPrinter = async (role: PrinterRole, selectedMethod?: PrinterMethod) => {
     const method = selectedMethod || settings.printers[role].method || settings.printers[role].connectionType || 'network'
     const printers = {
@@ -623,28 +603,26 @@ function PrinterCard({
             {deviceConnected ? (isArabic ? 'إعادة ربط الطابعة' : 'Reconnect Printer') : (isArabic ? 'ربط الطابعة' : 'Connect Printer')}
           </Button>
         )}
-        {false && <>
-        <Button type="button" variant="outline" size="sm" className="hidden" onClick={() => onTest(role, 'connection', method)}>
+        <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'connection', method)}>
           <PrinterCheck className="h-4 w-4" />
           {isArabic ? 'اختبار اتصال' : 'Connection'}
         </Button>
-        <Button type="button" variant="outline" size="sm" className="hidden" onClick={() => onTest(role, 'arabic', method)}>
+        <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'arabic', method)}>
           <ClipboardCheck className="h-4 w-4" />
           {isArabic ? 'اختبار عربي' : 'Arabic'}
         </Button>
-        {role === 'cashier' && <Button type="button" variant="outline" size="sm" className="hidden" onClick={() => onTest(role, 'qr', method)}>
+        {role === 'cashier' && <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'qr', method)}>
           <QrCode className="h-4 w-4" />
           QR
         </Button>}
-        {role === 'kitchen' && <Button type="button" variant="outline" size="sm" className="hidden" onClick={() => onTest(role, 'kitchen', method)}>
+        {role === 'kitchen' && <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'kitchen', method)}>
           <Utensils className="h-4 w-4" />
           Kitchen
         </Button>}
-        {role === 'hall' && <Button type="button" variant="outline" size="sm" className="hidden" onClick={() => onTest(role, 'hall', method)}>
+        {role === 'hall' && <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'hall', method)}>
           <ReceiptText className="h-4 w-4" />
           Hall
         </Button>}
-        </>}
       </div>
       {statusMessage && (
         <p className="mt-3 rounded-md bg-slate-100 p-3 text-sm text-slate-700 dark:bg-slate-900 dark:text-slate-200">
