@@ -239,10 +239,18 @@ const server = http.createServer(async (req, res) => {
 
   try {
     const body = await readJson(req)
-    await enqueuePrint(async () => {
+    const printTask = enqueuePrint(async () => {
       if (body.escposBase64) await printRawEscPos(body)
       else await printImage(body)
     })
+    if (body.respondImmediately !== false) {
+      printTask.catch((error) => {
+        console.error('[XPrinter bridge] Background print failed:', error)
+      })
+      send(res, 202, { ok: true, accepted: true, queueDepth: queuedPrintJobs })
+      return
+    }
+    await printTask
     send(res, 200, { ok: true })
   } catch (error) {
     send(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })

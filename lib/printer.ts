@@ -189,8 +189,9 @@ const USB_PRINTER_FILTERS = [
   { vendorId: 0x10c4 },
   { vendorId: 0x0403 },
 ]
-const PRINT_EXTERNAL_ASSET_TIMEOUT_MS = 600
-const PRINT_LOCAL_ASSET_TIMEOUT_MS = 800
+const DEFAULT_PRINT_LOGO_URL = '/icon-192.png'
+const PRINT_EXTERNAL_ASSET_TIMEOUT_MS = 450
+const PRINT_LOCAL_ASSET_TIMEOUT_MS = 1200
 const NETWORK_HEALTH_CACHE_MS = 45000
 const NETWORK_HEALTH_TIMEOUT_MS = 900
 const NETWORK_KEEP_ALIVE_MS = 25000
@@ -412,7 +413,14 @@ function isLocalAsset(url: string) {
 function normalizePrintAssetUrl(url?: string) {
   const trimmed = (url || '').trim()
   if (!trimmed) return ''
-  const normalized = trimmed === '/logo.png' || trimmed.endsWith('/logo.png') ? '/favicon.png' : trimmed
+  const assetPath = (() => {
+    try {
+      return new URL(trimmed, typeof window === 'undefined' ? 'http://localhost' : window.location.origin).pathname
+    } catch {
+      return trimmed.split('?')[0].split('#')[0]
+    }
+  })()
+  const normalized = assetPath.endsWith('/logo.png') || assetPath.endsWith('/favicon.png') ? DEFAULT_PRINT_LOGO_URL : trimmed
   if (typeof window === 'undefined' || /^data:|^blob:/i.test(normalized)) return normalized
   try {
     return new URL(normalized, window.location.origin).toString()
@@ -513,7 +521,7 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
   const right = width - padding
   const textX = isArabic ? right : left
   const center = width / 2
-  const logoPromise = loadImage(job.kind === 'cashier' ? job.payload.logoUrl || '/favicon.png' : undefined, '/favicon.png')
+  const logoPromise = loadImage(job.kind === 'cashier' ? job.payload.logoUrl || DEFAULT_PRINT_LOGO_URL : undefined, DEFAULT_PRINT_LOGO_URL)
   const qrImagesPromise = job.kind === 'cashier'
     ? Promise.all([
       loadQrImage(job.payload.invoiceQrUrl),
@@ -1091,10 +1099,9 @@ export class PrinterManager {
   private async printNetwork(printer: ThermalPrinterSettings, bytes: Uint8Array) {
     const endpoint = normalizeNetworkPrintEndpoint(printer)
     if (!endpoint) throw new Error('Enter the printer IP or Network Bridge URL.')
-    await checkNetworkPrintEndpoint(printer)
     const profile = getPrinterCapabilityProfile(printer)
     const controller = new AbortController()
-    const timeout = window.setTimeout(() => controller.abort(), 15000)
+    const timeout = window.setTimeout(() => controller.abort(), 6000)
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -1104,6 +1111,7 @@ export class PrinterManager {
           printer: printer.deviceName || printer.name,
           paperWidth: printer.paperWidth || '80mm',
           format: 'escpos-raster',
+          respondImmediately: true,
           modelFamily: profile.modelFamily,
           capabilities: {
             supportsCut: profile.supportsCut,
