@@ -408,6 +408,8 @@ function qrValue(value?: string) {
   return trimmed
 }
 
+const APP_LOGO_URL = '/logo.png'
+
 function isLocalAsset(url: string) {
   return /^data:|^blob:/i.test(url) || url.startsWith('/') || (typeof window !== 'undefined' && url.startsWith(window.location.origin))
 }
@@ -415,14 +417,7 @@ function isLocalAsset(url: string) {
 function normalizePrintAssetUrl(url?: string) {
   const trimmed = (url || '').trim()
   if (!trimmed) return ''
-  const assetPath = (() => {
-    try {
-      return new URL(trimmed, typeof window === 'undefined' ? 'http://localhost' : window.location.origin).pathname
-    } catch {
-      return trimmed.split('?')[0].split('#')[0]
-    }
-  })()
-  const normalized = assetPath.endsWith('/logo.png') || assetPath.endsWith('/favicon.png') ? '' : trimmed
+  const normalized = trimmed
   if (typeof window === 'undefined' || /^data:|^blob:/i.test(normalized)) return normalized
   try {
     return new URL(normalized, window.location.origin).toString()
@@ -523,12 +518,10 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
   const right = width - padding
   const textX = isArabic ? right : left
   const center = width / 2
-  const logoPromise = loadImage(job.kind === 'cashier' ? job.payload.logoUrl : undefined)
+  const logoPromise = job.kind === 'cashier' ? loadImage(job.payload.logoUrl, APP_LOGO_URL) : Promise.resolve(null)
+  const qrValues = [job.payload.invoiceQrUrl, job.payload.invoiceQrUrl2].map(qrValue).filter(Boolean)
   const qrImagesPromise = job.kind === 'cashier'
-    ? Promise.all([
-      loadQrImage(job.payload.invoiceQrUrl),
-      loadQrImage(job.payload.invoiceQrUrl2),
-    ]).then((images) => images.filter(Boolean) as HTMLImageElement[])
+    ? Promise.all(qrValues.map((value) => loadQrImage(value))).then((images) => images.filter(Boolean) as HTMLImageElement[])
     : Promise.resolve([] as HTMLImageElement[])
 
   const setFont = (size: number, weight = 700) => {
@@ -593,7 +586,7 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
   }
 
   const logo = await logoPromise
-  if (job.kind === 'cashier' && logo) drawLogo(logo)
+  if (job.kind === 'cashier') drawLogo(logo)
 
   drawText(job.payload.invoiceName || (isArabic ? 'فاتورة طلب' : 'Order Receipt'), { size: 27, weight: 900, align: 'center' })
   if (job.payload.invoiceAddress) {

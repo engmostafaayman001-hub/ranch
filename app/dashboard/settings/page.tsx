@@ -14,11 +14,14 @@ import { imageFileToOptimizedDataUrl, isAcceptedImageFile } from '@/lib/client-i
 import { printerManager, syncPrinterManagerSettings, type ThermalPrinterSettings } from '@/lib/printer'
 import { saveSharedSettings, useSharedAppData } from '@/lib/use-shared-app-data'
 
+const APP_LOGO_URL = '/logo.png'
+
 export default function DashboardSettingsPage() {
-  useSharedAppData({ poll: false })
+  const { loading: settingsLoading } = useSharedAppData({ poll: false })
   const { language, setLanguage } = useLanguage()
   const { settings, updateSettings } = useAppStore()
   const [saveStatus, setSaveStatus] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
   const [offerImageStatus, setOfferImageStatus] = useState('')
   const [printerStatus, setPrinterStatus] = useState<Partial<Record<PrinterRole, string>>>({})
   const [activeSection, setActiveSection] = useState<'general' | 'orders' | 'payments' | 'invoice' | 'printers'>('general')
@@ -72,6 +75,11 @@ export default function DashboardSettingsPage() {
   }
 
   const handleInvoiceLogoFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    if (settingsLoading) {
+      event.target.value = ''
+      setOfferImageStatus(isArabic ? 'انتظر لحظة حتى تنتهي الإعدادات من التحميل.' : 'Wait a moment for settings to finish loading.')
+      return
+    }
     const file = event.target.files?.[0]
     if (!file) return
     if (!isAcceptedImageFile(file)) {
@@ -90,13 +98,48 @@ export default function DashboardSettingsPage() {
     }
   }
 
+  const useAppLogo = () => {
+    updateSettings({ invoiceLogo: APP_LOGO_URL })
+    setOfferImageStatus(isArabic ? 'تم اختيار لوجو التطبيق. اضغط حفظ التغييرات لاعتماده.' : 'App logo selected. Press Save Changes to publish it.')
+  }
+
+  const updateInvoiceQr = (key: 'invoiceQrUrl' | 'invoiceQrUrl2', value: string) => {
+    if (!value.trim()) {
+      updateSettings({ [key]: value })
+      return
+    }
+    const printers = {
+      ...settings.printers,
+      cashier: { ...settings.printers.cashier, printsQr: true },
+    }
+    updateSettings({ [key]: value, printers })
+    syncPrinterManagerSettings(printers)
+  }
+
   const handleSave = async () => {
+    if (isSaving || settingsLoading) return
+    setIsSaving(true)
+    setSaveStatus(isArabic ? 'جاري حفظ التغييرات...' : 'Saving changes...')
     try {
-      const data = await saveSharedSettings(settings)
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+      let latestSettings = useAppStore.getState().settings
+      const hasQrLinks = Boolean(latestSettings.invoiceQrUrl?.trim() || latestSettings.invoiceQrUrl2?.trim())
+      if (hasQrLinks && latestSettings.printers.cashier.printsQr === false) {
+        const printers = {
+          ...latestSettings.printers,
+          cashier: { ...latestSettings.printers.cashier, printsQr: true },
+        }
+        latestSettings = { ...latestSettings, printers }
+        updateSettings({ printers })
+        syncPrinterManagerSettings(printers)
+      }
+      const data = await saveSharedSettings(latestSettings)
       if (data.settings) updateSettings(data.settings)
       setSaveStatus(text.saved)
     } catch (error) {
       setSaveStatus(error instanceof Error ? error.message : text.failed)
+    } finally {
+      setIsSaving(false)
     }
     window.setTimeout(() => setSaveStatus(''), 3000)
   }
@@ -198,6 +241,8 @@ export default function DashboardSettingsPage() {
     }
   }
 
+  const invoiceLogoPreview = settings.invoiceLogo || APP_LOGO_URL
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -206,8 +251,10 @@ export default function DashboardSettingsPage() {
           <p className="mt-2 text-slate-500 dark:text-slate-400">{text.subtitle}</p>
         </div>
         <div className="flex flex-col items-end gap-2">
-          <Button onClick={handleSave} className="bg-red-600 hover:bg-red-700">{text.save}</Button>
-          {saveStatus && <p className="text-sm font-medium text-green-600">{saveStatus}</p>}
+          <Button onClick={handleSave} disabled={isSaving || settingsLoading} className="bg-red-600 hover:bg-red-700">
+            {isSaving ? (isArabic ? 'جاري الحفظ...' : 'Saving...') : text.save}
+          </Button>
+          {saveStatus && <p className={`text-sm font-medium ${isSaving ? 'text-slate-500' : 'text-green-600'}`}>{saveStatus}</p>}
         </div>
       </div>
 
@@ -314,9 +361,9 @@ export default function DashboardSettingsPage() {
         <CardContent className="space-y-4">
           <div className="grid gap-4 md:grid-cols-[12rem_1fr]">
             <div className="flex h-36 items-center justify-center rounded-md border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
-              {settings.invoiceLogo ? (
+              {invoiceLogoPreview ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={settings.invoiceLogo} alt="Invoice logo" className="max-h-full max-w-full object-contain" />
+                <img src={invoiceLogoPreview} alt="Invoice logo" className="max-h-full max-w-full object-contain" />
               ) : (
                 <span className="text-sm text-slate-500">{isArabic ? 'لا يوجد لوجو' : 'No logo'}</span>
               )}
@@ -324,7 +371,12 @@ export default function DashboardSettingsPage() {
             <div className="space-y-3">
               <div>
                 <Label htmlFor="invoice-logo">{isArabic ? 'لوجو الفاتورة' : 'Invoice logo'}</Label>
-                <FileInput id="invoice-logo" accept="image/*" onChange={handleInvoiceLogoFile} className="mt-1" />
+                <FileInput id="invoice-logo" accept="image/*" onChange={handleInvoiceLogoFile} disabled={settingsLoading || isSaving} className="mt-1" />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" onClick={useAppLogo} disabled={settingsLoading || isSaving}>
+                  {isArabic ? 'استخدام لوجو التطبيق' : 'Use app logo'}
+                </Button>
               </div>
               <p className="text-xs text-slate-500">
                 {isArabic ? 'سيظهر هذا اللوجو أعلى فاتورة الكاشير فقط، ولا يظهر في تذاكر المطبخ أو الصالة.' : 'This logo appears at the top of cashier receipts only, not kitchen or hall tickets.'}
@@ -336,8 +388,8 @@ export default function DashboardSettingsPage() {
             <Field id="invoice-name-en" label={isArabic ? 'اسم المطعم في الفاتورة بالإنجليزية' : 'Invoice restaurant name in English'} value={settings.invoiceNameEn || ''} onChange={(value) => updateSettings({ invoiceNameEn: value })} />
           </div>
           <div className="grid gap-4 md:grid-cols-2">
-            <Field id="invoice-qr-url" label={isArabic ? 'رابط QR الأول في الفاتورة' : 'First invoice QR link'} value={settings.invoiceQrUrl || ''} onChange={(value) => updateSettings({ invoiceQrUrl: value })} />
-            <Field id="invoice-qr-url-2" label={isArabic ? 'رابط QR الثاني في الفاتورة' : 'Second invoice QR link'} value={settings.invoiceQrUrl2 || ''} onChange={(value) => updateSettings({ invoiceQrUrl2: value })} />
+            <Field id="invoice-qr-url" label={isArabic ? 'رابط QR الأول في الفاتورة' : 'First invoice QR link'} value={settings.invoiceQrUrl || ''} onChange={(value) => updateInvoiceQr('invoiceQrUrl', value)} />
+            <Field id="invoice-qr-url-2" label={isArabic ? 'رابط QR الثاني في الفاتورة' : 'Second invoice QR link'} value={settings.invoiceQrUrl2 || ''} onChange={(value) => updateInvoiceQr('invoiceQrUrl2', value)} />
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             <div>
