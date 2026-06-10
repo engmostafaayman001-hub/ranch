@@ -1,6 +1,6 @@
 'use client'
 
-import { ChangeEvent, useEffect, useRef, useState } from 'react'
+import { ChangeEvent, useRef, useState } from 'react'
 import { AlertCircle, Bluetooth, CheckCircle2, ClipboardCheck, PrinterCheck, QrCode, ReceiptText, Usb, Utensils, Wifi } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -24,15 +24,6 @@ export default function DashboardSettingsPage() {
   const [activeSection, setActiveSection] = useState<'general' | 'orders' | 'payments' | 'invoice' | 'printers'>('general')
   const printerSaveTimers = useRef<Partial<Record<PrinterRole, number>>>({})
   const isArabic = language === 'ar'
-
-  useEffect(() => {
-    const timers = printerSaveTimers.current
-    return () => {
-      Object.values(timers).forEach((timer) => {
-        if (timer) window.clearTimeout(timer)
-      })
-    }
-  }, [])
 
   const text = {
     title: isArabic ? 'الإعدادات' : 'Settings',
@@ -111,18 +102,29 @@ export default function DashboardSettingsPage() {
   }
 
   const updatePrinter = (role: PrinterRole, updates: Partial<PrinterConnection>) => {
+    const currentPrinter = settings.printers[role]
     const normalizedUpdates = updates.method
       ? { ...updates, connectionType: updates.method }
       : updates.connectionType
         ? { ...updates, method: updates.connectionType }
         : updates
+    const nextMethod = normalizedUpdates.method || normalizedUpdates.connectionType
+    const methodChanged = Boolean(nextMethod && nextMethod !== (currentPrinter.method || currentPrinter.connectionType))
+    const isolatedUpdates: Partial<PrinterConnection> = methodChanged
+      ? {
+          ...normalizedUpdates,
+          lastConnected: '',
+          lastConnectedMethod: '',
+          ...(nextMethod === 'network'
+            ? { deviceId: '', deviceName: currentPrinter.name, deviceAddress: currentPrinter.ip || currentPrinter.deviceAddress || '' }
+            : nextMethod === 'bluetooth' || nextMethod === 'usb'
+              ? { ip: '', deviceAddress: '', deviceId: '', deviceName: currentPrinter.name }
+              : { ip: '', deviceAddress: '', deviceId: '', deviceName: currentPrinter.name }),
+        }
+      : normalizedUpdates
     const printers = {
       ...settings.printers,
-      [role]: { ...settings.printers[role], ...normalizedUpdates },
-    }
-    const nextSettings = {
-      ...settings,
-      printers,
+      [role]: { ...settings.printers[role], ...isolatedUpdates },
     }
     updateSettings({
       printers: {
@@ -133,7 +135,7 @@ export default function DashboardSettingsPage() {
     if (printerSaveTimers.current[role]) window.clearTimeout(printerSaveTimers.current[role])
     const saveDelay = normalizedUpdates.method || normalizedUpdates.connectionType ? 0 : 700
     printerSaveTimers.current[role] = window.setTimeout(() => {
-      void saveSharedSettings(nextSettings).then(() => {
+      void Promise.resolve().then(() => {
         syncPrinterManagerSettings(printers)
       }).catch((error) => {
         setPrinterStatus((current) => ({
@@ -159,8 +161,10 @@ export default function DashboardSettingsPage() {
         connectionType: method,
         deviceId: result.printer.deviceId || '',
         deviceName: result.printer.deviceName || result.printer.name || settings.printers[role].deviceName,
-        deviceAddress: result.printer.deviceAddress || settings.printers[role].deviceAddress,
+        deviceAddress: method === 'network' ? result.printer.deviceAddress || settings.printers[role].deviceAddress : '',
+        ip: method === 'network' ? result.printer.ip || settings.printers[role].ip : '',
         lastConnected: result.printer.lastConnected || new Date().toISOString(),
+        lastConnectedMethod: method,
       })
       setPrinterStatus((current) => ({ ...current, [role]: isArabic ? 'تم ربط الطابعة. ستتم الطباعة تلقائيا في الطلبات التالية.' : 'Printer connected. Future orders will print automatically.' }))
     } catch (error) {
@@ -189,7 +193,7 @@ export default function DashboardSettingsPage() {
           invoiceQrUrl: kind === 'qr' ? settings.invoiceQrUrl || 'https://markode.co' : settings.invoiceQrUrl,
           invoiceQrUrl2: kind === 'qr' ? settings.invoiceQrUrl2 : settings.invoiceQrUrl2,
           invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
-          logoUrl: settings.invoiceLogo || settings.heroImage,
+          logoUrl: settings.invoiceLogo,
           isArabic,
         })
         testedPrinter = printerManager.getPrinters()[role]
@@ -199,8 +203,10 @@ export default function DashboardSettingsPage() {
         connectionType: method,
         deviceId: testedPrinter.deviceId || settings.printers[role].deviceId || '',
         deviceName: testedPrinter.deviceName || testedPrinter.name || settings.printers[role].deviceName,
-        deviceAddress: testedPrinter.deviceAddress || settings.printers[role].deviceAddress,
+        deviceAddress: method === 'network' ? testedPrinter.deviceAddress || settings.printers[role].deviceAddress : '',
+        ip: method === 'network' ? testedPrinter.ip || settings.printers[role].ip : '',
         lastConnected: testedPrinter.lastConnected || new Date().toISOString(),
+        lastConnectedMethod: method,
       })
       setPrinterStatus((current) => ({ ...current, [role]: isArabic ? 'تم إرسال أمر الاختبار بنجاح.' : 'Test command sent successfully.' }))
     } catch (error) {
@@ -336,11 +342,11 @@ export default function DashboardSettingsPage() {
                 <Label htmlFor="invoice-logo">{isArabic ? 'لوجو الفاتورة' : 'Invoice logo'}</Label>
                 <FileInput id="invoice-logo" accept="image/*" onChange={handleInvoiceLogoFile} className="mt-1" />
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" onClick={() => updateSettings({ invoiceLogo: settings.heroImage || '/favicon.png' })}>
+              <div className="hidden">
+                <Button type="button" variant="outline" onClick={() => updateSettings({ invoiceLogo: '' })}>
                   {isArabic ? 'استخدام صورة التطبيق' : 'Use app image'}
                 </Button>
-                <Button type="button" variant="outline" onClick={() => updateSettings({ invoiceLogo: '/favicon.png' })}>
+                <Button type="button" variant="outline" onClick={() => updateSettings({ invoiceLogo: '' })}>
                   {isArabic ? 'استخدام اللوجو الافتراضي' : 'Use default logo'}
                 </Button>
               </div>
@@ -487,7 +493,8 @@ function PrinterCard({
   const networkReady = Boolean((printer.ip || printer.deviceAddress || '').trim())
   const savedDeviceName = (printer.deviceName || '').trim()
   const genericDeviceNames = new Set(['Cashier Printer', 'Kitchen Printer', 'Hall Printer', printer.name || ''])
-  const deviceConnected = Boolean(printer.lastConnected && (printer.deviceId || printer.deviceAddress || (savedDeviceName && !genericDeviceNames.has(savedDeviceName))))
+  const methodConnected = printer.lastConnectedMethod === method
+  const deviceConnected = Boolean(methodConnected && printer.lastConnected && (printer.deviceId || (savedDeviceName && !genericDeviceNames.has(savedDeviceName))))
   const ready = enabled && (method === 'network' ? networkReady : method === 'system' ? true : deviceConnected)
   const status = !enabled
     ? { label: isArabic ? 'غير مفعلة' : 'Disabled', className: 'bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300', icon: AlertCircle }
@@ -542,7 +549,7 @@ function PrinterCard({
             <button
               key={option.value}
               type="button"
-              onClick={() => onChange(role, { method: option.value, connectionType: option.value, isEnabled: true, lastConnected: method === option.value ? printer.lastConnected : '' })}
+              onClick={() => onChange(role, { method: option.value, connectionType: option.value, isEnabled: true, lastConnected: method === option.value ? printer.lastConnected : '', lastConnectedMethod: method === option.value ? printer.lastConnectedMethod : '' })}
               className={`min-h-20 rounded-md border p-3 text-start transition ${active ? 'border-blue-500 bg-blue-50 text-blue-950 ring-1 ring-blue-500 dark:bg-blue-950/40 dark:text-blue-100' : 'border-slate-200 bg-white hover:border-blue-200 dark:border-slate-800 dark:bg-slate-950'}`}
             >
               <span className="flex items-center gap-2 text-sm font-bold">
@@ -616,26 +623,28 @@ function PrinterCard({
             {deviceConnected ? (isArabic ? 'إعادة ربط الطابعة' : 'Reconnect Printer') : (isArabic ? 'ربط الطابعة' : 'Connect Printer')}
           </Button>
         )}
-        <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'connection', method)}>
+        {false && <>
+        <Button type="button" variant="outline" size="sm" className="hidden" onClick={() => onTest(role, 'connection', method)}>
           <PrinterCheck className="h-4 w-4" />
           {isArabic ? 'اختبار اتصال' : 'Connection'}
         </Button>
-        <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'arabic', method)}>
+        <Button type="button" variant="outline" size="sm" className="hidden" onClick={() => onTest(role, 'arabic', method)}>
           <ClipboardCheck className="h-4 w-4" />
           {isArabic ? 'اختبار عربي' : 'Arabic'}
         </Button>
-        {role === 'cashier' && <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'qr', method)}>
+        {role === 'cashier' && <Button type="button" variant="outline" size="sm" className="hidden" onClick={() => onTest(role, 'qr', method)}>
           <QrCode className="h-4 w-4" />
           QR
         </Button>}
-        {role === 'kitchen' && <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'kitchen', method)}>
+        {role === 'kitchen' && <Button type="button" variant="outline" size="sm" className="hidden" onClick={() => onTest(role, 'kitchen', method)}>
           <Utensils className="h-4 w-4" />
           Kitchen
         </Button>}
-        {role === 'hall' && <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => onTest(role, 'hall', method)}>
+        {role === 'hall' && <Button type="button" variant="outline" size="sm" className="hidden" onClick={() => onTest(role, 'hall', method)}>
           <ReceiptText className="h-4 w-4" />
           Hall
         </Button>}
+        </>}
       </div>
       {statusMessage && (
         <p className="mt-3 rounded-md bg-slate-100 p-3 text-sm text-slate-700 dark:bg-slate-900 dark:text-slate-200">

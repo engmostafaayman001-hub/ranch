@@ -44,6 +44,7 @@ export type ThermalPrinterSettings = {
   retryAttempts?: number
   isEnabled?: boolean
   lastConnected?: string
+  lastConnectedMethod?: ThermalConnectionType | ''
   printsMainInvoice?: boolean
   printsQr?: boolean
   modelFamily?: PrinterModelFamily
@@ -141,6 +142,7 @@ type BluetoothDeviceLike = {
   addEventListener?: (type: string, listener: () => void) => void
   gatt?: {
     connected: boolean
+    disconnect?: () => void
     connect: () => Promise<{
       getPrimaryService: (service: string) => Promise<{
         getCharacteristic: (characteristic: string) => Promise<BluetoothCharacteristic>
@@ -189,7 +191,6 @@ const USB_PRINTER_FILTERS = [
   { vendorId: 0x10c4 },
   { vendorId: 0x0403 },
 ]
-const DEFAULT_PRINT_LOGO_URL = '/icon-192.png'
 const PRINT_EXTERNAL_ASSET_TIMEOUT_MS = 450
 const PRINT_LOCAL_ASSET_TIMEOUT_MS = 1200
 const NETWORK_HEALTH_CACHE_MS = 45000
@@ -273,8 +274,8 @@ function getPrinterCapabilityProfile(printer: ThermalPrinterSettings): PrinterCa
       ? [printer.codePage]
       : ['utf8', 'cp864', 'cp720', 'cp1256'],
     usbChunkSize: modelFamily === 'sunmi' || modelFamily === 'zebra' ? 2048 : 4096,
-    bluetoothChunkSize: conservativeBluetooth ? 64 : 96,
-    bluetoothChunkDelayMs: conservativeBluetooth ? 35 : 25,
+    bluetoothChunkSize: conservativeBluetooth ? 120 : 180,
+    bluetoothChunkDelayMs: conservativeBluetooth ? 12 : 8,
   }
 }
 
@@ -289,6 +290,7 @@ function normalizePrinter(input: Partial<ThermalPrinterSettings> | undefined, ro
     method: method === 'bluetooth' || method === 'usb' || method === 'network' || method === 'system' ? method : 'network',
     connectionType: method === 'bluetooth' || method === 'usb' || method === 'network' || method === 'system' ? method : 'network',
     deviceName: next.deviceName || next.name || defaultPrinters[role].deviceName,
+    lastConnectedMethod: next.lastConnectedMethod === method ? next.lastConnectedMethod : '',
     retryAttempts: Math.max(1, Number(next.retryAttempts || 3)),
     fontScale: Math.min(1.6, Math.max(0.75, Number(next.fontScale || 1))),
     isEnabled: next.isEnabled === true,
@@ -420,7 +422,7 @@ function normalizePrintAssetUrl(url?: string) {
       return trimmed.split('?')[0].split('#')[0]
     }
   })()
-  const normalized = assetPath.endsWith('/logo.png') || assetPath.endsWith('/favicon.png') ? DEFAULT_PRINT_LOGO_URL : trimmed
+  const normalized = assetPath.endsWith('/logo.png') || assetPath.endsWith('/favicon.png') ? '' : trimmed
   if (typeof window === 'undefined' || /^data:|^blob:/i.test(normalized)) return normalized
   try {
     return new URL(normalized, window.location.origin).toString()
@@ -521,7 +523,7 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
   const right = width - padding
   const textX = isArabic ? right : left
   const center = width / 2
-  const logoPromise = loadImage(job.kind === 'cashier' ? job.payload.logoUrl || DEFAULT_PRINT_LOGO_URL : undefined, DEFAULT_PRINT_LOGO_URL)
+  const logoPromise = loadImage(job.kind === 'cashier' ? job.payload.logoUrl : undefined)
   const qrImagesPromise = job.kind === 'cashier'
     ? Promise.all([
       loadQrImage(job.payload.invoiceQrUrl),
@@ -591,7 +593,7 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
   }
 
   const logo = await logoPromise
-  if (job.kind === 'cashier') drawLogo(logo)
+  if (job.kind === 'cashier' && logo) drawLogo(logo)
 
   drawText(job.payload.invoiceName || (isArabic ? 'فاتورة طلب' : 'Order Receipt'), { size: 27, weight: 900, align: 'center' })
   if (job.payload.invoiceAddress) {
@@ -804,7 +806,17 @@ export class PrinterManager {
   }
 
   setPrinters(printers: Partial<Record<ThermalPrinterRole, Partial<ThermalPrinterSettings>>>) {
-    this.settings = normalizePrinters(printers)
+    const nextSettings = normalizePrinters(printers)
+    for (const role of Object.keys(nextSettings) as ThermalPrinterRole[]) {
+      const previousMethod = this.settings[role]?.method || this.settings[role]?.connectionType
+      const nextMethod = nextSettings[role]?.method || nextSettings[role]?.connectionType
+      if (previousMethod && nextMethod && previousMethod !== nextMethod) {
+        void this.disconnect(role)
+        nextSettings[role].lastConnected = ''
+        nextSettings[role].lastConnectedMethod = ''
+      }
+    }
+    this.settings = nextSettings
     this.saveSettings()
     this.configureNetworkKeepAlive()
   }
@@ -813,6 +825,7 @@ export class PrinterManager {
     const printer = this.settings[role]
     await this.connect(role, printer, true, true)
     printer.lastConnected = new Date().toISOString()
+    printer.lastConnectedMethod = printer.method || printer.connectionType || ''
     this.saveSettings()
     return { ok: true, message: 'تم الاتصال بالطابعة بنجاح.', printer: { ...printer } }
   }
@@ -821,6 +834,7 @@ export class PrinterManager {
     const printer = this.settings[role]
     await this.connect(role, printer, true, true)
     printer.lastConnected = new Date().toISOString()
+    printer.lastConnectedMethod = printer.method || printer.connectionType || ''
     this.saveSettings()
     return { ok: true, printer: { ...printer } }
   }
@@ -899,6 +913,7 @@ export class PrinterManager {
         try {
           await checkNetworkPrintEndpoint(printer)
           printer.lastConnected = new Date().toISOString()
+          printer.lastConnectedMethod = 'network'
         } catch (error) {
           console.info(`[PrinterManager] ${role} Network Bridge keep-alive missed.`, error)
         }
@@ -958,12 +973,9 @@ export class PrinterManager {
     console.info(`[PrinterManager] جاري الطباعة - ${job.kind} على ${job.role}.`)
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       try {
-        const promptAlreadyHandled = job.allowDevicePrompt === true && (method === 'usb' || method === 'bluetooth')
-        if (promptAlreadyHandled) {
-          await this.connect(job.role, printer, true, true)
-        }
-        await this.print(job, printer, promptAlreadyHandled ? false : job.allowDevicePrompt === true)
+        await this.print(job, printer, job.allowDevicePrompt === true)
         printer.lastConnected = new Date().toISOString()
+        printer.lastConnectedMethod = method || ''
         this.saveSettings()
         return { ok: true }
       } catch (error) {
@@ -1254,7 +1266,7 @@ export class PrinterManager {
         characteristic = await this.connectBluetooth(role, printer, false)
         for (let index = 0; index < bytes.length; index += chunkSize) {
           await writeBluetoothBytes(characteristic, bytes.slice(index, index + chunkSize))
-          if (index + chunkSize < bytes.length) await wait(profile.bluetoothChunkDelayMs + 10)
+          if (index + chunkSize < bytes.length) await wait(profile.bluetoothChunkDelayMs)
         }
         return
       }
@@ -1295,12 +1307,11 @@ export class PrinterManager {
         for (const charId of BLUETOOTH_PRINT_CHARACTERISTICS) {
           try {
             const characteristic = await service.getCharacteristic(charId)
-            await writeBluetoothBytes(characteristic, new Uint8Array([0x1b, 0x40]))
-            await wait(120)
             this.bluetoothCharacteristics[role] = characteristic
             printer.deviceId = device.id || printer.deviceId
             printer.deviceName = device.name || printer.deviceName
             printer.lastConnected = new Date().toISOString()
+            printer.lastConnectedMethod = 'bluetooth'
             this.saveSettings()
             return characteristic
           } catch (error) {
@@ -1353,7 +1364,17 @@ export class PrinterManager {
   }
 
   private async disconnect(role: ThermalPrinterRole) {
+    const bluetoothDevice = this.bluetoothDevices[role]
+    if (bluetoothDevice?.gatt?.connected && typeof bluetoothDevice.gatt.disconnect === 'function') {
+      try {
+        bluetoothDevice.gatt.disconnect()
+      } catch {
+        // Ignore disconnect failures; the next connect path will rebuild the session.
+      }
+    }
     delete this.bluetoothCharacteristics[role]
+    delete this.bluetoothDevices[role]
+    delete this.usbDevices[role]
     delete this.usbClaimedInterfaces[role]
   }
 

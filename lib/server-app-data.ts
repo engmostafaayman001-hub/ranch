@@ -60,6 +60,7 @@ function normalizeSharedData(data: Partial<SharedAppData> | null | undefined): S
       ...incoming,
       method,
       connectionType: method,
+      lastConnectedMethod: incoming.lastConnectedMethod === method ? incoming.lastConnectedMethod : '',
       deviceName: incoming.deviceName || incoming.name || defaultPrinters[role].deviceName,
     }
   }
@@ -92,6 +93,9 @@ function normalizeSharedPrinters(printers?: Partial<AppSettings['printers']>, cu
       ...incoming,
       method,
       connectionType: method,
+      lastConnectedMethod: incoming.lastConnectedMethod === method || base.lastConnectedMethod === method
+        ? incoming.lastConnectedMethod || base.lastConnectedMethod
+        : '',
       deviceName: incoming.deviceName || incoming.name || base.deviceName || base.name || defaultPrinters[role].deviceName,
     }
   }

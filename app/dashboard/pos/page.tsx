@@ -1,7 +1,7 @@
 'use client'
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Banknote, Bike, CreditCard, Printer, Minus, Plus, Search, ShoppingCart, Smartphone, Store, Trash2, Truck, Utensils } from 'lucide-react'
+import { ArrowLeft, Banknote, Bike, CreditCard, Printer, Minus, Plus, Search, ShoppingCart, Smartphone, Store, Trash2, Truck, Utensils, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -13,7 +13,7 @@ import { isDisplayableImage } from '@/lib/client-images'
 import { TrackedOrder } from '@/lib/order-tracking'
 import { printerManager, syncPrinterManagerSettings } from '@/lib/printer'
 import { createClosingReceiptPayload } from '@/lib/closing-print'
-import { createDriverClosingReceiptPayload } from '@/lib/driver-closing-print'
+import { createDriverClosingReceiptPayload, getDriverClosingGroups } from '@/lib/driver-closing-print'
 import { useSharedAppData } from '@/lib/use-shared-app-data'
 
 type PosLine = {
@@ -66,6 +66,7 @@ export default function DashboardPosPage() {
   const [savedCustomers, setSavedCustomers] = useState<PosCustomer[]>([])
   const [customerSearch, setCustomerSearch] = useState('')
   const [showCustomerResults, setShowCustomerResults] = useState(false)
+  const [driverClosingOpen, setDriverClosingOpen] = useState(false)
   const loadingDailyClosing = useRef(false)
   const [customer, setCustomer] = useState({
     name: isArabic ? 'عميل مطعم' : 'Restaurant Customer',
@@ -88,6 +89,20 @@ export default function DashboardPosPage() {
   const selectedDriver = drivers.find((driver) => driver.id === selectedDriverId)
   const activeDrivers = drivers.filter((driver) => driver.status === 'active')
   const activeCategories = categories.filter((category) => category.active && products.some((product) => product.available && product.categoryId === category.id))
+  const todayDriverClosingOrders = useMemo(() => {
+    const today = new Date()
+    const start = new Date(today)
+    start.setHours(0, 0, 0, 0)
+    const end = new Date(today)
+    end.setHours(23, 59, 59, 999)
+    return dailyOrders.filter((order) => {
+      const date = new Date(order.createdAt || '')
+      return !Number.isNaN(date.getTime()) && date.getTime() >= start.getTime() && date.getTime() <= end.getTime()
+    })
+  }, [dailyOrders])
+  const driverClosingGroups = useMemo(() => getDriverClosingGroups(todayDriverClosingOrders), [todayDriverClosingOrders])
+  const driverClosingTotal = useMemo(() => driverClosingGroups.reduce((sum, group) => sum + group.total, 0), [driverClosingGroups])
+  const driverClosingOrderCount = useMemo(() => driverClosingGroups.reduce((sum, group) => sum + group.orders.length, 0), [driverClosingGroups])
   const customerMatches = savedCustomers
     .filter((item) => {
       const term = customerSearch.trim().toLowerCase()
@@ -318,7 +333,7 @@ export default function DashboardPosPage() {
         invoiceQrUrl: settings.printers.cashier.printsQr === false ? undefined : settings.invoiceQrUrl,
         invoiceQrUrl2: settings.printers.cashier.printsQr === false ? undefined : settings.invoiceQrUrl2,
         invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
-        logoUrl: settings.invoiceLogo || settings.heroImage,
+        logoUrl: settings.invoiceLogo,
         isArabic,
       }
       setMessage(isArabic ? 'تم البيع وإنشاء الطلب - جاري الطباعة...' : 'Sale completed - printing...')
@@ -376,7 +391,7 @@ export default function DashboardPosPage() {
           <Printer className="h-4 w-4" />
           {isArabic ? 'طباعة تقفيل اليوم' : 'Print Daily Closing'}
           </Button>
-          <Button type="button" variant="outline" className="gap-2" onClick={() => printPosDriverClosing({ orders: dailyOrders, isArabic, currency, settings, setMessage })}>
+          <Button type="button" variant="outline" className="gap-2" onClick={() => setDriverClosingOpen(true)}>
             <Truck className="h-4 w-4" />
             {isArabic ? 'تقفيل السائقين' : 'Driver Closing'}
           </Button>
@@ -629,6 +644,90 @@ export default function DashboardPosPage() {
         </CardContent>
       </Card>
       </div>
+
+      {driverClosingOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="driver-closing-title"
+          onMouseDown={() => setDriverClosingOpen(false)}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-md bg-white shadow-xl dark:bg-slate-950"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="sticky top-0 z-10 flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+              <div>
+                <h3 id="driver-closing-title" className="text-xl font-bold">{isArabic ? 'تقفيل السائقين' : 'Driver Closing'}</h3>
+                <p className="text-sm text-slate-500">{new Date().toLocaleDateString(isArabic ? 'ar-EG' : 'en-US')}</p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  className="gap-2 bg-red-600 hover:bg-red-700"
+                  onClick={() => printPosDriverClosing({ orders: dailyOrders, isArabic, currency, settings, setMessage })}
+                >
+                  <Printer className="h-4 w-4" />
+                  {isArabic ? 'طباعة' : 'Print'}
+                </Button>
+                <Button type="button" variant="ghost" size="icon" onClick={() => setDriverClosingOpen(false)}>
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-4 p-4">
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="rounded-md border border-slate-200 p-3 dark:border-slate-800">
+                  <p className="text-xs text-slate-500">{isArabic ? 'إجمالي المطلوب' : 'Amount Due'}</p>
+                  <p className="text-xl font-bold text-red-600">{driverClosingTotal.toFixed(2)} {currency}</p>
+                </div>
+                <div className="rounded-md border border-slate-200 p-3 dark:border-slate-800">
+                  <p className="text-xs text-slate-500">{isArabic ? 'عدد السائقين' : 'Drivers'}</p>
+                  <p className="text-xl font-bold">{driverClosingGroups.length}</p>
+                </div>
+                <div className="rounded-md border border-slate-200 p-3 dark:border-slate-800">
+                  <p className="text-xs text-slate-500">{isArabic ? 'طلبات عند الاستلام' : 'COD Orders'}</p>
+                  <p className="text-xl font-bold">{driverClosingOrderCount}</p>
+                </div>
+              </div>
+
+              {driverClosingGroups.length === 0 ? (
+                <div className="rounded-md bg-slate-50 p-6 text-center text-sm text-slate-500 dark:bg-slate-900">
+                  {isArabic ? 'لا توجد طلبات دفع عند الاستلام معيّنة لسائقين اليوم.' : 'No assigned cash-on-delivery orders for drivers today.'}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {driverClosingGroups.map((group) => (
+                    <div key={group.key} className="rounded-md border border-slate-200 p-4 dark:border-slate-800">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-lg font-bold">{group.name}</p>
+                          <p className="text-sm text-slate-500">{group.phone}</p>
+                          <p className="mt-1 text-xs text-slate-500">{group.orders.length} {isArabic ? 'طلب عند الاستلام' : 'COD orders'}</p>
+                        </div>
+                        <div className="text-end">
+                          <p className="text-xs text-slate-500">{isArabic ? 'المبلغ المطلوب دفعه' : 'Amount to pay'}</p>
+                          <p className="text-2xl font-bold text-red-600">{group.total.toFixed(2)} {currency}</p>
+                        </div>
+                      </div>
+                      <div className="mt-3 divide-y divide-slate-100 rounded-md bg-slate-50 dark:divide-slate-800 dark:bg-slate-900">
+                        {group.orders.map((order) => (
+                          <div key={order.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm">
+                            <span className="font-medium">{order.id} - {order.customer || '-'}</span>
+                            <span className="font-bold">{Number(order.total || 0).toFixed(2)} {currency}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -672,7 +771,7 @@ async function printPosDriverClosing({
       invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
       invoiceAddress: isArabic ? settings.addressAr : settings.addressEn,
       invoicePhone: settings.phone,
-      logoUrl: settings.invoiceLogo || settings.heroImage,
+      logoUrl: settings.invoiceLogo,
     })) as { skipped?: boolean; reason?: string }
     if (result?.skipped) {
       setMessage(result.reason || (isArabic ? 'لم يتم إرسال تقفيل السائقين لأن الطابعة غير مكتملة الإعداد.' : 'Driver closing was not sent because the printer is not fully configured.'))
@@ -744,7 +843,7 @@ async function printPosDailyClosing({
       invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
       invoiceAddress: isArabic ? settings.addressAr : settings.addressEn,
       invoicePhone: settings.phone,
-      logoUrl: settings.invoiceLogo || settings.heroImage,
+      logoUrl: settings.invoiceLogo,
     })) as { skipped?: boolean; reason?: string }
     if (result?.skipped) {
       setMessage(result.reason || (isArabic ? 'لم يتم إرسال التقفيل لأن الطابعة غير مكتملة الإعداد.' : 'Closing report was not sent because the printer is not fully configured.'))

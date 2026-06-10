@@ -67,6 +67,7 @@ export interface PrinterConnection {
   retryAttempts: number
   isEnabled: boolean
   lastConnected: string
+  lastConnectedMethod?: PrinterMethod | ''
   printsMainInvoice: boolean
   printsQr: boolean
 }
@@ -158,6 +159,7 @@ export const defaultPrinters: Record<PrinterRole, PrinterConnection> = {
     retryAttempts: 3,
     isEnabled: false,
     lastConnected: '',
+    lastConnectedMethod: '',
     printsMainInvoice: true,
     printsQr: true,
   },
@@ -175,6 +177,7 @@ export const defaultPrinters: Record<PrinterRole, PrinterConnection> = {
     retryAttempts: 3,
     isEnabled: false,
     lastConnected: '',
+    lastConnectedMethod: '',
     printsMainInvoice: false,
     printsQr: false,
   },
@@ -192,13 +195,14 @@ export const defaultPrinters: Record<PrinterRole, PrinterConnection> = {
     retryAttempts: 3,
     isEnabled: false,
     lastConnected: '',
+    lastConnectedMethod: '',
     printsMainInvoice: false,
     printsQr: false,
   },
 }
 
 function mergePrinters(printers?: Partial<Record<PrinterRole, Partial<PrinterConnection>>>) {
-  const normalize = (role: PrinterRole) => {
+  const normalize = (role: PrinterRole): PrinterConnection => {
     const incoming = printers?.[role] || {}
     const rawMethod = incoming.method || incoming.connectionType
     const method = rawMethod === 'usb' || rawMethod === 'bluetooth' || rawMethod === 'network' || rawMethod === 'system'
@@ -209,6 +213,7 @@ function mergePrinters(printers?: Partial<Record<PrinterRole, Partial<PrinterCon
       ...incoming,
       method,
       connectionType: method,
+      lastConnectedMethod: incoming.lastConnectedMethod === method ? incoming.lastConnectedMethod : '',
       deviceName: incoming.deviceName || incoming.name || defaultPrinters[role].deviceName,
       retryAttempts: Number(incoming.retryAttempts || defaultPrinters[role].retryAttempts),
       fontScale: Number(incoming.fontScale || defaultPrinters[role].fontScale),
@@ -234,7 +239,7 @@ export const defaultSettings: AppSettings = {
   heroSubtitleEn: 'Fresh meals, fast delivery, and live tracking from order to doorstep.',
   heroImage: '/favicon.png',
   offerImages: [],
-  invoiceLogo: '/favicon.png',
+  invoiceLogo: '',
   workingHoursAr: 'يوميا من 10 صباحا إلى 12 منتصف الليل',
   workingHoursEn: 'Daily from 10 AM to 12 AM',
   restaurantOpen: true,

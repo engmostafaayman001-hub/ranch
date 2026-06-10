@@ -233,7 +233,7 @@ export default function DashboardReportsPage() {
         invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
         invoiceAddress: isArabic ? settings.addressAr : settings.addressEn,
         invoicePhone: settings.phone,
-        logoUrl: settings.invoiceLogo || settings.heroImage,
+        logoUrl: settings.invoiceLogo,
       })) as { skipped?: boolean; reason?: string }
 
       if (result?.skipped) {

@@ -118,7 +118,7 @@ export default function DashboardRestaurantOrdersPage() {
     invoiceQrUrl: settings.printers.cashier.printsQr === false ? undefined : settings.invoiceQrUrl,
     invoiceQrUrl2: settings.printers.cashier.printsQr === false ? undefined : settings.invoiceQrUrl2,
     invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
-    logoUrl: settings.invoiceLogo || settings.heroImage,
+    logoUrl: settings.invoiceLogo,
   })
 
   const isPrinterAvailable = (role: PrinterRole) => {

@@ -49,6 +49,7 @@ export interface PrinterConnection {
   retryAttempts: number
   isEnabled: boolean
   lastConnected: string
+  lastConnectedMethod?: PrinterMethod | ''
   printsMainInvoice: boolean
   printsQr: boolean
 }
@@ -108,6 +109,7 @@ export const defaultPrinters: Record<PrinterRole, PrinterConnection> = {
     retryAttempts: 3,
     isEnabled: false,
     lastConnected: '',
+    lastConnectedMethod: '',
     printsMainInvoice: true,
     printsQr: true,
   },
@@ -125,6 +127,7 @@ export const defaultPrinters: Record<PrinterRole, PrinterConnection> = {
     retryAttempts: 3,
     isEnabled: false,
     lastConnected: '',
+    lastConnectedMethod: '',
     printsMainInvoice: false,
     printsQr: false,
   },
@@ -142,6 +145,7 @@ export const defaultPrinters: Record<PrinterRole, PrinterConnection> = {
     retryAttempts: 3,
     isEnabled: false,
     lastConnected: '',
+    lastConnectedMethod: '',
     printsMainInvoice: false,
     printsQr: false,
   },
@@ -160,7 +164,7 @@ export const defaultSettings: AppSettings = {
   heroSubtitleEn: 'Fresh meals, fast delivery, and live tracking from order to doorstep.',
   heroImage: '/favicon.png',
   offerImages: [],
-  invoiceLogo: '/favicon.png',
+  invoiceLogo: '',
   workingHoursAr: 'يوميا من 10 صباحا إلى 12 منتصف الليل',
   workingHoursEn: 'Daily from 10 AM to 12 AM',
   restaurantOpen: true,
