@@ -45,6 +45,9 @@ export type ThermalPrinterSettings = {
   isEnabled?: boolean
   lastConnected?: string
   lastConnectedMethod?: ThermalConnectionType | ''
+  lastPrinted?: string
+  failedAttempts?: number
+  lastError?: string
   printsMainInvoice?: boolean
   printsQr?: boolean
   modelFamily?: PrinterModelFamily
@@ -106,6 +109,52 @@ type PrintJob = {
   allowDevicePrompt?: boolean
 }
 
+export type PrinterDiagnosticEvent = {
+  id: string
+  at: string
+  role: ThermalPrinterRole
+  method: ThermalConnectionType | ''
+  action: 'settings' | 'connect' | 'health' | 'print' | 'fallback' | 'disconnect'
+  status: 'started' | 'ok' | 'failed' | 'skipped'
+  endpoint?: string
+  jobKind?: PrintJob['kind']
+  orderId?: string
+  attempt?: number
+  durationMs?: number
+  message?: string
+  error?: string
+  stack?: string
+  request?: Record<string, unknown>
+  response?: Record<string, unknown>
+}
+
+export type PrinterRuntimeDiagnostic = {
+  role: ThermalPrinterRole
+  method: ThermalConnectionType | ''
+  status: 'disabled' | 'not_configured' | 'ready' | 'needs_reconnect' | 'unknown'
+  endpoint: string
+  ip: string
+  port: string
+  deviceName: string
+  deviceId: string
+  deviceAddress: string
+  lastConnected: string
+  lastConnectedMethod: ThermalConnectionType | ''
+  lastPrinted: string
+  failedAttempts: number
+  lastError: string
+  recentEvents: PrinterDiagnosticEvent[]
+}
+
+export type AvailablePrinterDevice = {
+  method: ThermalConnectionType
+  id: string
+  name: string
+  address?: string
+  paired: boolean
+  detail?: string
+}
+
 type UsbDevice = {
   opened: boolean
   open: () => Promise<void>
@@ -164,7 +213,7 @@ declare global {
   }
 }
 
-const STORAGE_KEY = 'baseeta-pos-printer-settings'
+const LEGACY_STORAGE_KEY = 'baseeta-pos-printer-settings'
 const BLUETOOTH_PRINT_SERVICES = [
   '000018f0-0000-1000-8000-00805f9b34fb',
   '0000ffe0-0000-1000-8000-00805f9b34fb',
@@ -196,6 +245,8 @@ const PRINT_LOCAL_ASSET_TIMEOUT_MS = 1200
 const NETWORK_HEALTH_CACHE_MS = 45000
 const NETWORK_HEALTH_TIMEOUT_MS = 900
 const NETWORK_KEEP_ALIVE_MS = 25000
+const NETWORK_PRINT_TIMEOUT_MS = 15000
+const MAX_DIAGNOSTIC_EVENTS = 80
 const printAssetCache = new Map<string, Promise<HTMLImageElement | null>>()
 const qrAssetCache = new Map<string, Promise<HTMLImageElement | null>>()
 const networkHealthCache = new Map<string, { checkedAt: number; promise?: Promise<void>; token?: symbol }>()
@@ -788,9 +839,10 @@ export class PrinterManager {
   private bluetoothCharacteristics: Partial<Record<ThermalPrinterRole, BluetoothCharacteristic>> = {}
   private networkKeepAliveTimer?: number
   private networkKeepAliveInFlight = false
+  private diagnosticEvents: PrinterDiagnosticEvent[] = []
 
   constructor(printers?: Partial<Record<ThermalPrinterRole, Partial<ThermalPrinterSettings>>>) {
-    this.settings = normalizePrinters(printers || this.loadSettings())
+    this.settings = normalizePrinters(printers)
     this.configureNetworkKeepAlive()
   }
 
@@ -798,18 +850,175 @@ export class PrinterManager {
     return this.settings
   }
 
+  getDiagnostics(): Record<ThermalPrinterRole, PrinterRuntimeDiagnostic> {
+    const entries = Object.entries(this.settings) as Array<[ThermalPrinterRole, ThermalPrinterSettings]>
+    return Object.fromEntries(entries.map(([role, printer]) => {
+      const method = printer.method || printer.connectionType || ''
+      const configurationIssue = this.getConfigurationIssue(printer)
+      const reconnectNeeded = (method === 'bluetooth' || method === 'usb') &&
+        !printer.lastConnected &&
+        !this.bluetoothDevices[role] &&
+        !this.usbDevices[role]
+      const status: PrinterRuntimeDiagnostic['status'] = !printer.isEnabled
+        ? 'disabled'
+        : configurationIssue
+          ? 'not_configured'
+          : reconnectNeeded
+            ? 'needs_reconnect'
+            : 'ready'
+      return [role, {
+        role,
+        method,
+        status,
+        endpoint: method === 'network' ? normalizeNetworkPrintEndpoint(printer) : '',
+        ip: printer.ip || '',
+        port: printer.port || '',
+        deviceName: printer.deviceName || printer.name || '',
+        deviceId: printer.deviceId || '',
+        deviceAddress: printer.deviceAddress || '',
+        lastConnected: printer.lastConnected || '',
+        lastConnectedMethod: printer.lastConnectedMethod || '',
+        lastPrinted: printer.lastPrinted || '',
+        failedAttempts: Number(printer.failedAttempts || 0),
+        lastError: printer.lastError || '',
+        recentEvents: this.diagnosticEvents.filter((event) => event.role === role).slice(-12).reverse(),
+      }]
+    })) as Record<ThermalPrinterRole, PrinterRuntimeDiagnostic>
+  }
+
+  getDiagnosticLog() {
+    return [...this.diagnosticEvents].reverse()
+  }
+
+  clearDiagnostics(role?: ThermalPrinterRole) {
+    this.diagnosticEvents = role
+      ? this.diagnosticEvents.filter((event) => event.role !== role)
+      : []
+  }
+
+  private recordDiagnostic(event: Omit<PrinterDiagnosticEvent, 'id' | 'at'>) {
+    const entry: PrinterDiagnosticEvent = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      at: new Date().toISOString(),
+      ...event,
+    }
+    this.diagnosticEvents = [...this.diagnosticEvents, entry].slice(-MAX_DIAGNOSTIC_EVENTS)
+    const level = event.status === 'failed' ? 'warn' : 'info'
+    console[level]('[PrinterManager]', entry)
+    return entry
+  }
+
+  private errorDetails(error: unknown) {
+    return {
+      error: error instanceof Error ? error.message : String(error || ''),
+      stack: error instanceof Error ? error.stack : undefined,
+    }
+  }
+
+  async discoverAvailablePrinters(): Promise<AvailablePrinterDevice[]> {
+    const devices: AvailablePrinterDevice[] = []
+    if (typeof navigator !== 'undefined' && typeof navigator.usb?.getDevices === 'function') {
+      const usbDevices = await navigator.usb.getDevices().catch(() => [])
+      devices.push(...usbDevices.map((device) => ({
+        method: 'usb' as const,
+        id: device.serialNumber || `${device.vendorId || ''}:${device.productId || ''}`,
+        name: device.productName || 'USB printer',
+        address: device.vendorId && device.productId
+          ? `${device.vendorId.toString(16).padStart(4, '0')}:${device.productId.toString(16).padStart(4, '0')}`
+          : undefined,
+        paired: true,
+      })))
+    }
+    if (typeof navigator !== 'undefined' && typeof navigator.bluetooth?.getDevices === 'function') {
+      const bluetoothDevices = await navigator.bluetooth.getDevices().catch(() => [])
+      devices.push(...bluetoothDevices.map((device) => ({
+        method: 'bluetooth' as const,
+        id: device.id || device.name || 'bluetooth-printer',
+        name: device.name || 'Bluetooth printer',
+        paired: true,
+      })))
+    }
+    await Promise.all((Object.values(this.settings)).map(async (printer) => {
+      if ((printer.method || printer.connectionType) !== 'network') return
+      const endpoint = normalizeNetworkPrintEndpoint(printer)
+      if (!endpoint) return
+      const printersEndpoint = new URL(endpoint)
+      printersEndpoint.pathname = '/printers'
+      printersEndpoint.search = ''
+      printersEndpoint.hash = ''
+      try {
+        await checkNetworkPrintEndpoint(printer, { force: true })
+        const bridgePrinters = await fetch(printersEndpoint.toString(), { cache: 'no-store' })
+          .then((response) => response.ok ? response.json() : null)
+          .catch(() => null) as { printers?: Array<{ Name?: string; Default?: boolean; WorkOffline?: boolean; PortName?: string }> } | null
+        if (Array.isArray(bridgePrinters?.printers)) {
+          bridgePrinters.printers.forEach((item) => {
+            devices.push({
+              method: 'system',
+              id: item.Name || 'windows-printer',
+              name: item.Name || 'Windows printer',
+              address: item.PortName,
+              paired: item.WorkOffline !== true,
+              detail: item.Default ? 'Windows default printer' : 'Windows installed printer',
+            })
+          })
+        }
+        devices.push({
+          method: 'network',
+          id: endpoint,
+          name: printer.deviceName || printer.name || 'Network Bridge',
+          address: endpoint,
+          paired: true,
+          detail: 'Health check passed',
+        })
+      } catch (error) {
+        devices.push({
+          method: 'network',
+          id: endpoint,
+          name: printer.deviceName || printer.name || 'Network Bridge',
+          address: endpoint,
+          paired: false,
+          detail: error instanceof Error ? error.message : String(error || ''),
+        })
+      }
+    }))
+    return devices
+  }
+
   setPrinters(printers: Partial<Record<ThermalPrinterRole, Partial<ThermalPrinterSettings>>>) {
     const nextSettings = normalizePrinters(printers)
     for (const role of Object.keys(nextSettings) as ThermalPrinterRole[]) {
+      const previousPrinter = this.settings[role]
+      const nextPrinter = nextSettings[role]
       const previousMethod = this.settings[role]?.method || this.settings[role]?.connectionType
-      const nextMethod = nextSettings[role]?.method || nextSettings[role]?.connectionType
+      const nextMethod = nextPrinter?.method || nextPrinter?.connectionType
       if (previousMethod && nextMethod && previousMethod !== nextMethod) {
         void this.disconnect(role)
+        this.recordDiagnostic({
+          role,
+          method: nextMethod,
+          action: 'settings',
+          status: 'ok',
+          message: `Connection method changed from ${previousMethod} to ${nextMethod}`,
+        })
         const hasVerifiedConnection = Boolean(nextSettings[role].lastConnected && nextSettings[role].lastConnectedMethod === nextMethod)
         if (!hasVerifiedConnection) {
           nextSettings[role].lastConnected = ''
           nextSettings[role].lastConnectedMethod = ''
         }
+      }
+      const deviceIdentityChanged = previousMethod === nextMethod &&
+        (nextMethod === 'bluetooth' || nextMethod === 'usb') &&
+        (
+          (previousPrinter?.deviceId || '') !== (nextPrinter?.deviceId || '') ||
+          (previousPrinter?.deviceAddress || '') !== (nextPrinter?.deviceAddress || '')
+        )
+      if (deviceIdentityChanged) void this.disconnect(role)
+      if (nextMethod === 'network') {
+        delete this.bluetoothCharacteristics[role]
+        delete this.bluetoothDevices[role]
+        delete this.usbDevices[role]
+        delete this.usbClaimedInterfaces[role]
       }
     }
     this.settings = nextSettings
@@ -819,20 +1028,50 @@ export class PrinterManager {
 
   async testConnection(role: ThermalPrinterRole) {
     const printer = this.settings[role]
-    await this.connect(role, printer, true, true)
-    printer.lastConnected = new Date().toISOString()
-    printer.lastConnectedMethod = printer.method || printer.connectionType || ''
-    this.saveSettings()
-    return { ok: true, message: 'تم الاتصال بالطابعة بنجاح.', printer: { ...printer } }
+    const method = printer.method || printer.connectionType || ''
+    const startedAt = Date.now()
+    this.recordDiagnostic({ role, method, action: 'connect', status: 'started', endpoint: method === 'network' ? normalizeNetworkPrintEndpoint(printer) : undefined })
+    try {
+      await this.connect(role, printer, true, true)
+      printer.lastConnected = new Date().toISOString()
+      printer.lastConnectedMethod = printer.method || printer.connectionType || ''
+      printer.failedAttempts = 0
+      printer.lastError = ''
+      this.saveSettings()
+      this.recordDiagnostic({ role, method, action: 'connect', status: 'ok', durationMs: Date.now() - startedAt })
+      return { ok: true, message: 'تم الاتصال بالطابعة بنجاح.', printer: { ...printer } }
+    } catch (error) {
+      const detail = this.errorDetails(error)
+      printer.failedAttempts = Number(printer.failedAttempts || 0) + 1
+      printer.lastError = detail.error
+      this.saveSettings()
+      this.recordDiagnostic({ role, method, action: 'connect', status: 'failed', durationMs: Date.now() - startedAt, ...detail })
+      throw error
+    }
   }
 
   async connectPrinter(role: ThermalPrinterRole) {
     const printer = this.settings[role]
-    await this.connect(role, printer, true, true)
-    printer.lastConnected = new Date().toISOString()
-    printer.lastConnectedMethod = printer.method || printer.connectionType || ''
-    this.saveSettings()
-    return { ok: true, printer: { ...printer } }
+    const method = printer.method || printer.connectionType || ''
+    const startedAt = Date.now()
+    this.recordDiagnostic({ role, method, action: 'connect', status: 'started', endpoint: method === 'network' ? normalizeNetworkPrintEndpoint(printer) : undefined })
+    try {
+      await this.connect(role, printer, true, true)
+      printer.lastConnected = new Date().toISOString()
+      printer.lastConnectedMethod = printer.method || printer.connectionType || ''
+      printer.failedAttempts = 0
+      printer.lastError = ''
+      this.saveSettings()
+      this.recordDiagnostic({ role, method, action: 'connect', status: 'ok', durationMs: Date.now() - startedAt })
+      return { ok: true, printer: { ...printer } }
+    } catch (error) {
+      const detail = this.errorDetails(error)
+      printer.failedAttempts = Number(printer.failedAttempts || 0) + 1
+      printer.lastError = detail.error
+      this.saveSettings()
+      this.recordDiagnostic({ role, method, action: 'connect', status: 'failed', durationMs: Date.now() - startedAt, ...detail })
+      throw error
+    }
   }
 
   printCashierReceipt(payload: ReceiptPayload) {
@@ -950,32 +1189,60 @@ export class PrinterManager {
 
   private async printWithRetry(job: PrintJob) {
     const printer = this.settings[job.role]
+    const method = printer.method || printer.connectionType || ''
     if (!printer.isEnabled) {
       console.info(`[PrinterManager] ${job.role} disabled. Skipping print job.`)
+      this.recordDiagnostic({ role: job.role, method, action: 'print', status: 'skipped', jobKind: job.kind, orderId: job.payload.orderId, message: `${job.role} printer is disabled` })
       if (this.shouldFallbackToCashier(job)) return this.printFallbackToCashier(job, `${job.role} printer is disabled`)
       return { ok: true, skipped: true, reason: `${job.role} printer is disabled` }
     }
     const configurationIssue = this.getConfigurationIssue(printer)
     if (configurationIssue) {
+      this.recordDiagnostic({ role: job.role, method, action: 'print', status: 'skipped', jobKind: job.kind, orderId: job.payload.orderId, message: configurationIssue })
       if (job.strict) throw new Error(configurationIssue)
       console.info(`[PrinterManager] ${job.role} is not configured. Skipping print job: ${configurationIssue}`)
       if (this.shouldFallbackToCashier(job)) return this.printFallbackToCashier(job, configurationIssue)
       return { ok: true, skipped: true, reason: configurationIssue }
     }
     let lastError: unknown
-    const method = printer.method || printer.connectionType
     const configuredAttempts = method === 'system' ? 1 : Math.max(1, Number(printer.retryAttempts || 3))
     const attempts = this.shouldFallbackToCashier(job) ? 1 : configuredAttempts
     console.info(`[PrinterManager] جاري الطباعة - ${job.kind} على ${job.role}.`)
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      const startedAt = Date.now()
+      this.recordDiagnostic({
+        role: job.role,
+        method,
+        action: 'print',
+        status: 'started',
+        jobKind: job.kind,
+        orderId: job.payload.orderId,
+        attempt,
+        endpoint: method === 'network' ? normalizeNetworkPrintEndpoint(printer) : undefined,
+        request: {
+          orderId: job.payload.orderId,
+          lineCount: job.payload.lines.length,
+          total: job.payload.total,
+          strict: job.strict === true,
+        },
+      })
       try {
         await this.print(job, printer, job.allowDevicePrompt === true)
         printer.lastConnected = new Date().toISOString()
         printer.lastConnectedMethod = method || ''
+        printer.lastPrinted = new Date().toISOString()
+        printer.failedAttempts = 0
+        printer.lastError = ''
         this.saveSettings()
+        this.recordDiagnostic({ role: job.role, method, action: 'print', status: 'ok', jobKind: job.kind, orderId: job.payload.orderId, attempt, durationMs: Date.now() - startedAt })
         return { ok: true }
       } catch (error) {
         lastError = error
+        const detail = this.errorDetails(error)
+        printer.failedAttempts = Number(printer.failedAttempts || 0) + 1
+        printer.lastError = detail.error
+        this.saveSettings()
+        this.recordDiagnostic({ role: job.role, method, action: 'print', status: 'failed', jobKind: job.kind, orderId: job.payload.orderId, attempt, durationMs: Date.now() - startedAt, ...detail })
         if (isReconnectRequired(error)) {
           const reason = error instanceof Error ? error.message : 'Printer needs reconnect'
           if (job.strict) throw new Error(reason)
@@ -1001,7 +1268,7 @@ export class PrinterManager {
   }
 
   private shouldFallbackToCashier(job: PrintJob) {
-    return !job.strict && job.role === 'kitchen' && job.kind === 'kitchen'
+    return !job.strict && job.role !== 'cashier' && (job.kind === 'kitchen' || job.kind === 'hall')
   }
 
   private async printFallbackToCashier(job: PrintJob, reason: string) {
@@ -1013,6 +1280,7 @@ export class PrinterManager {
       return { ok: true, skipped: true, fallbackFailed: true, reason: `${reason}. Fallback unavailable: ${fallbackReason}` }
     }
     console.warn(`[PrinterManager] ${job.role} ${job.kind} routed to cashier fallback: ${reason}`)
+    this.recordDiagnostic({ role: job.role, method: cashier.method || cashier.connectionType || '', action: 'fallback', status: 'started', jobKind: job.kind, orderId: job.payload.orderId, message: reason })
     try {
       await this.printWithRetry({
         ...job,
@@ -1020,9 +1288,11 @@ export class PrinterManager {
         strict: false,
         allowDevicePrompt: false,
       })
+      this.recordDiagnostic({ role: job.role, method: cashier.method || cashier.connectionType || '', action: 'fallback', status: 'ok', jobKind: job.kind, orderId: job.payload.orderId, message: 'Printed on cashier fallback' })
       return { ok: true, fallback: true, fromRole: job.role, toRole: 'cashier', reason }
     } catch (error) {
       const fallbackReason = error instanceof Error ? error.message : String(error || 'cashier fallback failed')
+      this.recordDiagnostic({ role: job.role, method: cashier.method || cashier.connectionType || '', action: 'fallback', status: 'failed', jobKind: job.kind, orderId: job.payload.orderId, ...this.errorDetails(error) })
       return { ok: true, skipped: true, fallbackFailed: true, reason: `${reason}. Fallback failed: ${fallbackReason}` }
     }
   }
@@ -1109,7 +1379,7 @@ export class PrinterManager {
     if (!endpoint) throw new Error('Enter the printer IP or Network Bridge URL.')
     const profile = getPrinterCapabilityProfile(printer)
     const controller = new AbortController()
-    const timeout = window.setTimeout(() => controller.abort(), 6000)
+    const timeout = window.setTimeout(() => controller.abort(), NETWORK_PRINT_TIMEOUT_MS)
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -1119,7 +1389,7 @@ export class PrinterManager {
           printer: printer.deviceName || printer.name,
           paperWidth: printer.paperWidth || '80mm',
           format: 'escpos-raster',
-          respondImmediately: true,
+          respondImmediately: false,
           modelFamily: profile.modelFamily,
           capabilities: {
             supportsCut: profile.supportsCut,
@@ -1130,15 +1400,18 @@ export class PrinterManager {
           escposBase64: bytesToBase64(bytes),
         }),
       })
+      const detail = await response.json().catch(() => null) as { error?: string; ok?: boolean; printer?: string; jobId?: string } | null
       if (!response.ok) {
-        const detail = await response.json().catch(() => null) as { error?: string } | null
         throw new Error(`Network print bridge failed: ${response.status} at ${endpoint}${detail?.error ? `. ${detail.error}` : ''}`)
+      }
+      if (detail?.ok === false) {
+        throw new Error(`Network print bridge rejected the job at ${endpoint}${detail.error ? `. ${detail.error}` : ''}`)
       }
       networkHealthCache.set(endpoint, { checkedAt: Date.now() })
     } catch (error) {
       networkHealthCache.delete(endpoint)
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`Network print bridge timed out at ${endpoint}`)
+        throw new Error(`Network print bridge timed out at ${endpoint} after ${NETWORK_PRINT_TIMEOUT_MS}ms`)
       }
       throw error
     } finally {
@@ -1377,19 +1650,9 @@ export class PrinterManager {
     delete this.usbClaimedInterfaces[role]
   }
 
-  private loadSettings() {
-    if (!browserStorageAvailable()) return defaultPrinters
-    try {
-      const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || 'null')
-      return parsed && typeof parsed === 'object' ? parsed : defaultPrinters
-    } catch {
-      return defaultPrinters
-    }
-  }
-
   private saveSettings() {
     if (!browserStorageAvailable()) return
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(this.settings))
+    window.localStorage.removeItem(LEGACY_STORAGE_KEY)
   }
 }
 

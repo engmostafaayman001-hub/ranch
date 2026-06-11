@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useLanguage } from '@/components/language-provider'
-import { PrinterConnection, PrinterMethod, PrinterRole, useAppStore } from '@/lib/app-store'
+import { defaultPrinters, PrinterConnection, PrinterMethod, PrinterRole, useAppStore } from '@/lib/app-store'
 import { imageFileToOptimizedDataUrl, isAcceptedImageFile } from '@/lib/client-images'
 import { printerManager, syncPrinterManagerSettings, type ThermalPrinterSettings } from '@/lib/printer'
 import { saveSharedSettings, useSharedAppData } from '@/lib/use-shared-app-data'
@@ -145,7 +145,8 @@ export default function DashboardSettingsPage() {
   }
 
   const updatePrinter = (role: PrinterRole, updates: Partial<PrinterConnection>) => {
-    const currentPrinter = settings.printers[role]
+    const currentPrinters = useAppStore.getState().settings.printers
+    const currentPrinter = currentPrinters[role]
     const normalizedUpdates = updates.method
       ? { ...updates, connectionType: updates.method }
       : updates.connectionType
@@ -165,17 +166,34 @@ export default function DashboardSettingsPage() {
         }
       : normalizedUpdates
     const printers = {
-      ...settings.printers,
-      [role]: { ...settings.printers[role], ...isolatedUpdates },
+      ...currentPrinters,
+      [role]: { ...currentPrinter, ...isolatedUpdates },
     }
     updateSettings({ printers: { ...printers } })
     syncPrinterManagerSettings(printers)
   }
-  const connectPrinter = async (role: PrinterRole, selectedMethod?: PrinterMethod) => {
-    const method = selectedMethod || settings.printers[role].method || settings.printers[role].connectionType || 'network'
+
+  const resetPrinter = (role: PrinterRole) => {
+    const currentPrinters = useAppStore.getState().settings.printers
     const printers = {
-      ...settings.printers,
-      [role]: { ...settings.printers[role], method, connectionType: method, isEnabled: true },
+      ...currentPrinters,
+      [role]: { ...defaultPrinters[role] },
+    }
+    updateSettings({ printers })
+    syncPrinterManagerSettings(printers)
+    setPrinterStatus((current) => ({
+      ...current,
+      [role]: isArabic ? 'تم مسح بيانات هذه الطابعة من هذا الجهاز.' : 'This printer was reset on this device.',
+    }))
+  }
+
+  const connectPrinter = async (role: PrinterRole, selectedMethod?: PrinterMethod) => {
+    const currentPrinters = useAppStore.getState().settings.printers
+    const currentPrinter = currentPrinters[role]
+    const method = selectedMethod || currentPrinter.method || currentPrinter.connectionType || 'network'
+    const printers = {
+      ...currentPrinters,
+      [role]: { ...currentPrinter, method, connectionType: method, isEnabled: true },
     }
     updateSettings({ printers: { ...printers } })
     syncPrinterManagerSettings(printers)
@@ -186,9 +204,9 @@ export default function DashboardSettingsPage() {
         method,
         connectionType: method,
         deviceId: result.printer.deviceId || '',
-        deviceName: result.printer.deviceName || result.printer.name || settings.printers[role].deviceName,
-        deviceAddress: method === 'network' ? result.printer.deviceAddress || settings.printers[role].deviceAddress : '',
-        ip: method === 'network' ? result.printer.ip || settings.printers[role].ip : '',
+        deviceName: result.printer.deviceName || result.printer.name || useAppStore.getState().settings.printers[role].deviceName,
+        deviceAddress: method === 'network' ? result.printer.deviceAddress || useAppStore.getState().settings.printers[role].deviceAddress : '',
+        ip: method === 'network' ? result.printer.ip || useAppStore.getState().settings.printers[role].ip : '',
         lastConnected: result.printer.lastConnected || new Date().toISOString(),
         lastConnectedMethod: method,
       })
@@ -199,28 +217,31 @@ export default function DashboardSettingsPage() {
   }
 
   const testPrinter = async (role: PrinterRole, kind: 'connection' | 'arabic' | 'qr' | 'kitchen' | 'hall' = 'arabic', selectedMethod?: PrinterMethod) => {
-    const method = selectedMethod || settings.printers[role].method || settings.printers[role].connectionType || 'network'
+    const latestSettings = useAppStore.getState().settings
+    const currentPrinter = latestSettings.printers[role]
+    const method = selectedMethod || currentPrinter.method || currentPrinter.connectionType || 'network'
     const printers = {
-      ...settings.printers,
-      [role]: { ...settings.printers[role], method, connectionType: method, isEnabled: true },
+      ...latestSettings.printers,
+      [role]: { ...currentPrinter, method, connectionType: method, isEnabled: true },
     }
     updateSettings({ printers: { ...printers } })
     syncPrinterManagerSettings(printers)
     setPrinterStatus((current) => ({ ...current, [role]: isArabic ? 'جاري اختبار الطابعة...' : 'Testing printer...' }))
     try {
-      let testedPrinter: ThermalPrinterSettings = settings.printers[role]
+      let testedPrinter: ThermalPrinterSettings = useAppStore.getState().settings.printers[role]
       if (kind === 'connection') {
         const result = await printerManager.testConnection(role)
         testedPrinter = result.printer || printerManager.getPrinters()[role]
       } else {
+        const printSettings = useAppStore.getState().settings
         await printerManager.printTest(role, kind === 'kitchen' ? 'kitchen' : kind === 'hall' ? 'hall' : 'diagnostic', {
-          invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
-          invoiceAddress: isArabic ? settings.addressAr : settings.addressEn,
-          invoicePhone: settings.phone,
-          invoiceQrUrl: kind === 'qr' ? settings.invoiceQrUrl || 'https://markode.co' : '',
-          invoiceQrUrl2: kind === 'qr' ? settings.invoiceQrUrl2 : '',
-          invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
-          logoUrl: settings.invoiceLogo,
+          invoiceName: isArabic ? printSettings.invoiceNameAr : printSettings.invoiceNameEn,
+          invoiceAddress: isArabic ? printSettings.addressAr : printSettings.addressEn,
+          invoicePhone: printSettings.phone,
+          invoiceQrUrl: kind === 'qr' ? printSettings.invoiceQrUrl || 'https://markode.co' : '',
+          invoiceQrUrl2: kind === 'qr' ? printSettings.invoiceQrUrl2 : '',
+          invoiceMessage: isArabic ? printSettings.invoiceWelcomeAr : printSettings.invoiceWelcomeEn,
+          logoUrl: printSettings.invoiceLogo,
           isArabic,
         })
         testedPrinter = printerManager.getPrinters()[role]
@@ -228,10 +249,10 @@ export default function DashboardSettingsPage() {
       updatePrinter(role, {
         method,
         connectionType: method,
-        deviceId: testedPrinter.deviceId || settings.printers[role].deviceId || '',
-        deviceName: testedPrinter.deviceName || testedPrinter.name || settings.printers[role].deviceName,
-        deviceAddress: method === 'network' ? testedPrinter.deviceAddress || settings.printers[role].deviceAddress : '',
-        ip: method === 'network' ? testedPrinter.ip || settings.printers[role].ip : '',
+        deviceId: testedPrinter.deviceId || useAppStore.getState().settings.printers[role].deviceId || '',
+        deviceName: testedPrinter.deviceName || testedPrinter.name || useAppStore.getState().settings.printers[role].deviceName,
+        deviceAddress: method === 'network' ? testedPrinter.deviceAddress || useAppStore.getState().settings.printers[role].deviceAddress : '',
+        ip: method === 'network' ? testedPrinter.ip || useAppStore.getState().settings.printers[role].ip : '',
         lastConnected: testedPrinter.lastConnected || new Date().toISOString(),
         lastConnectedMethod: method,
       })
@@ -424,6 +445,7 @@ export default function DashboardSettingsPage() {
               isArabic={isArabic}
               statusMessage={printerStatus.cashier}
               onChange={updatePrinter}
+              onReset={resetPrinter}
               onConnect={connectPrinter}
               onTest={testPrinter}
             />
@@ -435,6 +457,7 @@ export default function DashboardSettingsPage() {
               isArabic={isArabic}
               statusMessage={printerStatus.kitchen}
               onChange={updatePrinter}
+              onReset={resetPrinter}
               onConnect={connectPrinter}
               onTest={testPrinter}
             />
@@ -446,6 +469,7 @@ export default function DashboardSettingsPage() {
               isArabic={isArabic}
               statusMessage={printerStatus.hall}
               onChange={updatePrinter}
+              onReset={resetPrinter}
               onConnect={connectPrinter}
               onTest={testPrinter}
             />
@@ -499,6 +523,7 @@ function PrinterCard({
   isArabic,
   statusMessage,
   onChange,
+  onReset,
   onConnect,
   onTest,
 }: {
@@ -509,6 +534,7 @@ function PrinterCard({
   isArabic: boolean
   statusMessage?: string
   onChange: (role: PrinterRole, updates: Partial<PrinterConnection>) => void
+  onReset: (role: PrinterRole) => void
   onConnect: (role: PrinterRole, method?: PrinterMethod) => void
   onTest: (role: PrinterRole, kind?: 'connection' | 'arabic' | 'qr' | 'kitchen' | 'hall', method?: PrinterMethod) => void
 }) {
@@ -667,6 +693,9 @@ function PrinterCard({
           <ReceiptText className="h-4 w-4" />
           Hall
         </Button>}
+        <Button type="button" variant="outline" size="sm" onClick={() => onReset(role)}>
+          {isArabic ? 'مسح بيانات الطابعة' : 'Reset Printer'}
+        </Button>
       </div>
       {statusMessage && (
         <p className="mt-3 rounded-md bg-slate-100 p-3 text-sm text-slate-700 dark:bg-slate-900 dark:text-slate-200">

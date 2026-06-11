@@ -80,33 +80,6 @@ function normalizeSharedData(data: Partial<SharedAppData> | null | undefined): S
   }
 }
 
-function normalizeSharedPrinters(printers?: Partial<AppSettings['printers']>, current?: AppSettings['printers']) {
-  const normalizePrinter = (role: PrinterRole) => {
-    const incoming = (printers?.[role] || {}) as Partial<AppSettings['printers'][PrinterRole]>
-    const base = current?.[role] || defaultPrinters[role]
-    const rawMethod = incoming.method || incoming.connectionType || base.method || base.connectionType
-    const method = rawMethod === 'bluetooth' || rawMethod === 'usb' || rawMethod === 'network' || rawMethod === 'system'
-      ? rawMethod
-      : defaultPrinters[role].method
-    return {
-      ...base,
-      ...incoming,
-      method,
-      connectionType: method,
-      lastConnectedMethod: incoming.lastConnectedMethod === method || base.lastConnectedMethod === method
-        ? incoming.lastConnectedMethod || base.lastConnectedMethod
-        : '',
-      deviceName: incoming.deviceName || incoming.name || base.deviceName || base.name || defaultPrinters[role].deviceName,
-    }
-  }
-
-  return {
-    cashier: normalizePrinter('cashier'),
-    kitchen: normalizePrinter('kitchen'),
-    hall: normalizePrinter('hall'),
-  } as Record<PrinterRole, AppSettings['printers'][PrinterRole]>
-}
-
 function repairMojibake(value: unknown): unknown {
   if (typeof value === 'string') {
     if (!/[ØÙÃÂâðï�]/.test(value)) return value
@@ -261,13 +234,14 @@ export async function updateSharedCatalog(catalog: Pick<SharedAppData, 'categori
 
 export async function updateSharedSettings(settings: Partial<AppSettings>) {
   const current = await readSharedAppData()
-  const printers = settings.printers
+  const { printers: _ignoredPrinters, ...sharedSettings } = settings
+  void _ignoredPrinters
   return writeSharedAppData({
     ...current,
     settings: {
       ...current.settings,
-      ...settings,
-      printers: printers ? normalizeSharedPrinters(printers, current.settings.printers) : current.settings.printers,
+      ...sharedSettings,
+      printers: current.settings.printers,
     },
   })
 }

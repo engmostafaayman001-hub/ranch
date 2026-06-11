@@ -68,6 +68,9 @@ export interface PrinterConnection {
   isEnabled: boolean
   lastConnected: string
   lastConnectedMethod?: PrinterMethod | ''
+  lastPrinted?: string
+  failedAttempts?: number
+  lastError?: string
   printsMainInvoice: boolean
   printsQr: boolean
 }
@@ -201,7 +204,7 @@ export const defaultPrinters: Record<PrinterRole, PrinterConnection> = {
   },
 }
 
-function mergePrinters(printers?: Partial<Record<PrinterRole, Partial<PrinterConnection>>>) {
+export function mergePrinters(printers?: Partial<Record<PrinterRole, Partial<PrinterConnection>>>) {
   const normalize = (role: PrinterRole): PrinterConnection => {
     const incoming = printers?.[role] || {}
     const rawMethod = incoming.method || incoming.connectionType
@@ -278,7 +281,14 @@ export const useAppStore = create<AppStore>()(
           categories: catalog.categories,
           products: catalog.products,
         }),
-      setSettings: (settings) => set({ settings: { ...defaultSettings, ...settings, printers: mergePrinters(settings.printers) } }),
+      setSettings: (settings) =>
+        set((state) => ({
+          settings: {
+            ...defaultSettings,
+            ...settings,
+            printers: mergePrinters(state.settings.printers),
+          },
+        })),
       setDrivers: (drivers) => set({ drivers }),
       addCategory: (category) =>
         set((state) => ({ categories: [...state.categories, { ...category, id: createId('category') }] })),

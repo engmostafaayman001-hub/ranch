@@ -68,13 +68,15 @@ export async function saveSharedCatalog(categories: MenuCategory[], products: Me
 }
 
 export async function saveSharedSettings(settings: AppSettings) {
+  const localPrinters = useAppStore.getState().settings.printers
   const response = await fetchWithRetry('/api/app-data', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type: 'settings', settings }),
+    body: JSON.stringify({ type: 'settings', settings: { ...settings, printers: undefined } }),
   })
   const data = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(data.message || data.error || 'Could not save settings')
+  if (data.settings) data.settings = { ...data.settings, printers: localPrinters }
   return data as { settings: AppSettings }
 }
 

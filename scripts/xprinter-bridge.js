@@ -81,6 +81,37 @@ function runPowerShell(script) {
   })
 }
 
+function runPowerShellOutput(script) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], {
+      windowsHide: true,
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (data) => {
+      stdout += data.toString()
+    })
+    child.stderr.on('data', (data) => {
+      stderr += data.toString()
+    })
+    child.on('error', reject)
+    child.on('close', (code) => {
+      if (code === 0) resolve(stdout)
+      else reject(new Error(stderr || `PowerShell exited with code ${code}`))
+    })
+  })
+}
+
+async function listWindowsPrinters() {
+  const output = await runPowerShellOutput(`
+Get-CimInstance Win32_Printer |
+  Select-Object Name, Default, WorkOffline, PrinterStatus, PortName |
+  ConvertTo-Json -Compress
+`)
+  const parsed = JSON.parse(output || '[]')
+  return Array.isArray(parsed) ? parsed : [parsed]
+}
+
 async function printRawEscPos({ escposBase64, printer }) {
   const raw = String(escposBase64 || '').trim()
   if (!raw) throw new Error('escposBase64 is required')
@@ -218,7 +249,17 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
+  if (req.method === 'GET' && url.pathname === '/printers') {
+    try {
+      send(res, 200, { ok: true, printers: await listWindowsPrinters() })
+    } catch (error) {
+      send(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })
+    }
+    return
+  }
+
   if (req.method === 'GET' && (url.pathname === '/health' || url.pathname === '/print')) {
+    const printers = await listWindowsPrinters().catch(() => [])
     send(res, 200, {
       ok: true,
       ready: true,
@@ -226,6 +267,7 @@ const server = http.createServer(async (req, res) => {
       queueDepth: queuedPrintJobs,
       active: activePrintJob,
       printer: String(defaultPrinter || '').trim() || 'Windows default printer',
+      printers,
       pid: process.pid,
       uptimeSeconds: Math.round(process.uptime()),
     })
