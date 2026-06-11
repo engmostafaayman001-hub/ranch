@@ -11,7 +11,13 @@ import { Textarea } from '@/components/ui/textarea'
 import { useLanguage } from '@/components/language-provider'
 import { defaultPrinters, PrinterConnection, PrinterMethod, PrinterRole, useAppStore } from '@/lib/app-store'
 import { imageFileToOptimizedDataUrl, isAcceptedImageFile } from '@/lib/client-images'
-import { printerManager, syncPrinterManagerSettings, type ThermalPrinterSettings } from '@/lib/printer'
+import {
+  printerManager,
+  syncPrinterManagerSettings,
+  type AvailablePrinterDevice,
+  type PrinterRuntimeDiagnostic,
+  type ThermalPrinterSettings,
+} from '@/lib/printer'
 import { saveSharedSettings, useSharedAppData } from '@/lib/use-shared-app-data'
 
 const APP_LOGO_URL = '/logo.png'
@@ -24,6 +30,9 @@ export default function DashboardSettingsPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [offerImageStatus, setOfferImageStatus] = useState('')
   const [printerStatus, setPrinterStatus] = useState<Partial<Record<PrinterRole, string>>>({})
+  const [discoveredPrinters, setDiscoveredPrinters] = useState<AvailablePrinterDevice[]>([])
+  const [isDiscoveringPrinters, setIsDiscoveringPrinters] = useState(false)
+  const [printerDiscoveryStatus, setPrinterDiscoveryStatus] = useState('')
   const [activeSection, setActiveSection] = useState<'general' | 'orders' | 'payments' | 'invoice' | 'printers'>('general')
   const isArabic = language === 'ar'
 
@@ -187,6 +196,24 @@ export default function DashboardSettingsPage() {
     }))
   }
 
+  const discoverPrinters = async () => {
+    if (isDiscoveringPrinters) return
+    setIsDiscoveringPrinters(true)
+    setPrinterDiscoveryStatus(isArabic ? 'جاري فحص الأجهزة المتاحة...' : 'Scanning available printer devices...')
+    try {
+      syncPrinterManagerSettings(useAppStore.getState().settings.printers)
+      const devices = await printerManager.discoverAvailablePrinters()
+      setDiscoveredPrinters(devices)
+      setPrinterDiscoveryStatus(devices.length
+        ? (isArabic ? `تم العثور على ${devices.length} جهاز/مسار طباعة.` : `Found ${devices.length} printer device/path(s).`)
+        : (isArabic ? 'لم يتم العثور على أجهزة مصرح بها. اربط USB/Bluetooth أو شغل Network Bridge.' : 'No authorized devices found. Pair USB/Bluetooth or start Network Bridge.'))
+    } catch (error) {
+      setPrinterDiscoveryStatus(error instanceof Error ? error.message : (isArabic ? 'تعذر فحص الطابعات.' : 'Could not scan printers.'))
+    } finally {
+      setIsDiscoveringPrinters(false)
+    }
+  }
+
   const connectPrinter = async (role: PrinterRole, selectedMethod?: PrinterMethod) => {
     const currentPrinters = useAppStore.getState().settings.printers
     const currentPrinter = currentPrinters[role]
@@ -209,6 +236,8 @@ export default function DashboardSettingsPage() {
         ip: method === 'network' ? result.printer.ip || useAppStore.getState().settings.printers[role].ip : '',
         lastConnected: result.printer.lastConnected || new Date().toISOString(),
         lastConnectedMethod: method,
+        failedAttempts: result.printer.failedAttempts || 0,
+        lastError: result.printer.lastError || '',
       })
       setPrinterStatus((current) => ({ ...current, [role]: isArabic ? 'تم ربط الطابعة. ستتم الطباعة تلقائيا في الطلبات التالية.' : 'Printer connected. Future orders will print automatically.' }))
     } catch (error) {
@@ -255,6 +284,9 @@ export default function DashboardSettingsPage() {
         ip: method === 'network' ? testedPrinter.ip || useAppStore.getState().settings.printers[role].ip : '',
         lastConnected: testedPrinter.lastConnected || new Date().toISOString(),
         lastConnectedMethod: method,
+        lastPrinted: testedPrinter.lastPrinted || useAppStore.getState().settings.printers[role].lastPrinted || '',
+        failedAttempts: testedPrinter.failedAttempts || 0,
+        lastError: testedPrinter.lastError || '',
       })
       setPrinterStatus((current) => ({ ...current, [role]: isArabic ? 'تم إرسال أمر الاختبار بنجاح.' : 'Test command sent successfully.' }))
     } catch (error) {
@@ -263,6 +295,7 @@ export default function DashboardSettingsPage() {
   }
 
   const invoiceLogoPreview = settings.invoiceLogo || APP_LOGO_URL
+  const printerDiagnostics = printerManager.getDiagnostics()
 
   return (
     <div className="space-y-6">
@@ -436,12 +469,28 @@ export default function DashboardSettingsPage() {
               ? 'للطباعة المباشرة على XPrinter بدون نافذة شغّل npm run print-bridge ثم اختر Network Bridge واستخدم http://127.0.0.1:17878/print. Bluetooth وUSB يطلبان اختيار الجهاز من المتصفح.'
               : 'For silent XPrinter printing, run npm run print-bridge, choose Network Bridge, and use http://127.0.0.1:17878/print. Bluetooth and USB use the browser device picker.'}
           </div>
+          <div className="rounded-md border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold">{isArabic ? 'كشف الطابعات والتشخيص' : 'Printer Discovery and Diagnostics'}</h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  {isArabic ? 'يعرض USB/Bluetooth المصرح بها وطابعات Windows من Network Bridge إن كان يعمل.' : 'Shows authorized USB/Bluetooth devices and Windows printers exposed by Network Bridge.'}
+                </p>
+              </div>
+              <Button type="button" variant="outline" size="sm" disabled={isDiscoveringPrinters} onClick={discoverPrinters}>
+                {isDiscoveringPrinters ? (isArabic ? 'جاري الفحص...' : 'Scanning...') : (isArabic ? 'فحص الأجهزة' : 'Scan Devices')}
+              </Button>
+            </div>
+            {printerDiscoveryStatus && <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">{printerDiscoveryStatus}</p>}
+            {discoveredPrinters.length > 0 && <DiscoveredPrinters devices={discoveredPrinters} isArabic={isArabic} />}
+          </div>
           <div className="space-y-4">
             <PrinterCard
               role="cashier"
               title={isArabic ? 'طابعة الكاشير' : 'Cashier Printer'}
               description={isArabic ? 'الفاتورة الرئيسية وبها QR.' : 'Main invoice with QR.'}
               printer={settings.printers.cashier}
+              diagnostic={printerDiagnostics.cashier}
               isArabic={isArabic}
               statusMessage={printerStatus.cashier}
               onChange={updatePrinter}
@@ -454,6 +503,7 @@ export default function DashboardSettingsPage() {
               title={isArabic ? 'طابعة المطبخ' : 'Kitchen Printer'}
               description={isArabic ? 'ورقة صغيرة بدون QR.' : 'Small ticket without QR.'}
               printer={settings.printers.kitchen}
+              diagnostic={printerDiagnostics.kitchen}
               isArabic={isArabic}
               statusMessage={printerStatus.kitchen}
               onChange={updatePrinter}
@@ -466,6 +516,7 @@ export default function DashboardSettingsPage() {
               title={isArabic ? 'طابعة الصالة' : 'Hall Printer'}
               description={isArabic ? 'ورقة صغيرة بدون QR.' : 'Small ticket without QR.'}
               printer={settings.printers.hall}
+              diagnostic={printerDiagnostics.hall}
               isArabic={isArabic}
               statusMessage={printerStatus.hall}
               onChange={updatePrinter}
@@ -520,6 +571,7 @@ function PrinterCard({
   title,
   description,
   printer,
+  diagnostic,
   isArabic,
   statusMessage,
   onChange,
@@ -531,6 +583,7 @@ function PrinterCard({
   title: string
   description: string
   printer: PrinterConnection
+  diagnostic: PrinterRuntimeDiagnostic
   isArabic: boolean
   statusMessage?: string
   onChange: (role: PrinterRole, updates: Partial<PrinterConnection>) => void
@@ -665,6 +718,7 @@ function PrinterCard({
       )}
 
       {printer.lastConnected && <p className="mt-3 text-xs text-slate-500">{isArabic ? 'آخر اتصال' : 'Last connected'}: {new Date(printer.lastConnected).toLocaleString(isArabic ? 'ar-EG' : 'en-US')}</p>}
+      <PrinterDiagnosticPanel diagnostic={diagnostic} isArabic={isArabic} />
 
       <div className="mt-5 flex flex-wrap gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
         {(method === 'bluetooth' || method === 'usb') && (
@@ -705,6 +759,90 @@ function PrinterCard({
     </div>
   )
 }
+
+function DiscoveredPrinters({ devices, isArabic }: { devices: AvailablePrinterDevice[]; isArabic: boolean }) {
+  return (
+    <div className="mt-3 grid gap-2 md:grid-cols-2">
+      {devices.map((device) => (
+        <div key={`${device.method}-${device.id}`} className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="font-bold text-slate-900 dark:text-slate-100">{device.name}</span>
+            <span className={`rounded-full px-2 py-0.5 font-semibold ${device.paired ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200' : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-200'}`}>
+              {device.paired ? (isArabic ? 'متاح' : 'Available') : (isArabic ? 'غير جاهز' : 'Not ready')}
+            </span>
+          </div>
+          <div className="mt-2 grid gap-1 text-slate-500">
+            <span>{isArabic ? 'الطريقة' : 'Method'}: {device.method}</span>
+            {device.address && <span>{isArabic ? 'العنوان' : 'Address'}: {device.address}</span>}
+            {device.detail && <span>{device.detail}</span>}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function PrinterDiagnosticPanel({ diagnostic, isArabic }: { diagnostic: PrinterRuntimeDiagnostic; isArabic: boolean }) {
+  const statusLabels: Record<PrinterRuntimeDiagnostic['status'], string> = {
+    disabled: isArabic ? 'غير مفعلة' : 'Disabled',
+    not_configured: isArabic ? 'إعداد غير مكتمل' : 'Not configured',
+    ready: isArabic ? 'جاهزة' : 'Ready',
+    needs_reconnect: isArabic ? 'تحتاج إعادة ربط' : 'Needs reconnect',
+    unknown: isArabic ? 'غير معروف' : 'Unknown',
+  }
+  const recentEvents = diagnostic.recentEvents.slice(0, 4)
+
+  return (
+    <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs dark:border-slate-800 dark:bg-slate-900">
+      <div className="grid gap-2 md:grid-cols-3">
+        <DiagnosticItem label={isArabic ? 'نوع الاتصال' : 'Connection'} value={diagnostic.method || '-'} />
+        <DiagnosticItem label={isArabic ? 'الحالة' : 'Status'} value={statusLabels[diagnostic.status]} />
+        <DiagnosticItem label={isArabic ? 'المحاولات الفاشلة' : 'Failed attempts'} value={String(diagnostic.failedAttempts || 0)} />
+        <DiagnosticItem label={isArabic ? 'IP / URL' : 'IP / URL'} value={diagnostic.endpoint || diagnostic.ip || '-'} />
+        <DiagnosticItem label={isArabic ? 'المنفذ' : 'Port'} value={diagnostic.port || '-'} />
+        <DiagnosticItem label={isArabic ? 'الجهاز' : 'Device'} value={diagnostic.deviceName || diagnostic.deviceId || diagnostic.deviceAddress || '-'} />
+        <DiagnosticItem label={isArabic ? 'آخر اتصال' : 'Last connected'} value={formatMaybeDate(diagnostic.lastConnected, isArabic)} />
+        <DiagnosticItem label={isArabic ? 'آخر طباعة' : 'Last print'} value={formatMaybeDate(diagnostic.lastPrinted, isArabic)} />
+        <DiagnosticItem label={isArabic ? 'آخر خطأ' : 'Last error'} value={diagnostic.lastError || '-'} />
+      </div>
+      {recentEvents.length > 0 && (
+        <div className="mt-3 border-t border-slate-200 pt-3 dark:border-slate-800">
+          <p className="font-bold text-slate-700 dark:text-slate-200">{isArabic ? 'آخر سجل تشخيص' : 'Recent debug log'}</p>
+          <div className="mt-2 space-y-2">
+            {recentEvents.map((event) => (
+              <div key={event.id} className="rounded-md bg-white p-2 text-slate-600 dark:bg-slate-950 dark:text-slate-300">
+                <div className="flex flex-wrap gap-2 font-semibold">
+                  <span>{formatMaybeDate(event.at, isArabic)}</span>
+                  <span>{event.action}</span>
+                  <span className={event.status === 'failed' ? 'text-red-600' : event.status === 'ok' ? 'text-emerald-600' : 'text-slate-500'}>{event.status}</span>
+                  {event.attempt && <span>{isArabic ? 'محاولة' : 'Attempt'} {event.attempt}</span>}
+                </div>
+                {(event.message || event.error) && <p className="mt-1 break-words">{event.message || event.error}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DiagnosticItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="font-semibold text-slate-500">{label}</p>
+      <p className="mt-1 break-words text-slate-900 dark:text-slate-100">{value}</p>
+    </div>
+  )
+}
+
+function formatMaybeDate(value: string | undefined, isArabic: boolean) {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString(isArabic ? 'ar-EG' : 'en-US')
+}
+
 function Field({ id, label, value, onChange, type = 'text' }: { id: string; label: string; value: string; onChange: (value: string) => void; type?: string }) {
   return (
     <div>

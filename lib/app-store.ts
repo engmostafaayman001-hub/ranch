@@ -163,6 +163,9 @@ export const defaultPrinters: Record<PrinterRole, PrinterConnection> = {
     isEnabled: false,
     lastConnected: '',
     lastConnectedMethod: '',
+    lastPrinted: '',
+    failedAttempts: 0,
+    lastError: '',
     printsMainInvoice: true,
     printsQr: true,
   },
@@ -181,6 +184,9 @@ export const defaultPrinters: Record<PrinterRole, PrinterConnection> = {
     isEnabled: false,
     lastConnected: '',
     lastConnectedMethod: '',
+    lastPrinted: '',
+    failedAttempts: 0,
+    lastError: '',
     printsMainInvoice: false,
     printsQr: false,
   },
@@ -199,6 +205,9 @@ export const defaultPrinters: Record<PrinterRole, PrinterConnection> = {
     isEnabled: false,
     lastConnected: '',
     lastConnectedMethod: '',
+    lastPrinted: '',
+    failedAttempts: 0,
+    lastError: '',
     printsMainInvoice: false,
     printsQr: false,
   },
@@ -211,15 +220,29 @@ export function mergePrinters(printers?: Partial<Record<PrinterRole, Partial<Pri
     const method = rawMethod === 'usb' || rawMethod === 'bluetooth' || rawMethod === 'network' || rawMethod === 'system'
       ? rawMethod
       : defaultPrinters[role].method
-    return {
+    const lastConnectedMethod: PrinterMethod | '' = incoming.lastConnectedMethod === method ? method : ''
+    const base = {
       ...defaultPrinters[role],
       ...incoming,
       method,
       connectionType: method,
-      lastConnectedMethod: incoming.lastConnectedMethod === method ? incoming.lastConnectedMethod : '',
+      lastConnectedMethod,
       deviceName: incoming.deviceName || incoming.name || defaultPrinters[role].deviceName,
-      retryAttempts: Number(incoming.retryAttempts || defaultPrinters[role].retryAttempts),
-      fontScale: Number(incoming.fontScale || defaultPrinters[role].fontScale),
+      retryAttempts: Math.max(1, Number(incoming.retryAttempts || defaultPrinters[role].retryAttempts)),
+      fontScale: Math.min(1.6, Math.max(0.75, Number(incoming.fontScale || defaultPrinters[role].fontScale))),
+      failedAttempts: Math.max(0, Number(incoming.failedAttempts || 0)),
+      lastError: String(incoming.lastError || ''),
+      lastPrinted: String(incoming.lastPrinted || ''),
+    }
+    const cleaned = method === 'network'
+      ? { ...base, deviceId: '' }
+      : method === 'system'
+        ? { ...base, ip: '', deviceAddress: '', deviceId: '' }
+        : { ...base, ip: '' }
+    return {
+      ...cleaned,
+      name: cleaned.name || defaultPrinters[role].name,
+      deviceName: cleaned.deviceName || cleaned.name || defaultPrinters[role].deviceName,
     }
   }
   return {
