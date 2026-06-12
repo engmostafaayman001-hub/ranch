@@ -138,14 +138,18 @@ export default function DashboardPosPage() {
       if (loadingDailyClosing.current) return
       loadingDailyClosing.current = true
       try {
-        const [ordersResponse, expensesResponse] = await Promise.all([
+        const [restaurantOrdersResponse, appOrdersResponse, expensesResponse] = await Promise.all([
           fetch('/api/pos/orders?source=restaurant_pos&limit=300', { cache: 'no-store' }),
+          fetch('/api/pos/orders?source=app&limit=300', { cache: 'no-store' }),
           fetch('/api/expenses', { cache: 'no-store' }),
         ])
-        const ordersData = await ordersResponse.json().catch(() => ({}))
+        const restaurantOrdersData = await restaurantOrdersResponse.json().catch(() => ({}))
+        const appOrdersData = await appOrdersResponse.json().catch(() => ({}))
         const expensesData = await expensesResponse.json().catch(() => ({}))
         if (!active) return
-        setDailyOrders(Array.isArray(ordersData.orders) ? ordersData.orders : [])
+        const restaurantOrders = Array.isArray(restaurantOrdersData.orders) ? restaurantOrdersData.orders : []
+        const appOrders = Array.isArray(appOrdersData.orders) ? appOrdersData.orders : []
+        setDailyOrders([...restaurantOrders, ...appOrders])
         setDailyExpenses(Array.isArray(expensesData.expenses) ? expensesData.expenses : [])
       } catch {
         if (!active) return
@@ -706,6 +710,11 @@ export default function DashboardPosPage() {
                           <p className="text-lg font-bold">{group.name}</p>
                           <p className="text-sm text-slate-500">{group.phone}</p>
                           <p className="mt-1 text-xs text-slate-500">{group.orders.length} {isArabic ? 'طلب عند الاستلام' : 'COD orders'}</p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {isArabic ? 'تطبيق' : 'App'}: {group.appOrders} / {group.appTotal.toFixed(2)} {currency}
+                            {' - '}
+                            {isArabic ? 'مطعم' : 'POS'}: {group.restaurantOrders} / {group.restaurantTotal.toFixed(2)} {currency}
+                          </p>
                         </div>
                         <div className="text-end">
                           <p className="text-xs text-slate-500">{isArabic ? 'المبلغ المطلوب دفعه' : 'Amount to pay'}</p>
@@ -715,7 +724,9 @@ export default function DashboardPosPage() {
                       <div className="mt-3 divide-y divide-slate-100 rounded-md bg-slate-50 dark:divide-slate-800 dark:bg-slate-900">
                         {group.orders.map((order) => (
                           <div key={order.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm">
-                            <span className="font-medium">{order.id} - {order.customer || '-'}</span>
+                            <span className="font-medium">
+                              {order.source === 'restaurant_pos' ? (isArabic ? 'مطعم' : 'POS') : (isArabic ? 'تطبيق' : 'App')} - {order.id} - {order.customer || '-'}
+                            </span>
                             <span className="font-bold">{Number(order.total || 0).toFixed(2)} {currency}</span>
                           </div>
                         ))}

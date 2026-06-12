@@ -1258,10 +1258,12 @@ export class PrinterManager {
         this.recordDiagnostic({ role: job.role, method, action: 'print', status: 'failed', jobKind: job.kind, orderId: job.payload.orderId, attempt, durationMs: Date.now() - startedAt, ...detail })
         if (isReconnectRequired(error)) {
           const reason = error instanceof Error ? error.message : 'Printer needs reconnect'
+          if (this.shouldFallbackToCashier(job)) return this.printFallbackToCashier(job, reason)
           if (job.strict) throw new Error(reason)
           return { ok: true, skipped: true, needsReconnect: true, reason }
         }
         if (isDeviceChooserCancelled(error)) {
+          if (this.shouldFallbackToCashier(job)) return this.printFallbackToCashier(job, 'Printer selection was cancelled or needs a manual device prompt')
           throw new Error('تم إلغاء اختيار الطابعة. افتح نافذة الاختيار مرة أخرى واختر الجهاز عند الطباعة.')
         }
         await this.disconnect(job.role)

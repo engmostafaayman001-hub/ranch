@@ -217,13 +217,13 @@ export function DashboardPrintWatcher() {
           if (roles.cashier !== true && !cashierEnabled) {
             markOrderRolePrinted(order.id, 'cashier')
           }
-          if (roles.kitchen !== true && !kitchenEnabled) {
+          if (roles.kitchen !== true && !kitchenEnabled && !cashierEnabled) {
             markOrderRolePrinted(order.id, 'kitchen')
           }
 
           const jobs = [
             roles.cashier === true || !cashierEnabled || isReconnectBlocked(order.id, 'cashier', settings) ? null : { role: 'cashier' as const, print: () => printerManager.printCashierReceipt(payload) },
-            roles.kitchen === true || !kitchenEnabled || isReconnectBlocked(order.id, 'kitchen', settings) ? null : { role: 'kitchen' as const, print: () => printerManager.printKitchenTicket(payload) },
+            roles.kitchen === true || (!kitchenEnabled && !cashierEnabled) || isReconnectBlocked(order.id, 'kitchen', settings) ? null : { role: 'kitchen' as const, print: () => printerManager.printKitchenTicket(payload) },
           ].filter(Boolean) as Array<{ role: keyof AutoPrintedOrderRoles; print: () => Promise<{ skipped?: boolean; needsReconnect?: boolean; reason?: string } | unknown> }>
 
           for (const job of jobs) {
@@ -231,34 +231,32 @@ export function DashboardPrintWatcher() {
             if (printingJobs.current.has(jobKey)) continue
             printingJobs.current.add(jobKey)
 
-            job.print()
-              .then((result) => {
-                const value = result as { skipped?: boolean; needsReconnect?: boolean; reason?: string } | undefined
-                if (value?.skipped === true) {
-                  if (isReconnectRequiredResult(value)) {
-                    blockUntilPrinterReconnect(order.id, job.role, settings)
-                    console.warn(`[DashboardPrintWatcher] ${job.role} print for app order ${order.id} is paused until the printer is reconnected.`)
-                    return
-                  }
-                  markOrderRolePrinted(order.id, job.role)
-                  console.warn(`[DashboardPrintWatcher] ${job.role} print for app order ${order.id} was skipped: ${value.reason || 'printer is not ready'}`)
-                  return
+            try {
+              const result = await job.print()
+              const value = result as { skipped?: boolean; needsReconnect?: boolean; reason?: string } | undefined
+              if (value?.skipped === true) {
+                if (isReconnectRequiredResult(value)) {
+                  blockUntilPrinterReconnect(order.id, job.role, settings)
+                  console.warn(`[DashboardPrintWatcher] ${job.role} print for app order ${order.id} is paused until the printer is reconnected.`)
+                  continue
                 }
-                clearReconnectBlock(order.id, job.role)
                 markOrderRolePrinted(order.id, job.role)
-                console.info(`[DashboardPrintWatcher] App order ${order.id} printed on ${job.role}.`)
-              })
-              .catch((error) => {
-                if (isPrinterSelectionBlocked(error)) {
-                  markOrderRolePrinted(order.id, job.role)
-                  console.warn(`[DashboardPrintWatcher] Automatic ${job.role} print for app order ${order.id} needs a manual printer selection.`)
-                  return
-                }
-                console.error(`[DashboardPrintWatcher] Automatic ${job.role} print failed for app order ${order.id}:`, error)
-              })
-              .finally(() => {
-                printingJobs.current.delete(jobKey)
-              })
+                console.warn(`[DashboardPrintWatcher] ${job.role} print for app order ${order.id} was skipped: ${value.reason || 'printer is not ready'}`)
+                continue
+              }
+              clearReconnectBlock(order.id, job.role)
+              markOrderRolePrinted(order.id, job.role)
+              console.info(`[DashboardPrintWatcher] App order ${order.id} printed on ${job.role}.`)
+            } catch (error) {
+              if (isPrinterSelectionBlocked(error)) {
+                markOrderRolePrinted(order.id, job.role)
+                console.warn(`[DashboardPrintWatcher] Automatic ${job.role} print for app order ${order.id} needs a manual printer selection.`)
+                continue
+              }
+              console.error(`[DashboardPrintWatcher] Automatic ${job.role} print failed for app order ${order.id}:`, error)
+            } finally {
+              printingJobs.current.delete(jobKey)
+            }
           }
         }
       } catch (error) {
