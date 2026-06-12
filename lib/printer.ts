@@ -681,12 +681,25 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
     if (line.additions?.length) drawText(`${isArabic ? 'إضافات' : 'Additions'}: ${line.additions.join(', ')}`, { size: 17, weight: 600 })
   }
 
-  if (job.kind === 'cashier') {
+  const hasSummary = [job.payload.subtotal, job.payload.tax, job.payload.discountAmount, job.payload.total]
+    .some((value) => typeof value === 'number')
+  if (hasSummary) {
     divider()
-    twoCol(job.payload.summaryLabels?.subtotal || (isArabic ? 'المجموع' : 'Subtotal'), money(job.payload.subtotal, job.payload.currency || ''), false)
-    twoCol(job.payload.summaryLabels?.tax || (isArabic ? 'الضريبة' : 'Tax'), money(job.payload.tax, job.payload.currency || ''), false)
-    twoCol(job.payload.summaryLabels?.discount || (isArabic ? 'الخصم' : 'Discount'), `-${money(job.payload.discountAmount, job.payload.currency || '')}`, false)
-    twoCol(job.payload.summaryLabels?.total || (isArabic ? 'الإجمالي' : 'Total'), money(job.payload.total, job.payload.currency || ''), true)
+    if (typeof job.payload.subtotal === 'number') {
+      twoCol(job.payload.summaryLabels?.subtotal || (isArabic ? 'المجموع' : 'Subtotal'), money(job.payload.subtotal, job.payload.currency || ''), false)
+    }
+    if (typeof job.payload.tax === 'number') {
+      twoCol(job.payload.summaryLabels?.tax || (isArabic ? 'الضريبة' : 'Tax'), money(job.payload.tax, job.payload.currency || ''), false)
+    }
+    if (typeof job.payload.discountAmount === 'number' && job.payload.discountAmount > 0) {
+      twoCol(job.payload.summaryLabels?.discount || (isArabic ? 'الخصم' : 'Discount'), `-${money(job.payload.discountAmount, job.payload.currency || '')}`, false)
+    }
+    if (typeof job.payload.total === 'number') {
+      twoCol(job.payload.summaryLabels?.total || (isArabic ? 'الإجمالي' : 'Total'), money(job.payload.total, job.payload.currency || ''), true)
+    }
+  }
+
+  if (job.kind === 'cashier') {
     if (job.payload.invoiceMessage) {
       divider()
       drawText(job.payload.invoiceMessage, { size: 18, weight: 700, align: 'center' })
