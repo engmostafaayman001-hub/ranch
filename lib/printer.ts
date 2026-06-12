@@ -675,8 +675,8 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
       continue
     }
     const qty = `x${Number(line.quantity || 0)}`
-    const price = job.kind === 'cashier' && !line.hidePrice ? money(Number(line.price || 0) * Number(line.quantity || 0), job.payload.currency || '') : ''
-    twoCol(`${qty} ${line.name}`, price, job.kind === 'cashier')
+    const price = !line.hidePrice ? money(Number(line.price || 0) * Number(line.quantity || 0), job.payload.currency || '') : ''
+    twoCol(`${qty} ${line.name}`, price, true)
     if (line.notes) drawText(`${isArabic ? 'ملاحظة' : 'Note'}: ${line.notes}`, { size: 17, weight: 600 })
     if (line.additions?.length) drawText(`${isArabic ? 'إضافات' : 'Additions'}: ${line.additions.join(', ')}`, { size: 17, weight: 600 })
   }
