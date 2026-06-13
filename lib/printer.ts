@@ -317,7 +317,7 @@ function getPrinterCapabilityProfile(printer: ThermalPrinterSettings): PrinterCa
   return {
     modelFamily,
     paperWidth,
-    supportsCut: printer.supportsCut ?? (paperWidth === '80mm' && modelFamily !== 'zebra'),
+    supportsCut: printer.supportsCut ?? modelFamily !== 'zebra',
     supportsCashDrawer: printer.supportsCashDrawer ?? (modelFamily !== 'zebra' && modelFamily !== 'sunmi'),
     supportsRasterImage: true,
     supportsQr: printer.supportsQr ?? printer.printsQr !== false,
@@ -735,7 +735,7 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
   return finalCanvas
 }
 
-function canvasToRasterEscPos(canvas: HTMLCanvasElement) {
+function canvasToRasterEscPos(canvas: HTMLCanvasElement, options: { cut?: boolean } = {}) {
   const context = canvas.getContext('2d')
   if (!context) throw new Error('Could not read the print image.')
   const { data, width, height } = context.getImageData(0, 0, canvas.width, canvas.height)
@@ -760,9 +760,16 @@ function canvasToRasterEscPos(canvas: HTMLCanvasElement) {
     height & 0xff,
     (height >> 8) & 0xff,
   ])
-  const output = new Uint8Array(header.length + raster.length)
+  const footer = options.cut
+    ? new Uint8Array([
+        0x1b, 0x64, 0x04, // Feed a few lines so the cutter clears the receipt.
+        0x1d, 0x56, 0x42, 0x00, // ESC/POS partial cut.
+      ])
+    : new Uint8Array([0x1b, 0x64, 0x03])
+  const output = new Uint8Array(header.length + raster.length + footer.length)
   output.set(header, 0)
   output.set(raster, header.length)
+  output.set(footer, header.length + raster.length)
   return output
 }
 function bytesToBase64(bytes: Uint8Array) {
@@ -1314,7 +1321,8 @@ export class PrinterManager {
 
   private async print(job: PrintJob, printer: ThermalPrinterSettings, allowDevicePrompt = false) {
     const canvas = await renderReceiptImage(job, printer)
-    const bytes = canvasToRasterEscPos(canvas)
+    const profile = getPrinterCapabilityProfile(printer)
+    const bytes = canvasToRasterEscPos(canvas, { cut: profile.supportsCut })
     const method = printer.method || printer.connectionType
     if (method === 'network') return this.printNetwork(printer, bytes)
     if (method === 'system') return this.printSystem(printer, canvas)
