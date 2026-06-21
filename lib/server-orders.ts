@@ -369,6 +369,48 @@ export async function deleteServerOrder(orderId: string) {
   return updated.length !== orders.length
 }
 
+export type ServerOrderUpdates = {
+  customer?: string
+  phone?: string
+  address?: string
+  notes?: string
+  total?: number
+  estimatedDelivery?: string
+  status?: TrackingStatus
+  driver?: TrackedOrder['driver']
+  payment?: Partial<OrderPayment>
+}
+
+export async function updateServerOrder(orderId: string, updates: ServerOrderUpdates) {
+  const existing = (await readServerOrders({ orderId, includeReceipts: true }))[0]
+  if (!existing) return null
+
+  const now = new Date().toISOString()
+  const nextStatus = updates.status || existing.status
+  const history = Array.isArray(existing.history) ? existing.history : []
+  const payment = updates.payment
+    ? { ...(existing.payment || { method: 'cash', status: 'pending' as const }), ...updates.payment }
+    : existing.payment
+  const updated: TrackedOrder = {
+    ...existing,
+    customer: updates.customer ?? existing.customer,
+    phone: updates.phone ?? existing.phone,
+    address: updates.address ?? existing.address,
+    notes: updates.notes ?? existing.notes,
+    total: typeof updates.total === 'number' && Number.isFinite(updates.total) ? updates.total : existing.total,
+    estimatedDelivery: updates.estimatedDelivery ?? existing.estimatedDelivery,
+    status: nextStatus,
+    driver: updates.driver || existing.driver,
+    payment,
+    history: nextStatus === existing.status || history.some((event) => event.status === nextStatus)
+      ? history
+      : [...history, { status: nextStatus, at: now }],
+  }
+
+  await upsertServerOrder(updated)
+  return updated
+}
+
 export async function updateServerOrderStatus(
   orderId: string,
   status: TrackingStatus,

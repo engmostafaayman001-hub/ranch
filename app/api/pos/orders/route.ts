@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { deleteServerOrder, readServerOrders, ServerOrderSourceFilter, stripHeavyOrderFields, updateServerOrderStatus, upsertServerOrder } from '@/lib/server-orders'
+import { deleteServerOrder, readServerOrders, ServerOrderSourceFilter, stripHeavyOrderFields, updateServerOrder, updateServerOrderStatus, upsertServerOrder } from '@/lib/server-orders'
 import { PaymentStatus, TrackingStatus, trackingSteps, TrackedOrder } from '@/lib/order-tracking'
 import { getRequestAuthenticatedUserEmail, getRequestDashboardAccess } from '@/lib/server-access'
 import { validateNotificationDiscount } from '@/lib/discounts'
@@ -114,6 +114,14 @@ function normalizePaymentStatus(value: unknown, method: string): PaymentStatus {
   if (raw === 'captured' || raw === 'completed') return 'paid'
   if (method === 'cash') return 'cash_on_delivery'
   return 'pending'
+}
+
+function canManageOrders(role?: string | null) {
+  return role === 'super_admin' || role === 'admin' || role === 'manager'
+}
+
+function hasOwn(body: Record<string, unknown>, key: string) {
+  return Object.prototype.hasOwnProperty.call(body, key)
 }
 
 function getOrderSubtotal(body: Record<string, unknown>) {
@@ -309,11 +317,12 @@ export async function PATCH(request: NextRequest) {
       return json({ error: 'Invalid POS API key' }, { status: 401 })
     }
 
-    const body = await request.json()
+    const body = await request.json() as Record<string, unknown>
     const id = String(body.id || body.orderId || body.posOrderId || '')
-    const status = normalizeTrackingStatus(body.status || body.state || body.orderStatus)
+    const rawStatus = body.status || body.state || body.orderStatus
+    const status = rawStatus ? normalizeTrackingStatus(rawStatus) : undefined
 
-    if (!id || !isTrackingStatus(status)) {
+    if (!id || (rawStatus && (!status || !isTrackingStatus(status)))) {
       return json({ error: 'Invalid order id or status' }, { status: 400 })
     }
 
@@ -328,21 +337,60 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    const payment = body.payment && typeof body.payment === 'object' ? body.payment : {}
-    const driver = body.driver && typeof body.driver === 'object'
+    const hasDetailUpdates = [
+      'customer',
+      'customerName',
+      'phone',
+      'address',
+      'notes',
+      'total',
+      'estimatedDelivery',
+      'paymentMethod',
+      'paymentStatus',
+    ].some((key) => hasOwn(body, key)) || (body.payment && typeof body.payment === 'object')
+
+    if (hasDetailUpdates && !hasValidPosKey && !canManageOrders(access.role)) {
+      return json({ error: 'Forbidden', message: 'You do not have permission to edit order details' }, { status: 403 })
+    }
+
+    const payment = body.payment && typeof body.payment === 'object' ? body.payment as Record<string, unknown> : {}
+    const driverInput = body.driver && typeof body.driver === 'object' ? body.driver as Record<string, unknown> : null
+    const driver = driverInput
       ? {
-          name: String(body.driver.name || 'Pending assignment'),
-          email: String(body.driver.email || ''),
-          phone: String(body.driver.phone || '-'),
-          rating: Number(body.driver.rating || 0),
+          name: String(driverInput.name || 'Pending assignment'),
+          email: String(driverInput.email || ''),
+          phone: String(driverInput.phone || '-'),
+          rating: Number(driverInput.rating || 0),
         }
       : undefined
     const paymentStatus = body.paymentStatus || payment.status
 
-    const order = await updateServerOrderStatus(id, status, {
-      driver,
-      payment: paymentStatus ? { status: normalizePaymentStatus(paymentStatus, String(payment.method || 'cash')) } : undefined,
-    })
+    const paymentMethod = hasOwn(body, 'paymentMethod') || payment.method
+      ? String(payment.method || body.paymentMethod || 'cash')
+      : undefined
+    const paymentUpdates = paymentStatus || paymentMethod
+      ? {
+          ...(paymentMethod ? { method: paymentMethod } : {}),
+          ...(paymentStatus ? { status: normalizePaymentStatus(paymentStatus, String(paymentMethod || payment.method || 'cash')) } : {}),
+        }
+      : undefined
+
+    const order = hasDetailUpdates || !status
+      ? await updateServerOrder(id, {
+          ...(status ? { status } : {}),
+          ...(hasOwn(body, 'customer') || hasOwn(body, 'customerName') ? { customer: String(body.customer || body.customerName || '').trim() || 'Customer' } : {}),
+          ...(hasOwn(body, 'phone') ? { phone: String(body.phone || '') } : {}),
+          ...(hasOwn(body, 'address') ? { address: String(body.address || '') } : {}),
+          ...(hasOwn(body, 'notes') ? { notes: String(body.notes || '').trim() || undefined } : {}),
+          ...(hasOwn(body, 'total') ? { total: Math.max(0, Number(body.total || 0)) } : {}),
+          ...(hasOwn(body, 'estimatedDelivery') ? { estimatedDelivery: String(body.estimatedDelivery || '') } : {}),
+          ...(driver ? { driver } : {}),
+          ...(paymentUpdates ? { payment: paymentUpdates } : {}),
+        })
+      : await updateServerOrderStatus(id, status || 'placed', {
+          driver,
+          payment: paymentUpdates,
+        })
 
     if (!order) {
       return json({ error: 'Order not found' }, { status: 404 })
@@ -364,8 +412,8 @@ export async function DELETE(request: NextRequest) {
       return json({ error: 'Invalid POS API key' }, { status: 401 })
     }
 
-    if (access.role === 'delivery' && !hasValidPosKey) {
-      return json({ error: 'Delivery users cannot delete orders' }, { status: 403 })
+    if (!hasValidPosKey && !canManageOrders(access.role)) {
+      return json({ error: 'Forbidden', message: 'You do not have permission to delete orders' }, { status: 403 })
     }
 
     const body = await request.json().catch(() => ({}))

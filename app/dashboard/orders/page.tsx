@@ -1,11 +1,13 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CreditCard, Eye, Power, Printer, ReceiptText, Store, XCircle } from 'lucide-react'
+import { CreditCard, Edit3, Eye, Power, Printer, ReceiptText, Save, Store, X, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import { ReceiptPreviewDialog } from '@/components/receipt-preview-dialog'
+import { Textarea } from '@/components/ui/textarea'
 import { useLanguage } from '@/components/language-provider'
 import {
   CURRENCY,
@@ -23,6 +25,23 @@ import { saveSharedSettings } from '@/lib/use-shared-app-data'
 
 const statuses: TrackingStatus[] = ['placed', 'confirmed', 'preparing', 'ready_for_delivery', 'out_for_delivery', 'delivered', 'received', 'cancelled']
 
+type OrderEditForm = {
+  id: string
+  status: TrackingStatus
+  customer: string
+  phone: string
+  address: string
+  notes: string
+  total: string
+  estimatedDelivery: string
+  paymentMethod: string
+  paymentStatus: string
+}
+
+function canManageOrderRole(role: string | null) {
+  return role === 'super_admin' || role === 'admin' || role === 'manager'
+}
+
 export default function DashboardOrdersPage() {
   const { language } = useLanguage()
   const isArabic = language === 'ar'
@@ -36,10 +55,15 @@ export default function DashboardOrdersPage() {
   const [savingRestaurantStatus, setSavingRestaurantStatus] = useState(false)
   const [driverSelections, setDriverSelections] = useState<Record<string, string>>({})
   const [dashboardRole, setDashboardRole] = useState<string | null>(null)
+  const [editingOrder, setEditingOrder] = useState<TrackedOrder | null>(null)
+  const [editForm, setEditForm] = useState<OrderEditForm | null>(null)
+  const [savingEdit, setSavingEdit] = useState(false)
   const [receiptPreview, setReceiptPreview] = useState<{ url: string; title: string; name?: string } | null>(null)
   const [loadingReceiptId, setLoadingReceiptId] = useState<string | null>(null)
   const loadingOrders = useRef(false)
   const isDeliveryUser = dashboardRole === 'delivery'
+  const canEditOrders = canManageOrderRole(dashboardRole)
+  const canDeleteOrders = canEditOrders
   const restaurantOpen = settings.restaurantOpen !== false
 
   const loadOrders = useCallback(async () => {
@@ -110,6 +134,61 @@ export default function DashboardOrdersPage() {
     }
     setMessage(isArabic ? 'تم حذف الطلب نهائيا من لوحة التحكم.' : 'Order deleted from dashboard.')
     loadOrders()
+  }
+
+  const openEditOrder = (order: TrackedOrder) => {
+    setEditingOrder(order)
+    setEditForm({
+      id: order.id,
+      status: order.status,
+      customer: order.customer || '',
+      phone: order.phone || '',
+      address: order.address || '',
+      notes: order.notes || '',
+      total: String(Number(order.total || 0)),
+      estimatedDelivery: order.estimatedDelivery || '',
+      paymentMethod: order.payment?.method || 'cash',
+      paymentStatus: order.payment?.status || 'pending',
+    })
+  }
+
+  const closeEditOrder = () => {
+    setEditingOrder(null)
+    setEditForm(null)
+  }
+
+  const saveEditedOrder = async () => {
+    if (!editForm || savingEdit) return
+    setSavingEdit(true)
+    setMessage('')
+    try {
+      const response = await fetch('/api/pos/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: editForm.id,
+          status: editForm.status,
+          customer: editForm.customer,
+          phone: editForm.phone,
+          address: editForm.address,
+          notes: editForm.notes,
+          total: Number(editForm.total || 0),
+          estimatedDelivery: editForm.estimatedDelivery,
+          paymentMethod: editForm.paymentMethod,
+          paymentStatus: editForm.paymentStatus,
+        }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        setMessage(data.message || data.error || (isArabic ? 'تعذر تعديل الطلب.' : 'Could not edit order.'))
+        return
+      }
+      setMessage(isArabic ? 'تم تعديل الطلب بنجاح.' : 'Order updated.')
+      closeEditOrder()
+      loadOrders()
+    } finally {
+      setSavingEdit(false)
+    }
   }
 
   const assignDriver = async (order: TrackedOrder) => {
@@ -255,6 +334,48 @@ export default function DashboardOrdersPage() {
   return (
     <div className="min-w-0 max-w-full space-y-6 overflow-x-hidden">
       <ReceiptPreviewDialog receipt={receiptPreview} onClose={() => setReceiptPreview(null)} isArabic={isArabic} />
+      {editingOrder && editForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-2xl rounded-lg bg-white p-4 shadow-xl dark:bg-slate-950">
+            <div className="flex items-start justify-between gap-3 border-b pb-3 dark:border-slate-800">
+              <div>
+                <h3 className="text-lg font-bold">{isArabic ? 'تعديل الطلب' : 'Edit Order'}</h3>
+                <p className="break-all text-sm text-slate-500">{editingOrder.id}</p>
+              </div>
+              <Button type="button" size="icon" variant="ghost" onClick={closeEditOrder}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <Input value={editForm.customer} onChange={(event) => setEditForm({ ...editForm, customer: event.target.value })} placeholder={isArabic ? 'اسم العميل' : 'Customer name'} />
+              <Input value={editForm.phone} onChange={(event) => setEditForm({ ...editForm, phone: event.target.value })} placeholder={isArabic ? 'رقم الهاتف' : 'Phone'} />
+              <Input className="sm:col-span-2" value={editForm.address} onChange={(event) => setEditForm({ ...editForm, address: event.target.value })} placeholder={isArabic ? 'العنوان' : 'Address'} />
+              <Input type="number" min="0" step="0.01" value={editForm.total} onChange={(event) => setEditForm({ ...editForm, total: event.target.value })} placeholder={isArabic ? 'الإجمالي' : 'Total'} />
+              <Input value={editForm.estimatedDelivery} onChange={(event) => setEditForm({ ...editForm, estimatedDelivery: event.target.value })} placeholder={isArabic ? 'نوع/وقت الطلب' : 'Order type/time'} />
+              <select value={editForm.paymentMethod} onChange={(event) => setEditForm({ ...editForm, paymentMethod: event.target.value })} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950">
+                <option value="cash">{isArabic ? 'نقدي' : 'Cash'}</option>
+                <option value="card">{isArabic ? 'بطاقة' : 'Card'}</option>
+                <option value="wallet">{isArabic ? 'محفظة' : 'Wallet'}</option>
+              </select>
+              <select value={editForm.paymentStatus} onChange={(event) => setEditForm({ ...editForm, paymentStatus: event.target.value })} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950">
+                <option value="cash_on_delivery">{isArabic ? 'الدفع عند الاستلام' : 'Cash on delivery'}</option>
+                <option value="paid">{isArabic ? 'مدفوع' : 'Paid'}</option>
+                <option value="pending">{isArabic ? 'قيد المراجعة' : 'Pending'}</option>
+                <option value="receipt_uploaded">{isArabic ? 'إيصال مرفوع' : 'Receipt uploaded'}</option>
+                <option value="rejected">{isArabic ? 'مرفوض' : 'Rejected'}</option>
+              </select>
+              <Textarea className="sm:col-span-2" value={editForm.notes} onChange={(event) => setEditForm({ ...editForm, notes: event.target.value })} placeholder={isArabic ? 'ملاحظات' : 'Notes'} />
+            </div>
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <Button type="button" variant="outline" onClick={closeEditOrder}>{isArabic ? 'إلغاء' : 'Cancel'}</Button>
+              <Button type="button" className="gap-2" disabled={savingEdit} onClick={saveEditedOrder}>
+                <Save className="h-4 w-4" />
+                {savingEdit ? (isArabic ? 'جار الحفظ...' : 'Saving...') : (isArabic ? 'حفظ التعديل' : 'Save Changes')}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       {!isDeliveryUser && (
         <div className="flex justify-end">
           <button
@@ -330,7 +451,11 @@ export default function DashboardOrdersPage() {
                         {label(status)}
                       </Button>
                     ))}
-                    {!isDeliveryUser && <Button size="sm" variant="destructive" onClick={() => deleteOrder(order.id)}>{isArabic ? 'حذف الطلب' : 'Delete Order'}</Button>}
+                    {canEditOrders && <Button size="sm" variant="outline" className="gap-2" onClick={() => openEditOrder(order)}>
+                      <Edit3 className="h-4 w-4" />
+                      {isArabic ? 'تعديل الطلب' : 'Edit Order'}
+                    </Button>}
+                    {canDeleteOrders && <Button size="sm" variant="destructive" onClick={() => deleteOrder(order.id)}>{isArabic ? 'حذف الطلب' : 'Delete Order'}</Button>}
                   </div>
                   <div className="mt-4 grid min-w-0 gap-3 overflow-hidden rounded-md border bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/40 md:grid-cols-[minmax(0,1fr)_auto]">
                     <div className="min-w-0 space-y-1">
