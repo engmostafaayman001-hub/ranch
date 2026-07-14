@@ -3,10 +3,12 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
+import { Eye } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Navbar } from '@/components/navbar'
+import { ReceiptPreviewDialog } from '@/components/receipt-preview-dialog'
 import { Sidebar } from '@/components/sidebar'
 import { CURRENCY, CURRENCY_EN, PAYMENT_METHOD_LABELS, PAYMENT_METHOD_LABELS_EN, ROUTES } from '@/lib/constants'
 import { useLanguage } from '@/components/language-provider'
@@ -18,6 +20,9 @@ export default function TrackOrderPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [order, setOrder] = useState<TrackedOrder | null>(null)
   const [loading, setLoading] = useState(true)
+  const [message, setMessage] = useState('')
+  const [loadingReceipt, setLoadingReceipt] = useState(false)
+  const [receiptPreview, setReceiptPreview] = useState<{ url: string; title: string; name?: string } | null>(null)
   const { isLoggedIn, logout, user } = useAuthStore()
   const { language } = useLanguage()
   const isArabic = language === 'ar'
@@ -59,8 +64,31 @@ export default function TrackOrderPage() {
     setSidebarOpen(false)
   }
 
+  const openReceipt = async () => {
+    if (!order || loadingReceipt) return
+    setMessage('')
+    setLoadingReceipt(true)
+    try {
+      const response = await fetch(`/api/pos/orders/receipt?orderId=${encodeURIComponent(order.id)}`, { cache: 'no-store' })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || !data.receipt?.receiptDataUrl) {
+        throw new Error(data.message || data.error || 'Could not load receipt')
+      }
+      setReceiptPreview({
+        url: data.receipt.receiptDataUrl,
+        title: `${isArabic ? 'إيصال الطلب' : 'Order receipt'} ${order.id}`,
+        name: data.receipt.receiptName || order.payment?.receiptName,
+      })
+    } catch {
+      setMessage(isArabic ? 'تعذر فتح الإيصال لهذا الطلب.' : 'Could not open the receipt for this order.')
+    } finally {
+      setLoadingReceipt(false)
+    }
+  }
+
   return (
     <main className="min-h-screen bg-slate-50 dark:bg-slate-950">
+      <ReceiptPreviewDialog receipt={receiptPreview} onClose={() => setReceiptPreview(null)} isArabic={isArabic} />
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} isLoggedIn={isLoggedIn} onLogout={handleLogout} />
       <Navbar onMenuOpen={() => setSidebarOpen(true)} isLoggedIn={isLoggedIn} onLogout={handleLogout} />
 
@@ -100,6 +128,7 @@ export default function TrackOrderPage() {
             <Card className="mb-8">
               <CardHeader><CardTitle>{isArabic ? 'الدفع' : 'Payment'}</CardTitle></CardHeader>
               <CardContent className="space-y-3">
+                {message && <p className="rounded-md bg-slate-100 p-3 text-sm dark:bg-slate-900">{message}</p>}
                 <p className="font-semibold">{paymentLabel(order, isArabic)}</p>
                 <p className="text-sm text-slate-500">
                   {order.payment?.method
@@ -107,6 +136,12 @@ export default function TrackOrderPage() {
                     : '-'}
                 </p>
                 {order.payment?.receiptName && <p className="text-sm text-slate-600 dark:text-slate-400">{isArabic ? 'الإيصال' : 'Receipt'}: {order.payment.receiptName}</p>}
+                {order.payment?.receiptName || order.payment?.receiptUploadedAt ? (
+                  <Button type="button" variant="outline" disabled={loadingReceipt} onClick={openReceipt}>
+                    <Eye className="me-2 h-4 w-4" />
+                    {loadingReceipt ? (isArabic ? 'جاري الفتح...' : 'Opening...') : (isArabic ? 'فتح الإيصال' : 'Open Receipt')}
+                  </Button>
+                ) : null}
               </CardContent>
             </Card>
 

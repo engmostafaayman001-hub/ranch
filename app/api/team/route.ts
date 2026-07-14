@@ -91,7 +91,23 @@ async function findAppUserByEmail(email: string) {
 
 async function ensureAppUser(email: string, name: string) {
   const existing = await findAppUserByEmail(email)
-  if (existing?.id) return { id: String(existing.id), tempPassword: null }
+  if (existing?.id) {
+    const supabase = createSupabaseAdminClient()
+    const userId = String(existing.id)
+
+    if (name && String(existing.name || '') !== name) {
+      const { error } = await supabase.from('users').update({ name }).eq('id', userId)
+      if (error) throw error
+
+      try {
+        await supabase.auth.admin.updateUserById(userId, { user_metadata: { name } })
+      } catch {
+        // Keep app user data updated even if auth metadata syncing is not available.
+      }
+    }
+
+    return { id: userId, tempPassword: null }
+  }
 
   const supabase = createSupabaseAdminClient()
   const tempPassword = Math.random().toString(36).slice(2, 12)
@@ -218,20 +234,77 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json()
     const id = String(body.id || '')
     const updates: Record<string, string> = {}
+    const userUpdates: Record<string, string> = {}
+    const name = typeof body.name === 'string' ? String(body.name).trim() : ''
+    const email = typeof body.email === 'string' ? normalizeEmail(String(body.email)) : ''
 
     if (!id) return json({ error: 'Member id is required' }, { status: 400 })
     if (body.role && isTeamRole(String(body.role))) updates.role = String(body.role)
     if (body.status) updates.status = String(body.status) === 'active' ? 'active' : 'inactive'
+    if (name) userUpdates.name = name
+    if (email) userUpdates.email = email
+
+    if (body.role && !isTeamRole(String(body.role))) return json({ error: 'Invalid role' }, { status: 400 })
+    if (Object.keys(updates).length === 0 && Object.keys(userUpdates).length === 0) {
+      return json({ error: 'No updates provided' }, { status: 400 })
+    }
 
     const supabase = createSupabaseAdminClient()
-    const { data, error } = await supabase
+    const { data: currentMember, error: currentMemberError } = await supabase
       .from('team_members')
-      .update(updates)
-      .eq('id', id)
       .select('id,user_id,role,status,users(email,name)')
+      .eq('id', id)
       .single()
 
-    if (error) throw error
+    if (currentMemberError) throw currentMemberError
+
+    let data = currentMember
+    if (Object.keys(updates).length > 0) {
+      const { data: updatedMember, error } = await supabase
+        .from('team_members')
+        .update(updates)
+        .eq('id', id)
+        .select('id,user_id,role,status,users(email,name)')
+        .single()
+
+      if (error) throw error
+      data = updatedMember
+    }
+
+    if (Object.keys(userUpdates).length > 0) {
+      const userId = String(data.user_id)
+      if (email) {
+        const { error: authError } = await supabase.auth.admin.updateUserById(userId, {
+          email,
+          email_confirm: true,
+          user_metadata: name ? { name } : undefined,
+        })
+        if (authError) throw authError
+      } else if (name) {
+        try {
+          await supabase.auth.admin.updateUserById(userId, { user_metadata: { name } })
+        } catch {
+          // Keep app user data updated even if auth metadata syncing is not available.
+        }
+      }
+
+      const { error: userError } = await supabase
+        .from('users')
+        .update(userUpdates)
+        .eq('id', userId)
+
+      if (userError) throw userError
+
+      const { data: refreshedMember, error: refreshedError } = await supabase
+        .from('team_members')
+        .select('id,user_id,role,status,users(email,name)')
+        .eq('id', id)
+        .single()
+
+      if (refreshedError) throw refreshedError
+      data = refreshedMember
+    }
+
     const user = Array.isArray(data.users) ? data.users[0] : data.users
 
     return json({

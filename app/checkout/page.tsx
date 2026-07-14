@@ -400,7 +400,7 @@ export default function CheckoutPage() {
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="receipt">{isArabic ? 'رفع إيصال الدفع' : 'Upload Payment Receipt'}</Label>
-                        <input id="receipt" type="file" accept="image/*,.pdf" onChange={handleReceiptUpload} required className="sr-only" />
+                        <input id="receipt" type="file" accept="image/*,.pdf" onChange={handleReceiptUpload} className="sr-only" />
                         <label
                           htmlFor="receipt"
                           className="flex min-h-32 w-full max-w-full cursor-pointer flex-col items-center justify-center gap-3 overflow-hidden rounded-md border border-dashed border-slate-300 bg-white p-4 text-center transition hover:border-red-400 hover:bg-red-50 dark:border-slate-700 dark:bg-slate-950 dark:hover:border-red-500 dark:hover:bg-red-950/20"

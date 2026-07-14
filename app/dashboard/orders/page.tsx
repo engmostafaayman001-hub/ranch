@@ -355,7 +355,8 @@ export default function DashboardOrdersPage() {
               <select value={editForm.paymentMethod} onChange={(event) => setEditForm({ ...editForm, paymentMethod: event.target.value })} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950">
                 <option value="cash">{isArabic ? 'نقدي' : 'Cash'}</option>
                 <option value="card">{isArabic ? 'بطاقة' : 'Card'}</option>
-                <option value="wallet">{isArabic ? 'محفظة' : 'Wallet'}</option>
+                <option value="vodafone_cash">Vodafone Cash</option>
+                <option value="instapay">InstaPay</option>
               </select>
               <select value={editForm.paymentStatus} onChange={(event) => setEditForm({ ...editForm, paymentStatus: event.target.value })} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950">
                 <option value="cash_on_delivery">{isArabic ? 'الدفع عند الاستلام' : 'Cash on delivery'}</option>

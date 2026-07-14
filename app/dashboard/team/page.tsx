@@ -61,6 +61,20 @@ export default function DashboardTeamPage() {
     setFormOpen(false)
   }
 
+  const upsertLocalMember = (member: unknown) => {
+    if (!member || typeof member !== 'object') return
+
+    const nextMember = member as TeamMember
+    setTeam((currentTeam) => {
+      const exists = currentTeam.some((item) => item.id === nextMember.id)
+      if (exists) {
+        return currentTeam.map((item) => (item.id === nextMember.id ? nextMember : item))
+      }
+
+      return [nextMember, ...currentTeam]
+    })
+  }
+
   const openNewMember = () => {
     setEditingId(null)
     setForm({ name: '', email: '', role: 'support', status: 'active' })
@@ -79,9 +93,10 @@ export default function DashboardTeamPage() {
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.message || data.error || 'Could not save member')
+      upsertLocalMember(data.member)
       setMessage(editingId ? (isArabic ? 'تم حفظ تعديل العضو.' : 'Member updated.') : (isArabic ? 'تمت إضافة العضو وتفعيل صلاحياته.' : 'Member added and permissions enabled.'))
       closeForm()
-      loadTeam()
+      void loadTeam()
     } catch (error) {
       setMessage(error instanceof Error ? error.message : (isArabic ? 'تعذر حفظ العضو.' : 'Could not save member.'))
     } finally {
@@ -107,8 +122,9 @@ export default function DashboardTeamPage() {
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.message || data.error || 'Could not update member')
+      upsertLocalMember(data.member)
       setMessage(isArabic ? 'تم تحديث حالة العضو.' : 'Member status updated.')
-      loadTeam()
+      void loadTeam()
     } catch (error) {
       setMessage(error instanceof Error ? error.message : (isArabic ? 'تعذر تحديث حالة العضو.' : 'Could not update member status.'))
     } finally {
@@ -127,8 +143,9 @@ export default function DashboardTeamPage() {
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.message || data.error || 'Could not delete member')
+      setTeam((currentTeam) => currentTeam.filter((item) => item.id !== member.id))
       setMessage(isArabic ? 'تم حذف العضو.' : 'Member deleted.')
-      loadTeam()
+      void loadTeam()
     } catch (error) {
       setMessage(error instanceof Error ? error.message : (isArabic ? 'تعذر حذف العضو.' : 'Could not delete member.'))
     } finally {
