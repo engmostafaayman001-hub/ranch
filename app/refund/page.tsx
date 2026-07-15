@@ -1,5 +1,5 @@
-import { SimplePage } from '@/components/simple-page'
+import { redirect } from 'next/navigation'
 
 export default function RefundPage() {
-  return <SimplePage kind="refund" />
+  redirect('/complaints')
 }

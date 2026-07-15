@@ -15,6 +15,8 @@ import { useLanguage } from '@/components/language-provider'
 import { useAuthStore } from '@/lib/store'
 import { getStatusIndex, statusLabels, syncTrackedOrdersForEmail, TrackedOrder, trackingSteps } from '@/lib/order-tracking'
 
+const customerTrackingSteps = trackingSteps.filter((step) => step.status !== 'received')
+
 export default function TrackOrderPage() {
   const params = useParams()
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -146,15 +148,15 @@ export default function TrackOrderPage() {
             </Card>
 
             <Card className="mb-8">
-              <CardHeader><CardTitle>{isArabic ? 'خط سير الطلب حتى الاستلام' : 'Order Timeline Until Receipt'}</CardTitle></CardHeader>
+              <CardHeader><CardTitle>{isArabic ? 'خط سير الطلب حتى التسليم' : 'Order Timeline Until Delivery'}</CardTitle></CardHeader>
               <CardContent>
                 <div className="space-y-5">
-                  {trackingSteps.map((step, index) => {
+                  {customerTrackingSteps.map((step, index) => {
                     const completed = order.status === 'cancelled'
                       ? step.status === 'cancelled'
                       : getStatusIndex(step.status) <= getStatusIndex(order.status) && step.status !== 'cancelled'
                     const event = order.history.find((item) => item.status === step.status)
-                    const active = step.status === order.status
+                    const active = step.status === order.status || (order.status === 'received' && step.status === 'delivered')
                     return (
                       <div key={step.status} className="flex items-start gap-4">
                         <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-bold text-white ${completed ? 'bg-red-600' : 'bg-slate-300'}`}>
@@ -173,6 +175,22 @@ export default function TrackOrderPage() {
                 </div>
               </CardContent>
             </Card>
+
+            {['delivered', 'received'].includes(order.status) && (
+              <Card className="mb-8 border-red-100 bg-red-50/60 dark:border-red-950 dark:bg-red-950/20">
+                <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-bold">{isArabic ? 'الطلب اكتمل بعد التسليم' : 'Order completed after delivery'}</p>
+                    <p className="text-sm text-slate-600 dark:text-slate-400">
+                      {isArabic ? 'لو عندك مشكلة في الطلب، قدم شكوى واختر طلب استرجاع عند الحاجة.' : 'If there is an issue, submit a complaint and choose refund request when needed.'}
+                    </p>
+                  </div>
+                  <Link href={`${ROUTES.COMPLAINTS}?orderId=${encodeURIComponent(order.id)}`}>
+                    <Button className="bg-red-600 hover:bg-red-700">{isArabic ? 'تقديم شكوى' : 'Submit Complaint'}</Button>
+                  </Link>
+                </CardContent>
+              </Card>
+            )}
 
             <Card>
               <CardHeader><CardTitle>{isArabic ? 'معلومات السائق' : 'Driver Information'}</CardTitle></CardHeader>

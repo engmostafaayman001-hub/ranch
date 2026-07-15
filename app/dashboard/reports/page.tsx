@@ -378,11 +378,11 @@ export default function DashboardReportsPage() {
             <div className="space-y-4 p-4">
               {printStatus && <p className="rounded-md bg-slate-100 p-3 text-sm dark:bg-slate-900">{printStatus}</p>}
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-                <SummaryPanel label={isArabic ? 'إجمالي المبيعات' : 'Sales Total'} value={money(closingMoney.revenue, currency)} compact />
+                <SummaryPanel label={isArabic ? 'إجمالي المبيعات النهائي بعد الخصم والضريبة والتوصيل' : 'Final sales after discount, tax and delivery'} value={money(closingMoney.revenue, currency)} compact />
                 <SummaryPanel label={isArabic ? 'مبيعات بدون توصيل وخصم وضريبة' : 'Sales before delivery, discount and tax'} value={money(closingMoney.baseSales, currency)} compact />
                 <SummaryPanel label={isArabic ? 'خدمة التوصيل المحصلة' : 'Collected delivery service'} value={money(closingMoney.deliveryFees, currency)} compact />
                 <SummaryPanel label={isArabic ? 'إجمالي المصروفات' : 'Expenses'} value={money(closingSummary.expenseTotal, currency)} compact />
-                <SummaryPanel label={isArabic ? 'صافي الدرج' : 'Drawer Net'} value={money(closingMoney.drawerNet, currency)} compact />
+                <SummaryPanel label={isArabic ? 'صافي الدرج بعد كل شيء' : 'Final Drawer Net'} value={money(closingMoney.drawerNet, currency)} compact />
               </div>
               <div className="grid gap-4 lg:grid-cols-2">
                 <Card>

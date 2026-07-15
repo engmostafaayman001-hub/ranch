@@ -19,6 +19,7 @@ import { useSharedAppData } from '@/lib/use-shared-app-data'
 type PosLine = {
   productId: string
   quantity: number
+  notes?: string
 }
 
 type PosOrderType = 'dine_in' | 'delivery' | 'takeaway'
@@ -72,6 +73,7 @@ export default function DashboardPosPage() {
   const [lines, setLines] = useState<PosLine[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(false)
+  const [dailyClosingPrinting, setDailyClosingPrinting] = useState(false)
   const [message, setMessage] = useState('')
   const [discountCode, setDiscountCode] = useState('')
   const [discountAmount, setDiscountAmount] = useState(0)
@@ -233,14 +235,17 @@ export default function DashboardPosPage() {
     }
   }
 
-  const toggleNote = (note: string) => {
-    const notes = customer.notes
+  const toggleLineNote = (productId: string, note: string) => {
+    setLines((current) => current.map((line) => {
+      if (line.productId !== productId) return line
+      const notes = (line.notes || '')
       .split('،')
       .map((item) => item.trim())
       .filter(Boolean)
-    const exists = notes.includes(note)
-    const next = exists ? notes.filter((item) => item !== note) : [...notes, note]
-    setCustomer({ ...customer, notes: next.join('، ') })
+      const exists = notes.includes(note)
+      const next = exists ? notes.filter((item) => item !== note) : [...notes, note]
+      return { ...line, notes: next.join('، ') }
+    }))
   }
 
   const selectCustomer = (item: PosCustomer) => {
@@ -303,6 +308,7 @@ export default function DashboardPosPage() {
           name: isArabic ? item.product.nameAr : item.product.nameEn,
           quantity: item.quantity,
           price: item.product.price,
+          notes: item.notes,
           categoryName: categories.find((category) => category.id === item.product.categoryId)?.[isArabic ? 'nameAr' : 'nameEn'] || '',
           categoryId: item.product.categoryId,
         })),
@@ -317,18 +323,18 @@ export default function DashboardPosPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           source: 'restaurant_pos',
-          customer: { name: customer.name, phone: customer.phone, address: orderAddress, notes: customer.notes },
+          customer: { name: customer.name, phone: customer.phone, address: orderAddress },
           driver: orderType === 'delivery' && selectedDriver
             ? { name: selectedDriver.name, email: selectedDriver.email || '', phone: selectedDriver.phone, rating: 0 }
             : undefined,
           phone: customer.phone,
           address: orderAddress,
-          notes: customer.notes,
           lines: cartItems.map((item) => ({
             productId: item.product.id,
             name: isArabic ? item.product.nameAr : item.product.nameEn,
             quantity: item.quantity,
             price: item.product.price,
+            notes: item.notes,
             categoryName: categories.find((category) => category.id === item.product.categoryId)?.[isArabic ? 'nameAr' : 'nameEn'] || '',
             categoryId: item.product.categoryId,
           })),
@@ -436,9 +442,23 @@ export default function DashboardPosPage() {
           <p className="text-sm text-slate-500">{isArabic ? 'إتمام البيع وطباعة التقفيل اليومي من نفس الشاشة.' : 'Complete sales and print the daily closing from the same screen.'}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" className="gap-2" onClick={() => printPosDailyClosing({ orders: dailyOrders, expenses: dailyExpenses, isArabic, currency, paymentLabels: posPaymentLabels, settings, setMessage })}>
+          <Button
+            type="button"
+            variant="outline"
+            className="gap-2"
+            disabled={dailyClosingPrinting}
+            onClick={async () => {
+              if (dailyClosingPrinting) return
+              setDailyClosingPrinting(true)
+              try {
+                await printPosDailyClosing({ orders: dailyOrders, expenses: dailyExpenses, isArabic, currency, paymentLabels: posPaymentLabels, settings, setMessage })
+              } finally {
+                setDailyClosingPrinting(false)
+              }
+            }}
+          >
           <Printer className="h-4 w-4" />
-          {isArabic ? 'طباعة تقفيل اليوم' : 'Print Daily Closing'}
+          {dailyClosingPrinting ? (isArabic ? 'جاري طباعة التقفيل...' : 'Printing closing...') : (isArabic ? 'طباعة تقفيل اليوم' : 'Print Daily Closing')}
           </Button>
           <Button type="button" variant="outline" className="gap-2" onClick={() => setDriverClosingOpen(true)}>
             <Truck className="h-4 w-4" />
@@ -599,26 +619,6 @@ export default function DashboardPosPage() {
               </div>
             )}
 
-            <div>
-              <Label htmlFor="pos-notes">{isArabic ? 'ملاحظات الفاتورة' : 'Sale Notes'}</Label>
-              <div id="pos-notes" className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {NOTE_OPTIONS.map((option) => {
-                  const label = option[isArabic ? 'ar' : 'en']
-                  const selected = customer.notes.split('،').map((item) => item.trim()).includes(label)
-                  return (
-                    <button
-                      key={option.ar}
-                      type="button"
-                      onClick={() => toggleNote(label)}
-                      className={`min-h-11 rounded-md border px-2 py-2 text-center text-sm font-bold transition ${selected ? 'border-sky-700 bg-sky-600 text-white' : 'border-slate-200 bg-sky-500 text-white hover:bg-sky-600 dark:border-slate-800'}`}
-                    >
-                      {label}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
             {orderType === 'delivery' && (
               <div>
                 <Label htmlFor="delivery-driver">{isArabic ? 'السائق المسؤول' : 'Assigned driver'}</Label>
@@ -645,16 +645,41 @@ export default function DashboardPosPage() {
               {cartItems.length === 0 ? (
                 <p className="rounded-md border border-dashed p-6 text-center text-sm text-slate-500">{isArabic ? 'السلة فارغة.' : 'Ticket is empty.'}</p>
               ) : cartItems.map((item) => (
-                <div key={item.productId} className="flex items-center justify-between gap-2 rounded-md border p-2 dark:border-slate-800">
-                  <div>
-                    <p className="text-sm font-semibold">{isArabic ? item.product.nameAr : item.product.nameEn}</p>
-                    <p className="text-xs text-slate-500">{item.product.price.toFixed(2)} {currency}</p>
+                <div key={item.productId} className="rounded-md border p-2 dark:border-slate-800">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold">{isArabic ? item.product.nameAr : item.product.nameEn}</p>
+                      <p className="text-xs text-slate-500">{item.product.price.toFixed(2)} {currency}</p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button type="button" size="icon" variant="outline" className="h-8 w-8" onClick={() => updateQuantity(item.productId, item.quantity - 1)}><Minus className="h-3 w-3" /></Button>
+                      <span className="w-8 text-center text-sm font-semibold">{item.quantity}</span>
+                      <Button type="button" size="icon" variant="outline" className="h-8 w-8" onClick={() => updateQuantity(item.productId, item.quantity + 1)}><Plus className="h-3 w-3" /></Button>
+                      <Button type="button" size="icon" variant="destructive" className="h-8 w-8" onClick={() => updateQuantity(item.productId, 0)}><Trash2 className="h-3 w-3" /></Button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <Button type="button" size="icon" variant="outline" className="h-8 w-8" onClick={() => updateQuantity(item.productId, item.quantity - 1)}><Minus className="h-3 w-3" /></Button>
-                    <span className="w-8 text-center text-sm font-semibold">{item.quantity}</span>
-                    <Button type="button" size="icon" variant="outline" className="h-8 w-8" onClick={() => updateQuantity(item.productId, item.quantity + 1)}><Plus className="h-3 w-3" /></Button>
-                    <Button type="button" size="icon" variant="destructive" className="h-8 w-8" onClick={() => updateQuantity(item.productId, 0)}><Trash2 className="h-3 w-3" /></Button>
+                  <div className="mt-3">
+                    <p className="mb-2 text-xs font-semibold text-slate-500">{isArabic ? 'ملاحظات هذا الصنف' : 'Item notes'}</p>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {NOTE_OPTIONS.map((option) => {
+                        const label = option[isArabic ? 'ar' : 'en']
+                        const selected = (item.notes || '').split('،').map((note) => note.trim()).includes(label)
+                        return (
+                          <button
+                            key={`${item.productId}-${option.ar}`}
+                            type="button"
+                            onClick={() => toggleLineNote(item.productId, label)}
+                            className={`min-h-10 rounded-md border px-2 py-2 text-center text-xs font-bold transition ${
+                              selected
+                                ? 'border-red-600 bg-red-600 text-white shadow-sm'
+                                : 'border-slate-200 bg-white text-slate-700 hover:border-red-300 hover:bg-red-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-red-950/30'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        )
+                      })}
+                    </div>
                   </div>
                 </div>
               ))}

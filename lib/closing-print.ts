@@ -28,6 +28,7 @@ type ClosingPrintInput = {
 }
 
 export function createClosingReceiptPayload(input: ClosingPrintInput): ReceiptPayload {
+  const adjustedSales = input.orders.reduce((sum, order) => sum + Number(order.total || 0), 0)
   const orderBaseSales = input.orders.reduce((sum, order) => {
     if (typeof order.subtotal === 'number' && Number.isFinite(order.subtotal)) return sum + Number(order.subtotal || 0)
     return sum + Math.max(0, Number(order.total || 0) - Number(order.deliveryFee || 0) - Number(order.tax || 0) + Number(order.discount?.amount || 0))
@@ -72,11 +73,11 @@ export function createClosingReceiptPayload(input: ClosingPrintInput): ReceiptPa
     },
     lines: [
       { kind: 'section', hidePrice: true, name: input.isArabic ? 'ملخص التقفيل' : 'Closing Summary', quantity: 0 },
-      { name: input.isArabic ? 'إجمالي المبيعات' : 'Sales total', quantity: 1, price: input.revenue },
+      { name: input.isArabic ? 'إجمالي المبيعات النهائي بعد الخصم والضريبة والتوصيل' : 'Final sales after discount, tax and delivery', quantity: 1, price: adjustedSales },
       { name: input.isArabic ? 'إجمالي المبيعات بدون توصيل وخصم وضريبة' : 'Sales before delivery, discount and tax', quantity: 1, price: orderBaseSales },
       { name: input.isArabic ? 'إجمالي خدمة التوصيل المحصلة' : 'Collected delivery service', quantity: 1, price: deliveryFees },
       { name: input.isArabic ? 'إجمالي المصروفات' : 'Expenses total', quantity: 1, price: input.expenseTotal },
-      { name: input.isArabic ? 'إجمالي صافي الدرج' : 'Cash drawer net', quantity: 1, price: input.net },
+      { name: input.isArabic ? 'إجمالي صافي الدرج بعد كل الخصومات والضريبة والمصروفات' : 'Cash drawer net after discounts, tax and expenses', quantity: 1, price: input.net },
       { name: `${input.isArabic ? 'عدد الطلبات' : 'Orders count'}: ${input.orders.length}`, quantity: 1, hidePrice: true },
       { kind: 'section', hidePrice: true, name: input.isArabic ? 'طرق الدفع' : 'Payment Methods', quantity: 0 },
       ...(paymentLines.length ? paymentLines : [{ name: input.isArabic ? 'لا توجد مدفوعات' : 'No payments', quantity: 1, hidePrice: true }]),
@@ -85,8 +86,7 @@ export function createClosingReceiptPayload(input: ClosingPrintInput): ReceiptPa
       { kind: 'section', hidePrice: true, name: input.isArabic ? 'الطلبات' : 'Orders', quantity: 0 },
       ...(orderLines.length ? orderLines : [{ name: input.isArabic ? 'لا توجد طلبات' : 'No orders', quantity: 1, hidePrice: true }]),
     ],
-    subtotal: input.revenue,
-    tax: deliveryFees,
+    subtotal: adjustedSales,
     discountAmount: input.expenseTotal,
     total: input.net,
     paymentMethod: paymentEntries.length
@@ -100,10 +100,9 @@ export function createClosingReceiptPayload(input: ClosingPrintInput): ReceiptPa
     logoUrl: input.logoUrl,
     isArabic: input.isArabic,
     summaryLabels: {
-      subtotal: input.isArabic ? 'المبيعات' : 'Sales',
-      tax: input.isArabic ? 'خدمة التوصيل' : 'Delivery service',
+      subtotal: input.isArabic ? 'صافي المبيعات بعد الخصم والضريبة والتوصيل' : 'Net sales after discount, tax and delivery',
       discount: input.isArabic ? 'المصروفات' : 'Expenses',
-      total: input.isArabic ? 'صافي الدرج' : 'Drawer net',
+      total: input.isArabic ? 'صافي الدرج بعد كل شيء' : 'Final drawer net',
     },
   }
 }

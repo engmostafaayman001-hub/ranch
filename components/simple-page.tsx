@@ -8,7 +8,7 @@ import { useLanguage } from '@/components/language-provider'
 import { AppSettings, useAppStore } from '@/lib/app-store'
 import { useSharedAppData } from '@/lib/use-shared-app-data'
 
-type PageKind = 'about' | 'contact' | 'faq' | 'privacy' | 'terms' | 'refund'
+type PageKind = 'about' | 'contact' | 'faq' | 'privacy' | 'terms' | 'refund' | 'complaints'
 type LocalizedSimplePage = {
   title: string
   sections: {
@@ -141,6 +141,24 @@ const pages: Record<PageKind, Record<'ar' | 'en', LocalizedSimplePage>> = {
       ],
     },
   },
+  complaints: {
+    ar: {
+      title: 'تقديم شكوى',
+      sections: [
+        { title: 'اختر نوع الشكوى', list: ['مشكلة في جودة الطلب', 'تأخير في التسليم', 'طلب استرجاع قيمة الطلب', 'مشكلة في الدفع أو الإيصال'] },
+        { title: 'بيانات مطلوبة', list: ['رقم الطلب', 'رقم الهاتف', 'وصف واضح للمشكلة', 'صورة أو إيصال عند الحاجة'] },
+        { title: 'المراجعة', body: ['يتم فحص الشكوى أولا، وإذا كان الحل المناسب هو الاسترجاع يتم تحويلها كطلب استرجاع ومتابعتها مع العميل.'] },
+      ],
+    },
+    en: {
+      title: 'Submit Complaint',
+      sections: [
+        { title: 'Choose Complaint Type', list: ['Order quality issue', 'Delivery delay', 'Refund request', 'Payment or receipt issue'] },
+        { title: 'Required Details', list: ['Order number', 'Phone number', 'Clear issue description', 'Photo or receipt when needed'] },
+        { title: 'Review', body: ['The complaint is reviewed first. If a refund is the right resolution, it is handled as a refund request and followed up with the customer.'] },
+      ],
+    },
+  },
 }
 
 function buildSimplePage(kind: PageKind, language: 'ar' | 'en', settings: AppSettings, appName: string): LocalizedSimplePage {
@@ -207,6 +225,14 @@ function buildSimplePage(kind: PageKind, language: 'ar' | 'en', settings: AppSet
             { title: 'التواصل', body: contactLines },
           ],
         },
+        complaints: {
+          title: 'تقديم شكوى',
+          sections: [
+            { title: 'نوع الشكوى', list: ['مشكلة في جودة الطلب', 'تأخير في التسليم', 'طلب استرجاع قيمة الطلب', 'مشكلة في الدفع أو الإيصال'] },
+            { title: 'طريقة التقديم', body: [`تواصل معنا على ${settings.phone || '-'} مع رقم الطلب وتفاصيل المشكلة. سيتم تحويل الشكوى لاسترجاع إذا كانت الحالة تستدعي ذلك.`] },
+            { title: 'بيانات التواصل', body: contactLines },
+          ],
+        },
       }
     : {
         about: {
@@ -253,6 +279,14 @@ function buildSimplePage(kind: PageKind, language: 'ar' | 'en', settings: AppSet
             { title: 'Conditions', list: ['Valid order number', 'Clear refund reason', 'Photo or receipt when needed'] },
             { title: 'Processing', body: ['Refund requests are reviewed according to the order status and recorded payment method.'] },
             { title: 'Contact', body: contactLines },
+          ],
+        },
+        complaints: {
+          title: 'Submit Complaint',
+          sections: [
+            { title: 'Complaint Type', list: ['Order quality issue', 'Delivery delay', 'Refund request', 'Payment or receipt issue'] },
+            { title: 'How to Submit', body: [`Contact us at ${settings.phone || '-'} with the order number and issue details. The complaint will be converted to a refund request if the case requires it.`] },
+            { title: 'Contact Details', body: contactLines },
           ],
         },
       }

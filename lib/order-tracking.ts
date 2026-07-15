@@ -80,8 +80,8 @@ export const trackingSteps: { status: TrackingStatus; ar: string; en: string }[]
   { status: 'preparing', ar: 'جاري التحضير', en: 'Preparing' },
   { status: 'ready_for_delivery', ar: 'جاهز للتوصيل', en: 'Ready for Delivery' },
   { status: 'out_for_delivery', ar: 'في الطريق', en: 'Out for Delivery' },
-  { status: 'delivered', ar: 'تم التسليم', en: 'Delivered' },
-  { status: 'received', ar: 'تم الاستلام', en: 'Received' },
+  { status: 'delivered', ar: 'تم التسليم واكتمال الطلب', en: 'Delivered and Completed' },
+  { status: 'received', ar: 'مكتمل', en: 'Completed' },
   { status: 'cancelled', ar: 'تم إلغاء الطلب', en: 'Cancelled' },
 ]
 
@@ -115,7 +115,8 @@ function compactTrackedOrders(orders: TrackedOrder[], limit = MAX_LOCAL_TRACKED_
 }
 
 export function getStatusIndex(status: TrackingStatus) {
-  return trackingSteps.findIndex((step) => step.status === status)
+  const normalizedStatus = status === 'received' ? 'delivered' : status
+  return trackingSteps.findIndex((step) => step.status === normalizedStatus)
 }
 
 export function getTrackedOrders(): TrackedOrder[] {

@@ -11,10 +11,10 @@ import {
   LayoutDashboard,
   LogIn,
   LogOut,
+  MessageSquare,
   Moon,
   Phone,
   ReceiptText,
-  RefreshCw,
   ScrollText,
   ShieldCheck,
   ShoppingBag,
@@ -124,7 +124,7 @@ export function Sidebar({ isOpen, onClose, isLoggedIn, onLogout }: SidebarProps)
             <NavItem href="/faq" label={t('faq')} icon={FileQuestion} onClose={onClose} alignClass={align} />
             <NavItem href="/privacy" label={t('privacy')} icon={ShieldCheck} onClose={onClose} alignClass={align} />
             <NavItem href="/terms" label={t('terms')} icon={ScrollText} onClose={onClose} alignClass={align} />
-            <NavItem href="/refund" label={t('refund')} icon={RefreshCw} onClose={onClose} alignClass={align} />
+            <NavItem href={ROUTES.COMPLAINTS} label={t('refund')} icon={MessageSquare} onClose={onClose} alignClass={align} />
           </nav>
 
           <div className="space-y-2 border-t border-slate-200 pt-4 dark:border-slate-800">
