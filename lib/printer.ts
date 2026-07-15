@@ -538,13 +538,31 @@ function wrapText(context: CanvasRenderingContext2D, text: string, maxWidth: num
   const words = String(text || '').split(/\s+/).filter(Boolean)
   const lines: string[] = []
   let line = ''
+  const splitWord = (word: string) => {
+    if (context.measureText(word).width <= maxWidth) return [word]
+    const chunks: string[] = []
+    let chunk = ''
+    for (const char of Array.from(word)) {
+      const candidate = `${chunk}${char}`
+      if (context.measureText(candidate).width <= maxWidth || !chunk) {
+        chunk = candidate
+      } else {
+        chunks.push(chunk)
+        chunk = char
+      }
+    }
+    if (chunk) chunks.push(chunk)
+    return chunks
+  }
   for (const word of words) {
-    const candidate = line ? `${line} ${word}` : word
-    if (context.measureText(candidate).width <= maxWidth || !line) {
-      line = candidate
-    } else {
-      lines.push(line)
-      line = word
+    for (const chunk of splitWord(word)) {
+      const candidate = line ? `${line} ${chunk}` : chunk
+      if (context.measureText(candidate).width <= maxWidth || !line) {
+        line = candidate
+      } else {
+        lines.push(line)
+        line = chunk
+      }
     }
   }
   if (line) lines.push(line)
@@ -611,13 +629,50 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
     y += 14
   }
   const twoCol = (label: string, value: string, strong = false) => {
-    setFont(strong ? 24 : 20, strong ? 800 : 700)
+    const size = strong ? 24 : 20
+    setFont(size, strong ? 800 : 700)
+    const rowHeight = strong ? lineHeight + 4 : lineHeight
+    const contentWidth = right - left
+    const gap = width === 384 ? 14 : 18
+    const labelText = String(label || '').trim()
+    const valueText = String(value || '').trim()
+    const valueWidth = valueText ? Math.min(context.measureText(valueText).width, contentWidth) : 0
+    const labelWidth = context.measureText(labelText).width
+    const labelMaxWidth = Math.max(0, contentWidth - valueWidth - gap)
+    const shouldStack = Boolean(valueText) && (
+      labelWidth > labelMaxWidth ||
+      labelMaxWidth < contentWidth * 0.45
+    )
+
     context.textAlign = isArabic ? 'right' : 'left'
-    context.fillText(label, isArabic ? right : left, y)
+    if (!valueText) {
+      for (const line of wrapText(context, labelText, contentWidth)) {
+        context.fillText(line, isArabic ? right : left, y)
+        y += rowHeight
+      }
+      return
+    }
+
+    if (shouldStack) {
+      for (const line of wrapText(context, labelText, contentWidth)) {
+        context.fillText(line, isArabic ? right : left, y)
+        y += rowHeight
+      }
+      context.textAlign = isArabic ? 'left' : 'right'
+      for (const line of wrapText(context, valueText, contentWidth)) {
+        context.fillText(line, isArabic ? left : right, y)
+        y += rowHeight
+      }
+      context.textAlign = isArabic ? 'right' : 'left'
+      y += strong ? 2 : 0
+      return
+    }
+
+    context.fillText(labelText, isArabic ? right : left, y)
     context.textAlign = isArabic ? 'left' : 'right'
-    context.fillText(value, isArabic ? left : right, y)
+    context.fillText(valueText, isArabic ? left : right, y)
     context.textAlign = isArabic ? 'right' : 'left'
-    y += strong ? lineHeight + 4 : lineHeight
+    y += rowHeight
   }
   const drawLogo = (image: HTMLImageElement | null) => {
     const logoSize = width === 384 ? 86 : 108
