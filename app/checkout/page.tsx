@@ -23,7 +23,7 @@ export default function CheckoutPage() {
   const router = useRouter()
   const { language, appName } = useLanguage()
   const { user, isLoggedIn } = useAuthStore()
-  const { cart, products, settings, clearCart } = useAppStore()
+  const { cart, products, categories, settings, clearCart } = useAppStore()
   const isArabic = language === 'ar'
   const currency = isArabic ? CURRENCY : CURRENCY_EN
   const restaurantOpen = settings.restaurantOpen !== false
@@ -266,6 +266,8 @@ export default function CheckoutPage() {
           name: isArabic ? item!.product.nameAr : item!.product.nameEn,
           quantity: item!.quantity,
           price: item!.product.price,
+          categoryName: categories.find((category) => category.id === item!.product.categoryId)?.[isArabic ? 'nameAr' : 'nameEn'] || '',
+          categoryId: item!.product.categoryId,
         })),
       }
 

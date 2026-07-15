@@ -63,6 +63,8 @@ export type ReceiptLine = {
   price?: number
   notes?: string
   additions?: string[]
+  categoryName?: string
+  categoryId?: string
   kind?: 'section' | 'line'
   hidePrice?: boolean
 }
@@ -78,9 +80,15 @@ export type ReceiptPayload = {
     address?: string
     notes?: string
   }
+  driver?: {
+    name?: string
+    phone?: string
+    email?: string
+  }
   lines: ReceiptLine[]
   subtotal?: number
   tax?: number
+  deliveryFee?: number
   discountAmount?: number
   total?: number
   paymentMethod?: string
@@ -96,6 +104,7 @@ export type ReceiptPayload = {
   summaryLabels?: {
     subtotal?: string
     tax?: string
+    deliveryFee?: string
     discount?: string
     total?: string
   }
@@ -549,8 +558,8 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
   const width = printer.paperWidth === 58 || printer.paperWidth === '58mm' ? 384 : 576
   const scale = Number(printer.fontScale || 1)
   const padding = width === 384 ? 18 : 24
-  const lineHeight = Math.round(25 * scale)
-  const smallHeight = Math.round(20 * scale)
+  const lineHeight = Math.round(29 * scale)
+  const smallHeight = Math.round(23 * scale)
   const canvas = document.createElement('canvas')
   const context = canvas.getContext('2d')
   if (!context) throw new Error('تعذر تجهيز صورة الطباعة.')
@@ -639,14 +648,14 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
   const logo = await logoPromise
   if (job.kind === 'cashier') drawLogo(logo)
 
-  drawText(job.payload.invoiceName || (isArabic ? 'فاتورة طلب' : 'Order Receipt'), { size: 27, weight: 900, align: 'center' })
+  drawText(job.payload.invoiceName || (isArabic ? 'فاتورة طلب' : 'Order Receipt'), { size: 30, weight: 900, align: 'center' })
   if (job.payload.invoiceAddress) {
-    drawText(job.payload.invoiceAddress, { size: 17, weight: 700, align: 'center' })
+    drawText(job.payload.invoiceAddress, { size: 19, weight: 700, align: 'center' })
   }
   if (job.payload.invoicePhone) {
-    drawText(job.payload.invoicePhone, { size: 17, weight: 700, align: 'center' })
+    drawText(job.payload.invoicePhone, { size: 19, weight: 700, align: 'center' })
   }
-  drawText(job.kind === 'cashier' ? (isArabic ? 'فاتورة كاشير' : 'Cashier Receipt') : job.kind === 'kitchen' ? (isArabic ? 'تذكرة مطبخ' : 'Kitchen Ticket') : (isArabic ? 'تذكرة صالة' : 'Hall Ticket'), { size: 18, weight: 700, align: 'center' })
+  drawText(job.kind === 'cashier' ? (isArabic ? 'فاتورة كاشير' : 'Cashier Receipt') : job.kind === 'kitchen' ? (isArabic ? 'تذكرة مطبخ' : 'Kitchen Ticket') : (isArabic ? 'تذكرة صالة' : 'Hall Ticket'), { size: 21, weight: 800, align: 'center' })
   divider()
   twoCol(isArabic ? 'رقم الطلب' : 'Order', job.payload.orderId || '-')
   twoCol(isArabic ? 'الوقت' : 'Time', new Date(job.payload.createdAt || Date.now()).toLocaleString(isArabic ? 'ar-EG' : 'en-US'))
@@ -659,15 +668,21 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
     twoCol(isArabic ? 'الهاتف' : 'Phone', job.payload.customer?.phone || '-')
     twoCol(isArabic ? 'المكان' : 'Place', job.payload.customer?.address || '-')
     if (job.payload.paymentMethod) twoCol(isArabic ? 'الدفع' : 'Payment', job.payload.paymentMethod)
+    if (job.payload.driver?.name && job.payload.driver.name !== 'Pending assignment') {
+      divider()
+      drawText(isArabic ? 'معلومات السائق' : 'Driver information', { size: 21, weight: 900, align: 'center' })
+      twoCol(isArabic ? 'السائق' : 'Driver', job.payload.driver.name)
+      twoCol(isArabic ? 'رقم السائق' : 'Driver phone', job.payload.driver.phone || job.payload.driver.email || '-')
+    }
   }
 
   if (job.payload.customer?.notes) {
     divider()
-    drawText(`${isArabic ? 'ملاحظات' : 'Notes'}: ${job.payload.customer.notes}`, { size: 19, weight: 700 })
+    drawText(`${isArabic ? 'ملاحظات' : 'Notes'}: ${job.payload.customer.notes}`, { size: 21, weight: 800 })
   }
 
   divider()
-  drawText(isArabic ? 'الأصناف' : 'Items', { size: 22, weight: 900, align: 'center' })
+  drawText(isArabic ? 'الأصناف' : 'Items', { size: 24, weight: 900, align: 'center' })
   for (const line of job.payload.lines) {
     if (line.kind === 'section') {
       divider()
@@ -681,7 +696,7 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
     if (line.additions?.length) drawText(`${isArabic ? 'إضافات' : 'Additions'}: ${line.additions.join(', ')}`, { size: 17, weight: 600 })
   }
 
-  const hasSummary = [job.payload.subtotal, job.payload.tax, job.payload.discountAmount, job.payload.total]
+  const hasSummary = [job.payload.subtotal, job.payload.tax, job.payload.deliveryFee, job.payload.discountAmount, job.payload.total]
     .some((value) => typeof value === 'number')
   if (hasSummary) {
     divider()
@@ -690,6 +705,9 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
     }
     if (typeof job.payload.tax === 'number') {
       twoCol(job.payload.summaryLabels?.tax || (isArabic ? 'الضريبة' : 'Tax'), money(job.payload.tax, job.payload.currency || ''), false)
+    }
+    if (typeof job.payload.deliveryFee === 'number' && job.payload.deliveryFee > 0) {
+      twoCol(job.payload.summaryLabels?.deliveryFee || (isArabic ? 'خدمة التوصيل' : 'Delivery service'), money(job.payload.deliveryFee, job.payload.currency || ''), false)
     }
     if (typeof job.payload.discountAmount === 'number' && job.payload.discountAmount > 0) {
       twoCol(job.payload.summaryLabels?.discount || (isArabic ? 'الخصم' : 'Discount'), `-${money(job.payload.discountAmount, job.payload.currency || '')}`, false)
@@ -834,6 +852,7 @@ export function trackedOrderToReceiptPayload(order: TrackedOrder, options: Parti
       address: order.address,
       notes: order.notes,
     },
+    driver: order.driver,
     lines: Array.isArray(maybeLines) && maybeLines.length
       ? maybeLines
       : [{
@@ -843,10 +862,41 @@ export function trackedOrderToReceiptPayload(order: TrackedOrder, options: Parti
           quantity: 1,
           price: Number(order.total || 0),
         }],
+    subtotal: typeof order.subtotal === 'number' ? Number(order.subtotal || 0) : options.subtotal,
+    tax: typeof order.tax === 'number' ? Number(order.tax || 0) : options.tax,
+    deliveryFee: typeof order.deliveryFee === 'number' ? Number(order.deliveryFee || 0) : options.deliveryFee,
+    discountAmount: typeof order.discount?.amount === 'number' ? Number(order.discount.amount || 0) : options.discountAmount,
     total: Number(order.total || 0),
     paymentMethod: order.payment?.method,
     ...options,
   }
+}
+
+function getKitchenSectionKey(line: ReceiptLine) {
+  return (line.categoryName || line.categoryId || 'Kitchen').trim() || 'Kitchen'
+}
+
+function splitKitchenPayloadBySection(payload: ReceiptPayload): ReceiptPayload[] {
+  const groups = new Map<string, ReceiptLine[]>()
+  for (const line of payload.lines) {
+    if (line.kind === 'section') continue
+    const key = getKitchenSectionKey(line)
+    groups.set(key, [...(groups.get(key) || []), line])
+  }
+  if (groups.size <= 1) return [payload]
+  return Array.from(groups.entries()).map(([section, lines]) => ({
+    ...payload,
+    orderType: [payload.orderType, section].filter(Boolean).join(' - '),
+    lines: [
+      { kind: 'section', hidePrice: true, name: section, quantity: 0 },
+      ...lines,
+    ],
+    subtotal: undefined,
+    tax: undefined,
+    deliveryFee: undefined,
+    discountAmount: undefined,
+    total: undefined,
+  }))
 }
 
 export class PrinterManager {
@@ -1099,7 +1149,15 @@ export class PrinterManager {
   }
 
   printKitchenTicket(payload: ReceiptPayload) {
-    return this.enqueue({ role: 'kitchen', kind: 'kitchen', payload })
+    const payloads = splitKitchenPayloadBySection(payload)
+    if (payloads.length === 1) return this.enqueue({ role: 'kitchen', kind: 'kitchen', payload })
+    return (async () => {
+      let result: unknown
+      for (const sectionPayload of payloads) {
+        result = await this.enqueue({ role: 'kitchen', kind: 'kitchen', payload: sectionPayload })
+      }
+      return result
+    })()
   }
 
   printHallTicket(payload: ReceiptPayload) {
@@ -1201,9 +1259,11 @@ export class PrinterManager {
       job.role,
       job.kind,
       job.payload.orderId || '',
+      job.payload.orderType || '',
       job.payload.createdAt || '',
       job.payload.total ?? '',
       job.payload.lines.length,
+      job.payload.lines.map((line) => `${line.name}:${line.categoryName || line.categoryId || ''}`).join(','),
     ].join('|')
   }
 

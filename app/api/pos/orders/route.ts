@@ -162,6 +162,8 @@ function normalizeOrderLines(body: Record<string, unknown>) {
         price: Number(item.price || product.price || 0),
         notes: item.notes || item.note ? String(item.notes || item.note) : undefined,
         additions,
+        categoryName: item.categoryName || item.category || product.categoryName ? String(item.categoryName || item.category || product.categoryName) : undefined,
+        categoryId: item.categoryId || product.categoryId ? String(item.categoryId || product.categoryId) : undefined,
       }
     })
     .filter(Boolean) as TrackedOrder['lines']
@@ -194,7 +196,7 @@ export async function GET(request: NextRequest) {
     const compactOrders = orders.map((order) => stripHeavyOrderFields(order, { includeReceipts }))
 
     if (access.role === 'delivery') {
-      return json({ orders: compactOrders.filter((order) => order.source !== 'restaurant_pos' && isOrderAssignedToDelivery(order, access)) })
+      return json({ orders: compactOrders.filter((order) => isOrderAssignedToDelivery(order, access)) })
     }
 
     if (isAdmin) return json({ orders: compactOrders })
@@ -275,6 +277,9 @@ export async function POST(request: NextRequest) {
       phone: String(customer.phone || body.phone || ''),
       address: String(customer.address || body.address || ''),
       notes: String(customer.notes || body.notes || body.note || '').trim() || undefined,
+      subtotal: Number(subtotal.toFixed(2)),
+      tax: Number(tax.toFixed(2)),
+      deliveryFee: Number(deliveryFee.toFixed(2)),
       total: finalTotal,
       items: Number(body.items || body.itemsCount || body.lines?.length || 0),
       lines,
@@ -329,7 +334,7 @@ export async function PATCH(request: NextRequest) {
     if (access.role === 'delivery') {
       const orders = await readServerOrders({ orderId: id, includeReceipts: true })
       const existing = orders.find((order) => order.id.toLowerCase() === id.toLowerCase())
-      if (!existing || existing.source === 'restaurant_pos' || !isOrderAssignedToDelivery(existing, access)) {
+      if (!existing || !isOrderAssignedToDelivery(existing, access)) {
         return json({ error: 'Forbidden' }, { status: 403 })
       }
       if (body.driver || body.payment || body.paymentStatus) {

@@ -101,6 +101,16 @@ function money(value: number, currency: string) {
   return `${Number(value || 0).toFixed(2)} ${currency}`
 }
 
+function closingFinancials(orders: TrackedOrder[], expenseTotal: number) {
+  const revenue = orders.reduce((sum, order) => sum + Number(order.total || 0), 0)
+  const baseSales = orders.reduce((sum, order) => {
+    if (typeof order.subtotal === 'number' && Number.isFinite(order.subtotal)) return sum + Number(order.subtotal || 0)
+    return sum + Math.max(0, Number(order.total || 0) - Number(order.deliveryFee || 0) - Number(order.tax || 0) + Number(order.discount?.amount || 0))
+  }, 0)
+  const deliveryFees = orders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0)
+  return { revenue, baseSales, deliveryFees, drawerNet: revenue - expenseTotal }
+}
+
 export default function DashboardReportsPage() {
   const { language } = useLanguage()
   const isArabic = language === 'ar'
@@ -197,6 +207,7 @@ export default function DashboardReportsPage() {
       return totals
     }, {})
   }, [closingSummary.orders])
+  const closingMoney = useMemo(() => closingFinancials(closingSummary.orders, closingSummary.expenseTotal), [closingSummary.expenseTotal, closingSummary.orders])
 
   const statusLabel = (status: string) => {
     const labels = isArabic ? ORDER_STATUS_LABELS : ORDER_STATUS_LABELS_EN
@@ -366,10 +377,12 @@ export default function DashboardReportsPage() {
             </div>
             <div className="space-y-4 p-4">
               {printStatus && <p className="rounded-md bg-slate-100 p-3 text-sm dark:bg-slate-900">{printStatus}</p>}
-              <div className="grid gap-3 md:grid-cols-3">
-                <SummaryPanel label={isArabic ? 'إجمالي المبيعات' : 'Sales Total'} value={money(closingSummary.revenue, currency)} />
-                <SummaryPanel label={isArabic ? 'المصروفات' : 'Expenses'} value={money(closingSummary.expenseTotal, currency)} />
-                <SummaryPanel label={isArabic ? 'الصافي' : 'Net'} value={money(closingSummary.net, currency)} />
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                <SummaryPanel label={isArabic ? 'إجمالي المبيعات' : 'Sales Total'} value={money(closingMoney.revenue, currency)} compact />
+                <SummaryPanel label={isArabic ? 'مبيعات بدون توصيل وخصم وضريبة' : 'Sales before delivery, discount and tax'} value={money(closingMoney.baseSales, currency)} compact />
+                <SummaryPanel label={isArabic ? 'خدمة التوصيل المحصلة' : 'Collected delivery service'} value={money(closingMoney.deliveryFees, currency)} compact />
+                <SummaryPanel label={isArabic ? 'إجمالي المصروفات' : 'Expenses'} value={money(closingSummary.expenseTotal, currency)} compact />
+                <SummaryPanel label={isArabic ? 'صافي الدرج' : 'Drawer Net'} value={money(closingMoney.drawerNet, currency)} compact />
               </div>
               <div className="grid gap-4 lg:grid-cols-2">
                 <Card>

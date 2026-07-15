@@ -45,6 +45,24 @@ const ORDER_TYPE_LABELS: Record<PosOrderType, { ar: string; en: string }> = {
   takeaway: { ar: 'تيك أواي', en: 'Takeaway' },
 }
 
+const NOTE_OPTIONS = [
+  { ar: 'بدون بصل', en: 'No onion' },
+  { ar: 'بدون صوص', en: 'No sauce' },
+  { ar: 'صوص زيادة', en: 'Extra sauce' },
+  { ar: 'بدون خيار', en: 'No pickles' },
+  { ar: 'بدون كاتشب', en: 'No ketchup' },
+  { ar: 'كاتشب بس', en: 'Ketchup only' },
+  { ar: 'بدون مايونيز', en: 'No mayonnaise' },
+  { ar: 'حار خفيف', en: 'Mild spicy' },
+  { ar: 'حار وسط', en: 'Medium spicy' },
+  { ar: 'حار جدا', en: 'Very spicy' },
+  { ar: 'عيش ناشف', en: 'Toasted bread' },
+  { ar: 'عيش وسط', en: 'Medium bread' },
+  { ar: 'بدون كابوتشا', en: 'No lettuce' },
+  { ar: 'خيار زيادة', en: 'Extra pickles' },
+  { ar: 'لا كومنت', en: 'No comment' },
+]
+
 export default function DashboardPosPage() {
   useSharedAppData()
   const { language } = useLanguage()
@@ -61,6 +79,7 @@ export default function DashboardPosPage() {
   const [dailyExpenses, setDailyExpenses] = useState<Expense[]>([])
   const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHODS.CASH)
   const [orderType, setOrderType] = useState<PosOrderType>('dine_in')
+  const [deliveryFee, setDeliveryFee] = useState(0)
   const [selectedCategoryId, setSelectedCategoryId] = useState('')
   const [selectedDriverId, setSelectedDriverId] = useState('')
   const [savedCustomers, setSavedCustomers] = useState<PosCustomer[]>([])
@@ -130,7 +149,8 @@ export default function DashboardPosPage() {
 
   const subtotal = cartItems.reduce((sum, item) => sum + item.product.price * item.quantity, 0)
   const tax = subtotal * settings.taxRate
-  const total = Math.max(0, subtotal + tax - discountAmount)
+  const appliedDeliveryFee = orderType === 'delivery' ? Math.max(0, Number(deliveryFee || 0)) : 0
+  const total = Math.max(0, subtotal + tax + appliedDeliveryFee - discountAmount)
 
   useEffect(() => {
     let active = true
@@ -206,7 +226,21 @@ export default function DashboardPosPage() {
 
   const selectOrderType = (type: PosOrderType) => {
     setOrderType(type)
-    if (type !== 'delivery') setSelectedDriverId('')
+    if (type === 'delivery' && deliveryFee <= 0) setDeliveryFee(Number(settings.deliveryFee || 0))
+    if (type !== 'delivery') {
+      setSelectedDriverId('')
+      setDeliveryFee(0)
+    }
+  }
+
+  const toggleNote = (note: string) => {
+    const notes = customer.notes
+      .split('،')
+      .map((item) => item.trim())
+      .filter(Boolean)
+    const exists = notes.includes(note)
+    const next = exists ? notes.filter((item) => item !== note) : [...notes, note]
+    setCustomer({ ...customer, notes: next.join('، ') })
   }
 
   const selectCustomer = (item: PosCustomer) => {
@@ -269,9 +303,12 @@ export default function DashboardPosPage() {
           name: isArabic ? item.product.nameAr : item.product.nameEn,
           quantity: item.quantity,
           price: item.product.price,
+          categoryName: categories.find((category) => category.id === item.product.categoryId)?.[isArabic ? 'nameAr' : 'nameEn'] || '',
+          categoryId: item.product.categoryId,
         })),
         subtotal,
         tax,
+        deliveryFee: appliedDeliveryFee,
         discountAmount,
         total,
       }
@@ -292,10 +329,13 @@ export default function DashboardPosPage() {
             name: isArabic ? item.product.nameAr : item.product.nameEn,
             quantity: item.quantity,
             price: item.product.price,
+            categoryName: categories.find((category) => category.id === item.product.categoryId)?.[isArabic ? 'nameAr' : 'nameEn'] || '',
+            categoryId: item.product.categoryId,
           })),
           items: cartItems.reduce((sum, item) => sum + item.quantity, 0),
           subtotal,
           tax,
+          deliveryFee: appliedDeliveryFee,
           discountCode: discountAmount > 0 ? discountCode : undefined,
           paymentMethod,
           paymentStatus: 'paid',
@@ -324,9 +364,13 @@ export default function DashboardPosPage() {
         tableNumber: orderType === 'dine_in' ? customer.deliveryAddress || '1' : undefined,
         createdAt: data.order?.createdAt || new Date().toISOString(),
         customer: saleSnapshot.customer,
+        driver: orderType === 'delivery' && selectedDriver
+          ? { name: selectedDriver.name, phone: selectedDriver.phone, email: selectedDriver.email || '' }
+          : undefined,
         lines: saleSnapshot.items,
         subtotal: saleSnapshot.subtotal,
         tax: saleSnapshot.tax,
+        deliveryFee: saleSnapshot.deliveryFee,
         discountAmount: saleSnapshot.discountAmount,
         total: saleSnapshot.total,
         paymentMethod: posPaymentLabel(paymentMethod),
@@ -353,7 +397,7 @@ export default function DashboardPosPage() {
       }
       void Promise.allSettled([
         printerManager.printKitchenTicket(receiptPayload),
-        ...(orderType === 'dine_in' ? [printerManager.printHallTicket(receiptPayload)] : []),
+        printerManager.printHallTicket(receiptPayload),
       ]).then((results) => {
         const failedSidePrints = results.filter((result) => result.status === 'rejected').length
         if (failedSidePrints) console.warn(`[POS] ${failedSidePrints} background print job(s) failed.`)
@@ -375,6 +419,7 @@ export default function DashboardPosPage() {
       setDiscountCode('')
       setDiscountAmount(0)
       setSelectedDriverId('')
+      setDeliveryFee(0)
       setCustomer((current) => ({ ...current, deliveryAddress: '', notes: '' }))
     } catch (error) {
       setMessage(error instanceof Error ? error.message : (isArabic ? 'تعذر إتمام البيع.' : 'Could not complete sale.'))
@@ -548,18 +593,30 @@ export default function DashboardPosPage() {
             </div>
 
             {orderType === 'delivery' && (
-              <Field id="delivery-address" label={isArabic ? 'عنوان الدليفيري' : 'Delivery address'} value={customer.deliveryAddress} onChange={(value) => setCustomer({ ...customer, deliveryAddress: value })} />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field id="delivery-address" label={isArabic ? 'عنوان الدليفيري' : 'Delivery address'} value={customer.deliveryAddress} onChange={(value) => setCustomer({ ...customer, deliveryAddress: value })} />
+                <Field id="delivery-fee" label={isArabic ? 'قيمة التوصيل' : 'Delivery fee'} value={String(deliveryFee)} onChange={(value) => setDeliveryFee(Number(value || 0))} type="number" />
+              </div>
             )}
 
             <div>
               <Label htmlFor="pos-notes">{isArabic ? 'ملاحظات الفاتورة' : 'Sale Notes'}</Label>
-              <textarea
-                id="pos-notes"
-                value={customer.notes}
-                onChange={(event) => setCustomer({ ...customer, notes: event.target.value })}
-                placeholder={isArabic ? 'ملاحظة للطلب أو للمطبخ...' : 'Order or kitchen note...'}
-                className="mt-1 min-h-20 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-950 dark:border-slate-800 dark:bg-slate-950 dark:focus:ring-slate-300"
-              />
+              <div id="pos-notes" className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {NOTE_OPTIONS.map((option) => {
+                  const label = option[isArabic ? 'ar' : 'en']
+                  const selected = customer.notes.split('،').map((item) => item.trim()).includes(label)
+                  return (
+                    <button
+                      key={option.ar}
+                      type="button"
+                      onClick={() => toggleNote(label)}
+                      className={`min-h-11 rounded-md border px-2 py-2 text-center text-sm font-bold transition ${selected ? 'border-sky-700 bg-sky-600 text-white' : 'border-slate-200 bg-sky-500 text-white hover:bg-sky-600 dark:border-slate-800'}`}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
 
             {orderType === 'delivery' && (
@@ -635,6 +692,7 @@ export default function DashboardPosPage() {
             <div className="space-y-2 rounded-md bg-slate-50 p-3 text-sm dark:bg-slate-900">
               <Line label={isArabic ? 'المجموع' : 'Subtotal'} value={`${subtotal.toFixed(2)} ${currency}`} />
               <Line label={isArabic ? 'الضريبة' : 'Tax'} value={`${tax.toFixed(2)} ${currency}`} />
+              {orderType === 'delivery' && <Line label={isArabic ? 'خدمة التوصيل' : 'Delivery service'} value={`${appliedDeliveryFee.toFixed(2)} ${currency}`} />}
               <Line label={isArabic ? 'الخصم' : 'Discount'} value={`-${discountAmount.toFixed(2)} ${currency}`} />
               <Line label={isArabic ? 'الإجمالي' : 'Total'} value={`${total.toFixed(2)} ${currency}`} strong />
             </div>

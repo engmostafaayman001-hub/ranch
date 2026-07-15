@@ -3,7 +3,7 @@ import { ROUTES } from '@/lib/constants'
 export const DASHBOARD_ROLES = ['super_admin', 'admin', 'manager', 'cashier', 'delivery', 'support'] as const
 
 export const DASHBOARD_ROUTE_ROLES: Record<string, readonly string[]> = {
-  [ROUTES.DASHBOARD]: DASHBOARD_ROLES,
+  [ROUTES.DASHBOARD]: ['super_admin', 'admin', 'manager'],
   [ROUTES.DASHBOARD_ORDERS]: ['super_admin', 'admin', 'manager', 'cashier', 'delivery'],
   [ROUTES.DASHBOARD_RESTAURANT_ORDERS]: ['super_admin', 'admin', 'manager', 'cashier'],
   [ROUTES.DASHBOARD_CATEGORIES]: ['super_admin', 'admin', 'manager'],

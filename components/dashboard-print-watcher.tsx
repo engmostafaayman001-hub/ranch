@@ -17,6 +17,7 @@ const AUTO_PRINT_BACKFILL_MS = 15 * 60 * 1000
 type AutoPrintedOrderRoles = {
   cashier?: boolean
   kitchen?: boolean
+  hall?: boolean
 }
 
 type AutoPrintedOrders = Record<string, AutoPrintedOrderRoles>
@@ -26,13 +27,13 @@ function readAutoPrintedOrders(): AutoPrintedOrders {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(AUTO_PRINTED_APP_ORDERS_KEY) || '{}')
     if (Array.isArray(parsed)) {
-      return Object.fromEntries(parsed.map((id) => [String(id), { cashier: true, kitchen: true }]))
+      return Object.fromEntries(parsed.map((id) => [String(id), { cashier: true, kitchen: true, hall: true }]))
     }
     if (!parsed || typeof parsed !== 'object') return {}
     return Object.fromEntries(
       Object.entries(parsed as Record<string, unknown>).map(([id, value]) => {
         const roles = value && typeof value === 'object' ? value as AutoPrintedOrderRoles : {}
-        return [id, { cashier: roles.cashier === true, kitchen: roles.kitchen === true }]
+        return [id, { cashier: roles.cashier === true, kitchen: roles.kitchen === true, hall: roles.hall === true }]
       })
     )
   } catch {
@@ -60,7 +61,7 @@ function markOrderFullyPrinted(orderId: string) {
   const current = readAutoPrintedOrders()
   saveAutoPrintedOrders({
     ...current,
-    [orderId]: { cashier: true, kitchen: true },
+    [orderId]: { cashier: true, kitchen: true, hall: true },
   })
 }
 
@@ -199,7 +200,7 @@ export function DashboardPrintWatcher() {
           .filter((order) => {
             if (!shouldPrintOrder(order)) return false
             const roles = printedOrders[order.id] || {}
-            return roles.cashier !== true || roles.kitchen !== true
+            return roles.cashier !== true || roles.kitchen !== true || roles.hall !== true
           })
           .sort((first, second) => new Date(first.createdAt).getTime() - new Date(second.createdAt).getTime())
 
@@ -213,6 +214,7 @@ export function DashboardPrintWatcher() {
           const roles = readAutoPrintedOrders()[order.id] || {}
           const cashierEnabled = settings.printers.cashier?.isEnabled === true
           const kitchenEnabled = settings.printers.kitchen?.isEnabled === true
+          const hallEnabled = settings.printers.hall?.isEnabled === true
 
           if (roles.cashier !== true && !cashierEnabled) {
             markOrderRolePrinted(order.id, 'cashier')
@@ -220,10 +222,14 @@ export function DashboardPrintWatcher() {
           if (roles.kitchen !== true && !kitchenEnabled && !cashierEnabled) {
             markOrderRolePrinted(order.id, 'kitchen')
           }
+          if (roles.hall !== true && !hallEnabled && !cashierEnabled) {
+            markOrderRolePrinted(order.id, 'hall')
+          }
 
           const jobs = [
             roles.cashier === true || !cashierEnabled || isReconnectBlocked(order.id, 'cashier', settings) ? null : { role: 'cashier' as const, print: () => printerManager.printCashierReceipt(payload) },
             roles.kitchen === true || (!kitchenEnabled && !cashierEnabled) || isReconnectBlocked(order.id, 'kitchen', settings) ? null : { role: 'kitchen' as const, print: () => printerManager.printKitchenTicket(payload) },
+            roles.hall === true || (!hallEnabled && !cashierEnabled) || isReconnectBlocked(order.id, 'hall', settings) ? null : { role: 'hall' as const, print: () => printerManager.printHallTicket(payload) },
           ].filter(Boolean) as Array<{ role: keyof AutoPrintedOrderRoles; print: () => Promise<{ skipped?: boolean; needsReconnect?: boolean; reason?: string } | unknown> }>
 
           for (const job of jobs) {

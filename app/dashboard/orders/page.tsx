@@ -70,7 +70,14 @@ export default function DashboardOrdersPage() {
     if (loadingOrders.current) return
     loadingOrders.current = true
     try {
-      setOrders(await fetchDashboardOrdersBySource('app', 120))
+      if (dashboardRole === 'delivery') {
+        const response = await fetch('/api/pos/orders?limit=120', { cache: 'no-store' })
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok || !Array.isArray(data.orders)) throw new Error(data.message || data.error || 'Could not load assigned orders')
+        setOrders(data.orders)
+      } else {
+        setOrders(await fetchDashboardOrdersBySource('app', 120))
+      }
       setMessage('')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not refresh orders. Showing the last loaded list.')
@@ -78,7 +85,7 @@ export default function DashboardOrdersPage() {
       loadingOrders.current = false
       setLoading(false)
     }
-  }, [])
+  }, [dashboardRole])
   useEffect(() => {
     const timer = window.setTimeout(loadOrders, 0)
     const interval = window.setInterval(loadOrders, 10000)

@@ -41,6 +41,8 @@ export interface OrderLine {
   price?: number
   notes?: string
   additions?: string[]
+  categoryName?: string
+  categoryId?: string
 }
 
 export interface TrackedOrder {
@@ -52,6 +54,9 @@ export interface TrackedOrder {
   phone: string
   address: string
   notes?: string
+  subtotal?: number
+  tax?: number
+  deliveryFee?: number
   total: number
   items: number
   lines?: OrderLine[]

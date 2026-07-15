@@ -33,6 +33,9 @@ type CompactOrderRow = {
   phone?: string | null
   address?: string | null
   notes?: string | null
+  subtotal?: string | number | null
+  tax?: string | number | null
+  delivery_fee?: string | number | null
   total?: string | number | null
   items?: string | number | null
   order_status?: TrackingStatus | null
@@ -78,6 +81,9 @@ function normalizeCompactOrder(row: CompactOrderRow): TrackedOrder {
     phone: row.phone || row.customer_phone || '',
     address: row.address || '',
     notes: row.notes || undefined,
+    subtotal: Number(row.subtotal || 0),
+    tax: Number(row.tax || 0),
+    deliveryFee: Number(row.delivery_fee || 0),
     total: Number(row.total || 0),
     items: Number(row.items || 0),
     status,
@@ -174,6 +180,9 @@ async function readServerOrdersFresh(options: ReadServerOrdersOptions = {}): Pro
         'phone:data->>phone',
         'address:data->>address',
         'notes:data->>notes',
+        'subtotal:data->>subtotal',
+        'tax:data->>tax',
+        'delivery_fee:data->>deliveryFee',
         'total:data->>total',
         'items:data->>items',
         'order_status:data->>status',
