@@ -383,11 +383,20 @@ export type ServerOrderUpdates = {
   phone?: string
   address?: string
   notes?: string
+  subtotal?: number
+  tax?: number
+  deliveryFee?: number
   total?: number
+  items?: number
+  lines?: TrackedOrder['lines']
   estimatedDelivery?: string
   status?: TrackingStatus
   driver?: TrackedOrder['driver']
   payment?: Partial<OrderPayment>
+  audit?: {
+    user?: string
+    note?: string
+  }
 }
 
 export async function updateServerOrder(orderId: string, updates: ServerOrderUpdates) {
@@ -397,6 +406,22 @@ export async function updateServerOrder(orderId: string, updates: ServerOrderUpd
   const now = new Date().toISOString()
   const nextStatus = updates.status || existing.status
   const history = Array.isArray(existing.history) ? existing.history : []
+  const detailUpdatesApplied = Boolean(
+    updates.audit ||
+    updates.customer !== undefined ||
+    updates.phone !== undefined ||
+    updates.address !== undefined ||
+    updates.notes !== undefined ||
+    updates.subtotal !== undefined ||
+    updates.tax !== undefined ||
+    updates.deliveryFee !== undefined ||
+    updates.total !== undefined ||
+    updates.items !== undefined ||
+    updates.lines !== undefined ||
+    updates.estimatedDelivery !== undefined ||
+    updates.driver !== undefined ||
+    updates.payment !== undefined
+  )
   const payment = updates.payment
     ? { ...(existing.payment || { method: 'cash', status: 'pending' as const }), ...updates.payment }
     : existing.payment
@@ -406,14 +431,35 @@ export async function updateServerOrder(orderId: string, updates: ServerOrderUpd
     phone: updates.phone ?? existing.phone,
     address: updates.address ?? existing.address,
     notes: updates.notes ?? existing.notes,
+    subtotal: typeof updates.subtotal === 'number' && Number.isFinite(updates.subtotal) ? updates.subtotal : existing.subtotal,
+    tax: typeof updates.tax === 'number' && Number.isFinite(updates.tax) ? updates.tax : existing.tax,
+    deliveryFee: typeof updates.deliveryFee === 'number' && Number.isFinite(updates.deliveryFee) ? updates.deliveryFee : existing.deliveryFee,
     total: typeof updates.total === 'number' && Number.isFinite(updates.total) ? updates.total : existing.total,
+    items: typeof updates.items === 'number' && Number.isFinite(updates.items) ? updates.items : existing.items,
+    lines: updates.lines ?? existing.lines,
     estimatedDelivery: updates.estimatedDelivery ?? existing.estimatedDelivery,
     status: nextStatus,
     driver: updates.driver || existing.driver,
     payment,
-    history: nextStatus === existing.status || history.some((event) => event.status === nextStatus)
-      ? history
-      : [...history, { status: nextStatus, at: now }],
+    history: (() => {
+      const nextHistory = history.slice()
+      const hasStatusChange = nextStatus !== existing.status && !history.some((event) => event.status === nextStatus && event.at === now)
+      if (hasStatusChange) {
+        nextHistory.push({ status: nextStatus, at: now, kind: 'status', note: 'Order status updated' })
+      }
+
+      if (detailUpdatesApplied) {
+        nextHistory.push({
+          status: nextStatus,
+          at: now,
+          kind: 'detail',
+          user: updates.audit?.user || 'dashboard',
+          note: updates.audit?.note || 'Order details updated',
+        })
+      }
+
+      return nextHistory
+    })(),
   }
 
   await upsertServerOrder(updated)
@@ -441,9 +487,13 @@ export async function updateServerOrderStatus(
     status,
     driver: updates?.driver || existing.driver,
     payment,
-    history: history.some((event) => event.status === status)
-      ? history
-      : [...history, { status, at: now }],
+    history: (() => {
+      const nextHistory = history.slice()
+      if (!history.some((event) => event.status === status && event.at === now)) {
+        nextHistory.push({ status, at: now, kind: 'status', note: 'Order status updated' })
+      }
+      return nextHistory
+    })(),
   }
 
   await upsertServerOrder(updated)

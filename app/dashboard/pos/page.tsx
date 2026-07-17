@@ -88,6 +88,7 @@ export default function DashboardPosPage() {
   const [customerSearch, setCustomerSearch] = useState('')
   const [showCustomerResults, setShowCustomerResults] = useState(false)
   const [driverClosingOpen, setDriverClosingOpen] = useState(false)
+  const [dashboardRole, setDashboardRole] = useState<string | null>(null)
   const loadingDailyClosing = useRef(false)
   const [customer, setCustomer] = useState({
     name: isArabic ? 'عميل مطعم' : 'Restaurant Customer',
@@ -124,6 +125,11 @@ export default function DashboardPosPage() {
   const driverClosingGroups = useMemo(() => getDriverClosingGroups(todayDriverClosingOrders), [todayDriverClosingOrders])
   const driverClosingTotal = useMemo(() => driverClosingGroups.reduce((sum, group) => sum + group.total, 0), [driverClosingGroups])
   const driverClosingOrderCount = useMemo(() => driverClosingGroups.reduce((sum, group) => sum + group.orders.length, 0), [driverClosingGroups])
+  const todayTotal = useMemo(() => todayDriverClosingOrders
+    .filter((order) => order.status !== 'cancelled')
+    .reduce((sum, order) => sum + Number(order.total || 0), 0), [todayDriverClosingOrders])
+  const isCashier = dashboardRole === 'cashier'
+  const showFinancialSummary = !isCashier
   const customerMatches = savedCustomers
     .filter((item) => {
       const term = customerSearch.trim().toLowerCase()
@@ -187,6 +193,22 @@ export default function DashboardPosPage() {
     return () => {
       active = false
       window.clearInterval(interval)
+    }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    fetch('/api/auth/dashboard-access', { cache: 'no-store' })
+      .then((response) => response.json())
+      .then((data) => {
+        if (active) setDashboardRole(typeof data.role === 'string' ? data.role : null)
+      })
+      .catch(() => {
+        if (active) setDashboardRole(null)
+      })
+
+    return () => {
+      active = false
     }
   }, [])
 

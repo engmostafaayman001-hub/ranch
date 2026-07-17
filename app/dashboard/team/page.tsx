@@ -177,11 +177,10 @@ export default function DashboardTeamPage() {
               <div>
                 <Label htmlFor="role">{isArabic ? 'الدور' : 'Role'}</Label>
                 <select id="role" value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })} className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 dark:border-slate-800 dark:bg-slate-950">
-                  <option value="admin">{isArabic ? 'مدير' : 'Admin'}</option>
-                  <option value="manager">{isArabic ? 'مشرف' : 'Manager'}</option>
+                  <option value="admin">{isArabic ? 'مدير (Admin)' : 'Admin'}</option>
+                  <option value="supervisor">{isArabic ? 'مشرف (Supervisor)' : 'Supervisor'}</option>
                   <option value="cashier">{isArabic ? 'كاشير' : 'Cashier'}</option>
                   <option value="delivery">{isArabic ? 'مندوب توصيل' : 'Delivery'}</option>
-                  <option value="support">{isArabic ? 'دعم العملاء' : 'Support'}</option>
                 </select>
               </div>
               <div className="flex items-end gap-2">
@@ -210,9 +209,9 @@ export default function DashboardTeamPage() {
                 <Badge className={member.status === 'active' ? 'bg-green-600' : 'bg-slate-500'}>{member.status === 'active' ? (isArabic ? 'نشط' : 'Active') : (isArabic ? 'غير نشط' : 'Inactive')}</Badge>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="outline" onClick={() => edit(member)}>{isArabic ? 'تعديل' : 'Edit'}</Button>
-                <Button size="sm" variant="outline" onClick={() => updateStatus(member)}>{member.status === 'active' ? (isArabic ? 'تعطيل' : 'Disable') : (isArabic ? 'تفعيل' : 'Enable')}</Button>
-                <Button size="sm" variant="destructive" onClick={() => deleteMember(member)}>{isArabic ? 'حذف' : 'Delete'}</Button>
+                <Button size="sm" variant="outline" disabled={loading} onClick={() => edit(member)}>{loading ? '...' : (isArabic ? 'تعديل' : 'Edit')}</Button>
+                <Button size="sm" variant="outline" disabled={loading} onClick={() => updateStatus(member)}>{loading ? '...' : (member.status === 'active' ? (isArabic ? 'تعطيل' : 'Disable') : (isArabic ? 'تفعيل' : 'Enable'))}</Button>
+                <Button size="sm" variant="destructive" disabled={loading} onClick={() => deleteMember(member)}>{loading ? '...' : (isArabic ? 'حذف' : 'Delete')}</Button>
               </div>
             </div>
           ))}

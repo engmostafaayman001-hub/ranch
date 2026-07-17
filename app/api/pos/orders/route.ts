@@ -117,7 +117,7 @@ function normalizePaymentStatus(value: unknown, method: string): PaymentStatus {
 }
 
 function canManageOrders(role?: string | null) {
-  return role === 'super_admin' || role === 'admin' || role === 'manager'
+  return role === 'super_admin' || role === 'admin'
 }
 
 function hasOwn(body: Record<string, unknown>, key: string) {
@@ -349,6 +349,11 @@ export async function PATCH(request: NextRequest) {
       'address',
       'notes',
       'total',
+      'subtotal',
+      'tax',
+      'deliveryFee',
+      'lines',
+      'items',
       'estimatedDelivery',
       'paymentMethod',
       'paymentStatus',
@@ -359,6 +364,8 @@ export async function PATCH(request: NextRequest) {
     }
 
     const payment = body.payment && typeof body.payment === 'object' ? body.payment as Record<string, unknown> : {}
+    const auditUser = typeof body.auditUser === 'string' && body.auditUser.trim() ? body.auditUser.trim() : access.email || 'dashboard'
+    const auditNote = typeof body.auditNote === 'string' && body.auditNote.trim() ? body.auditNote.trim() : undefined
     const driverInput = body.driver && typeof body.driver === 'object' ? body.driver as Record<string, unknown> : null
     const driver = driverInput
       ? {
@@ -369,6 +376,19 @@ export async function PATCH(request: NextRequest) {
         }
       : undefined
     const paymentStatus = body.paymentStatus || payment.status
+    const lines = normalizeOrderLines(body)
+    const subtotal = hasOwn(body, 'subtotal')
+      ? Math.max(0, Number(body.subtotal || 0))
+      : lines
+        ? lines.reduce((sum, line) => sum + Number(line.price || 0) * Number(line.quantity || 0), 0)
+        : undefined
+    const tax = hasOwn(body, 'tax') ? Math.max(0, Number(body.tax || 0)) : undefined
+    const deliveryFee = hasOwn(body, 'deliveryFee') ? Math.max(0, Number(body.deliveryFee || 0)) : undefined
+    const itemCount = hasOwn(body, 'items')
+      ? Math.max(0, Number(body.items || 0))
+      : lines
+        ? lines.reduce((sum, line) => sum + Number(line.quantity || 0), 0)
+        : undefined
 
     const paymentMethod = hasOwn(body, 'paymentMethod') || payment.method
       ? String(payment.method || body.paymentMethod || 'cash')
@@ -387,10 +407,19 @@ export async function PATCH(request: NextRequest) {
           ...(hasOwn(body, 'phone') ? { phone: String(body.phone || '') } : {}),
           ...(hasOwn(body, 'address') ? { address: String(body.address || '') } : {}),
           ...(hasOwn(body, 'notes') ? { notes: String(body.notes || '').trim() || undefined } : {}),
+          ...(typeof subtotal === 'number' && Number.isFinite(subtotal) ? { subtotal: Number(subtotal.toFixed(2)) } : {}),
+          ...(typeof tax === 'number' && Number.isFinite(tax) ? { tax: Number(tax.toFixed(2)) } : {}),
+          ...(typeof deliveryFee === 'number' && Number.isFinite(deliveryFee) ? { deliveryFee: Number(deliveryFee.toFixed(2)) } : {}),
           ...(hasOwn(body, 'total') ? { total: Math.max(0, Number(body.total || 0)) } : {}),
+          ...(typeof itemCount === 'number' && Number.isFinite(itemCount) ? { items: itemCount } : {}),
+          ...(lines ? { lines } : {}),
           ...(hasOwn(body, 'estimatedDelivery') ? { estimatedDelivery: String(body.estimatedDelivery || '') } : {}),
           ...(driver ? { driver } : {}),
           ...(paymentUpdates ? { payment: paymentUpdates } : {}),
+          audit: {
+            user: auditUser,
+            note: auditNote || (hasDetailUpdates ? 'Order details updated' : 'Order status updated'),
+          },
         })
       : await updateServerOrderStatus(id, status || 'placed', {
           driver,

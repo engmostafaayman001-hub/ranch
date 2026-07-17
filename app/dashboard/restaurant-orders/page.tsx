@@ -9,9 +9,9 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN, ORDER_STATUS_LABELS, ORDER_STATUS_LABELS_EN } from '@/lib/constants'
-import { PrinterRole, useAppStore } from '@/lib/app-store'
+import { MenuProduct, PrinterRole, useAppStore } from '@/lib/app-store'
 import { fetchDashboardOrderDetails, fetchDashboardOrdersBySource } from '@/lib/dashboard-order-fetch'
-import { TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
+import { OrderLine, TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
 import { printerManager, syncPrinterManagerSettings, trackedOrderToReceiptPayload } from '@/lib/printer'
 
 const statuses: TrackingStatus[] = ['placed', 'confirmed', 'preparing', 'ready_for_delivery', 'out_for_delivery', 'delivered', 'cancelled']
@@ -27,10 +27,11 @@ type OrderEditForm = {
   estimatedDelivery: string
   paymentMethod: string
   paymentStatus: string
+  lines: OrderLine[]
 }
 
 function canManageOrderRole(role: string | null) {
-  return role === 'super_admin' || role === 'admin' || role === 'manager'
+  return role === 'super_admin' || role === 'admin' || role === 'cashier'
 }
 
 export default function DashboardRestaurantOrdersPage() {
@@ -39,6 +40,8 @@ export default function DashboardRestaurantOrdersPage() {
   const currency = isArabic ? CURRENCY : CURRENCY_EN
   const settings = useAppStore((state) => state.settings)
   const drivers = useAppStore((state) => state.drivers)
+  const products = useAppStore((state) => state.products)
+  const categories = useAppStore((state) => state.categories)
   const [orders, setOrders] = useState<TrackedOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
@@ -50,6 +53,8 @@ export default function DashboardRestaurantOrdersPage() {
   const loadingOrders = useRef(false)
   const canEditOrders = canManageOrderRole(dashboardRole)
   const canDeleteOrders = canEditOrders
+  const canModifyPrices = dashboardRole === 'super_admin' || dashboardRole === 'admin'
+  const isCashier = dashboardRole === 'cashier'
 
   const loadOrders = useCallback(async () => {
     if (loadingOrders.current) return
@@ -131,6 +136,9 @@ export default function DashboardRestaurantOrdersPage() {
       estimatedDelivery: order.estimatedDelivery || '',
       paymentMethod: order.payment?.method || 'cash',
       paymentStatus: order.payment?.status || 'pending',
+      lines: order.lines?.length
+        ? order.lines.map((line) => ({ ...line }))
+        : [{ name: isArabic ? 'منتج' : 'Item', quantity: Math.max(1, Number(order.items || 1)), price: Number(order.total || 0), notes: order.notes }],
     })
   }
 
@@ -141,6 +149,7 @@ export default function DashboardRestaurantOrdersPage() {
 
   const saveEditedOrder = async () => {
     if (!editForm || savingEdit) return
+    const linesSubtotal = editForm.lines.reduce((sum, line) => sum + Number(line.price || 0) * Number(line.quantity || 0), 0)
     setSavingEdit(true)
     setMessage('')
     try {
@@ -154,10 +163,17 @@ export default function DashboardRestaurantOrdersPage() {
           phone: editForm.phone,
           address: editForm.address,
           notes: editForm.notes,
-          total: Number(editForm.total || 0),
+          total: linesSubtotal,
           estimatedDelivery: editForm.estimatedDelivery,
           paymentMethod: editForm.paymentMethod,
           paymentStatus: editForm.paymentStatus,
+          lines: editForm.lines,
+          items: editForm.lines.reduce((sum, line) => sum + Number(line.quantity || 0), 0),
+          subtotal: linesSubtotal,
+          audit: {
+            user: 'dashboard-editor',
+            note: 'Restaurant order edited from dashboard',
+          },
         }),
       })
       const data = await response.json().catch(() => ({}))
@@ -203,6 +219,40 @@ export default function DashboardRestaurantOrdersPage() {
     setDriverSelections((current) => ({ ...current, [order.id]: '' }))
     setMessage(isArabic ? 'تم تغيير السائق المسؤول عن الطلب.' : 'Assigned driver updated.')
     loadOrders()
+  }
+
+  const addEditLine = (product?: MenuProduct) => {
+    if (!editForm) return
+    const category = product ? categories.find((item) => item.id === product.categoryId) : undefined
+    setEditForm({
+      ...editForm,
+      lines: [
+        ...editForm.lines,
+        product
+          ? {
+              name: isArabic ? product.nameAr : product.nameEn,
+              quantity: 1,
+              price: Number(product.price || 0),
+              categoryName: category ? (isArabic ? category.nameAr : category.nameEn) : undefined,
+              categoryId: product.categoryId,
+            }
+          : { name: isArabic ? 'منتج جديد' : 'New item', quantity: 1, price: 0 },
+      ],
+    })
+  }
+
+  const updateEditLine = (index: number, updates: Partial<OrderLine>) => {
+    if (!editForm) return
+    setEditForm({
+      ...editForm,
+      lines: editForm.lines.map((line, lineIndex) => lineIndex === index ? { ...line, ...updates } : line),
+    })
+  }
+
+  const removeEditLine = (index: number) => {
+    if (!editForm) return
+    const nextLines = editForm.lines.filter((_, lineIndex) => lineIndex !== index)
+    setEditForm({ ...editForm, lines: nextLines.length ? nextLines : [{ name: isArabic ? 'منتج' : 'Item', quantity: 1, price: 0 }] })
   }
 
   const createPrintPayload = (order: TrackedOrder) => trackedOrderToReceiptPayload(order, {
@@ -281,6 +331,43 @@ export default function DashboardRestaurantOrdersPage() {
               </select>
               <Textarea className="sm:col-span-2" value={editForm.notes} onChange={(event) => setEditForm({ ...editForm, notes: event.target.value })} placeholder={isArabic ? 'ملاحظات' : 'Notes'} />
             </div>
+            <div className="mt-4 space-y-3 rounded-md border p-3 dark:border-slate-800">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="font-semibold">{isArabic ? 'أصناف الطلب' : 'Order Items'}</p>
+                <div className="flex flex-wrap gap-2">
+                  <select
+                    value=""
+                    onChange={(event) => {
+                      const product = products.find((item) => item.id === event.target.value)
+                      if (product) addEditLine(product)
+                    }}
+                    className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950"
+                  >
+                    <option value="">{isArabic ? 'إضافة منتج' : 'Add product'}</option>
+                    {products.map((product) => (
+                      <option key={product.id} value={product.id}>{isArabic ? product.nameAr : product.nameEn}</option>
+                    ))}
+                  </select>
+                  <Button type="button" size="sm" variant="outline" onClick={() => addEditLine()}>
+                    {isArabic ? 'سطر جديد' : 'New line'}
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {editForm.lines.map((line, index) => (
+                  <div key={index} className="grid gap-2 rounded-md bg-slate-50 p-2 dark:bg-slate-900 sm:grid-cols-[minmax(0,1fr)_90px_110px_auto]">
+                    <Input value={line.name} onChange={(event) => updateEditLine(index, { name: event.target.value })} placeholder={isArabic ? 'اسم المنتج' : 'Item name'} />
+                    <Input type="number" min="1" value={String(line.quantity || 1)} onChange={(event) => updateEditLine(index, { quantity: Math.max(1, Number(event.target.value || 1)) })} placeholder={isArabic ? 'العدد' : 'Qty'} />
+                    <Input type="number" min="0" step="0.01" value={String(line.price || 0)} onChange={(event) => updateEditLine(index, { price: Math.max(0, Number(event.target.value || 0)) })} placeholder={isArabic ? 'السعر' : 'Price'} disabled={!canModifyPrices} />
+                    <Button type="button" variant="destructive" size="sm" onClick={() => removeEditLine(index)}>{isArabic ? 'حذف' : 'Delete'}</Button>
+                    <Textarea className="sm:col-span-4" value={line.notes || ''} onChange={(event) => updateEditLine(index, { notes: event.target.value })} placeholder={isArabic ? 'ملاحظات الصنف' : 'Item notes'} />
+                  </div>
+                ))}
+              </div>
+              <p className="text-end text-sm font-bold">
+                {isArabic ? 'إجمالي الأصناف' : 'Items Total'}: {editForm.lines.reduce((sum, line) => sum + Number(line.price || 0) * Number(line.quantity || 0), 0).toFixed(2)} {currency}
+              </p>
+            </div>
             <div className="mt-4 flex flex-wrap justify-end gap-2">
               <Button type="button" variant="outline" onClick={closeEditOrder}>{isArabic ? 'إلغاء' : 'Cancel'}</Button>
               <Button type="button" className="gap-2" disabled={savingEdit} onClick={saveEditedOrder}>
@@ -319,7 +406,7 @@ export default function DashboardRestaurantOrdersPage() {
                       )}
                     </div>
                     <div className="shrink-0 text-end">
-                      <p className="font-bold">{Number(order.total || 0).toFixed(2)} {currency}</p>
+                      {!isCashier && <p className="font-bold">{Number(order.total || 0).toFixed(2)} {currency}</p>}
                       <Badge className="bg-slate-700">{label(order.status)}</Badge>
                     </div>
                   </div>

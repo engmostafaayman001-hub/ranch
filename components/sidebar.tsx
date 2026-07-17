@@ -29,6 +29,7 @@ import { Logo } from '@/components/logo'
 import { useTheme } from '@/components/theme-provider'
 import { useLanguage } from '@/components/language-provider'
 import { ROUTES } from '@/lib/constants'
+import { getDefaultDashboardRouteForRole } from '@/lib/dashboard-permissions'
 import { useAuthStore } from '@/lib/store'
 
 interface SidebarProps {
@@ -61,12 +62,13 @@ export function Sidebar({ isOpen, onClose, isLoggedIn, onLogout }: SidebarProps)
   const { theme, toggleTheme } = useTheme()
   const { language, appName, toggleLanguage, t } = useLanguage()
   const user = useAuthStore((state) => state.user)
-  const [canOpenDashboard, setCanOpenDashboard] = useState(false)
+  const [dashboardRole, setDashboardRole] = useState<string | null>(null)
+  const canOpenDashboard = Boolean(dashboardRole)
   const align = language === 'ar' ? 'justify-end text-right' : 'justify-start text-left'
 
   useEffect(() => {
     if (!isLoggedIn || !user?.email) {
-      queueMicrotask(() => setCanOpenDashboard(false))
+      queueMicrotask(() => setDashboardRole(null))
       return
     }
 
@@ -74,10 +76,10 @@ export function Sidebar({ isOpen, onClose, isLoggedIn, onLogout }: SidebarProps)
     fetch('/api/auth/dashboard-access', { cache: 'no-store' })
       .then((response) => response.json())
       .then((data) => {
-        if (active) setCanOpenDashboard(Boolean(data.allowed))
+        if (active) setDashboardRole(typeof data.role === 'string' ? data.role : null)
       })
       .catch(() => {
-        if (active) setCanOpenDashboard(false)
+        if (active) setDashboardRole(null)
       })
 
     return () => {
@@ -114,7 +116,7 @@ export function Sidebar({ isOpen, onClose, isLoggedIn, onLogout }: SidebarProps)
               <>
                 <hr className="my-4 border-slate-200 dark:border-slate-800" />
                 <NavItem href={ROUTES.PROFILE} label={t('profile')} icon={User} onClose={onClose} alignClass={align} />
-                {canOpenDashboard && <NavItem href={ROUTES.DASHBOARD} label={t('dashboard')} icon={LayoutDashboard} onClose={onClose} alignClass={align} />}
+                {canOpenDashboard && <NavItem href={getDefaultDashboardRouteForRole(dashboardRole) || ROUTES.DASHBOARD} label={t('dashboard')} icon={LayoutDashboard} onClose={onClose} alignClass={align} />}
               </>
             )}
 

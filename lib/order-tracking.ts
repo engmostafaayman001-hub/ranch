@@ -11,6 +11,9 @@ export type TrackingStatus =
 export interface TrackingEvent {
   status: TrackingStatus
   at: string
+  kind?: 'created' | 'status' | 'detail'
+  user?: string
+  note?: string
 }
 
 export type PaymentStatus =

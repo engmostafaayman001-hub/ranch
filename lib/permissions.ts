@@ -1,101 +1,115 @@
-import { UserRole, Permission } from './types'
+// lib/permissions.ts
 
-export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
-  super_admin: [
-    'dashboard_access',
-    'team_management',
-    'orders_view',
-    'orders_edit',
-    'products_manage',
-    'customers_view',
-    'reports_view',
-    'settings_edit',
-    'pos_manage',
-    'payments_verify',
-    'notifications_send',
-  ],
-  admin: [
-    'dashboard_access',
-    'team_management',
-    'orders_view',
-    'orders_edit',
-    'products_manage',
-    'customers_view',
-    'reports_view',
-    'settings_edit',
-    'pos_manage',
-    'payments_verify',
-    'notifications_send',
-  ],
-  manager: [
-    'dashboard_access',
-    'orders_view',
-    'orders_edit',
-    'products_manage',
-    'customers_view',
-    'reports_view',
-  ],
-  cashier: ['dashboard_access', 'orders_view', 'payments_verify'],
-  delivery: ['dashboard_access', 'orders_view'],
-  support: ['dashboard_access', 'customers_view'],
-  customer: [],
-}
+// Define the user roles using a simple enum-like object.
+// These are the new, simplified roles for the entire application.
+export const UserRole = {
+  ADMIN: 'admin',
+  SUPERVISOR: 'supervisor',
+  CASHIER: 'cashier',
+} as const;
 
+export type UserRole = (typeof UserRole)[keyof typeof UserRole];
+
+// Define a comprehensive list of permissions for granular access control.
+export const Permission = {
+  // System-level permissions
+  SYSTEM_ADMIN: 'system.admin', // Grants all permissions implicitly
+
+  // Dashboard access
+  DASHBOARD_VIEW: 'dashboard.view',
+
+  // Point of Sale
+  POS_USE: 'pos.use',
+
+  // Order management
+  ORDERS_VIEW_ALL: 'orders.view.all',
+  ORDERS_VIEW_OWN: 'orders.view.own',
+  ORDERS_EDIT: 'orders.edit',
+  ORDERS_DELETE: 'orders.delete',
+  ORDERS_REOPEN: 'orders.reopen',
+  
+  // Catalog management
+  PRODUCTS_MANAGE: 'products.manage', // Add, edit, delete products & categories
+  DISCOUNTS_MANAGE: 'discounts.manage', // Add, edit, delete discounts & offers
+
+  // Customer management
+  CUSTOMERS_VIEW: 'customers.view',
+  CUSTOMERS_MANAGE: 'customers.manage',
+
+  // Reporting
+  REPORTS_VIEW_FINANCIAL: 'reports.view.financial', // Profits, revenue
+  REPORTS_VIEW_DAILY: 'reports.view.daily',
+  REPORTS_VIEW_WEEKLY: 'reports.view.weekly',
+  REPORTS_VIEW_MONTHLY: 'reports.view.monthly',
+  
+  // Closing procedures
+  CASHIER_CLOSEOUT: 'cashier.closeout',
+  DRIVERS_CLOSEOUT: 'drivers.closeout',
+
+  // Expenses
+  EXPENSES_MANAGE: 'expenses.manage',
+
+  // Team management
+  TEAM_MANAGE: 'team.manage',
+
+  // Settings
+  SETTINGS_MANAGE: 'settings.manage',
+} as const;
+
+export type Permission = (typeof Permission)[keyof typeof Permission];
+
+// Map roles to their specific permissions.
+const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
+  [UserRole.ADMIN]: [
+    // Admin has all permissions, granted implicitly by the SYSTEM_ADMIN permission.
+    Permission.SYSTEM_ADMIN,
+  ],
+  [UserRole.SUPERVISOR]: [
+    Permission.DASHBOARD_VIEW,
+    Permission.PRODUCTS_MANAGE,
+    Permission.DISCOUNTS_MANAGE,
+  ],
+  [UserRole.CASHIER]: [
+    Permission.DASHBOARD_VIEW,
+    Permission.POS_USE,
+    Permission.ORDERS_EDIT,
+    Permission.CUSTOMERS_VIEW,
+    Permission.CASHIER_CLOSEOUT,
+    Permission.DRIVERS_CLOSEOUT,
+    Permission.EXPENSES_MANAGE,
+  ],
+};
+
+// Display names for roles, useful for UI components.
 export const ROLE_DISPLAY_NAMES: Record<UserRole, string> = {
-  super_admin: 'Super Admin',
-  admin: 'Admin',
-  manager: 'Manager',
-  cashier: 'Cashier',
-  delivery: 'Delivery',
-  support: 'Support',
-  customer: 'Customer',
-}
+  [UserRole.ADMIN]: 'المدير',
+  [UserRole.SUPERVISOR]: 'المشرف',
+  [UserRole.CASHIER]: 'الكاشير',
+};
 
-export const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
-  super_admin: 'Full system access and team management',
-  admin: 'Complete restaurant management',
-  manager: 'Orders, inventory, and reports',
-  cashier: 'Orders and payment processing',
-  delivery: 'Delivery orders only',
-  support: 'Customer support',
-  customer: 'Customer account',
-}
-
+/**
+ * Checks if a user role has a specific permission.
+ * The 'admin' role is always granted permission.
+ *
+ * @param role The role of the user.
+ * @param permission The permission to check for.
+ * @returns True if the user has the permission, false otherwise.
+ */
 export function hasPermission(
-  role: UserRole,
+  role: UserRole | null | undefined,
   permission: Permission
 ): boolean {
-  return ROLE_PERMISSIONS[role].includes(permission)
-}
+  if (!role) {
+    return false;
+  }
 
-export function canAccessDashboard(role: UserRole): boolean {
-  return hasPermission(role, 'dashboard_access')
-}
+  const userPermissions = ROLE_PERMISSIONS[role] || [];
 
-export function canManageTeam(role: UserRole): boolean {
-  return hasPermission(role, 'team_management')
-}
+  // Admins have all permissions implicitly.
+  if (userPermissions.includes(Permission.SYSTEM_ADMIN)) {
+    return true;
+  }
 
-export function canViewOrders(role: UserRole): boolean {
-  return hasPermission(role, 'orders_view')
-}
-
-export function canEditOrders(role: UserRole): boolean {
-  return hasPermission(role, 'orders_edit')
-}
-
-export function canManageProducts(role: UserRole): boolean {
-  return hasPermission(role, 'products_manage')
-}
-
-export function canViewCustomers(role: UserRole): boolean {
-  return hasPermission(role, 'customers_view')
-}
-
-export function canViewReports(role: UserRole): boolean {
-  return hasPermission(role, 'reports_view')
-}
-
-export function canVerifyPayments(role: UserRole): boolean {
-  return hasPermission(role, 'payments_verify')
+  // Check if the role has the specific permission.
+  return userPermissions.includes(permission);
 }

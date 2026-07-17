@@ -37,7 +37,9 @@ export default function DashboardExpensesPage() {
   const [formOpen, setFormOpen] = useState(false)
   const [form, setForm] = useState({ name: '', amount: '', date: new Date().toISOString().slice(0, 10), note: '' })
   const [search, setSearch] = useState('')
+  const [dashboardRole, setDashboardRole] = useState<string | null>(null)
   const todayKey = new Date().toISOString().slice(0, 10)
+  const isCashier = dashboardRole === 'cashier'
 
   const loadExpenses = async () => {
     try {
@@ -60,15 +62,33 @@ export default function DashboardExpensesPage() {
     }
   }, [])
 
+  useEffect(() => {
+    let active = true
+    fetch('/api/auth/dashboard-access', { cache: 'no-store' })
+      .then((response) => response.json())
+      .then((data) => {
+        if (active) setDashboardRole(typeof data.role === 'string' ? data.role : null)
+      })
+      .catch(() => {
+        if (active) setDashboardRole(null)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [])
+
   const total = useMemo(() => expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0), [expenses])
+  const dailyExpenses = useMemo(() => expenses.filter((expense) => expenseDayKey(expense) === todayKey), [expenses, todayKey])
   const dailyTotal = useMemo(() => expenses
     .filter((expense) => expenseDayKey(expense) === todayKey)
     .reduce((sum, expense) => sum + Number(expense.amount || 0), 0), [expenses, todayKey])
   const filteredExpenses = useMemo(() => {
     const term = search.trim().toLowerCase()
-    if (!term) return expenses
-    return expenses.filter((expense) => `${expense.name} ${expense.note} ${expense.date} ${expense.amount}`.toLowerCase().includes(term))
-  }, [expenses, search])
+    const source = isCashier ? dailyExpenses : expenses
+    if (!term) return source
+    return source.filter((expense) => `${expense.name} ${expense.note} ${expense.date} ${expense.amount}`.toLowerCase().includes(term))
+  }, [dailyExpenses, expenses, isCashier, search])
   const filteredTotal = useMemo(() => filteredExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0), [filteredExpenses])
 
   const closeForm = () => {
@@ -124,13 +144,13 @@ export default function DashboardExpensesPage() {
         />
         <ExpenseSummaryCard
           title={isArabic ? 'إجمالي المصروفات' : 'All Expenses'}
-          value={money(total, currency)}
+          value={isCashier ? '-' : money(total, currency)}
           hint={`${expenses.length} ${isArabic ? 'مصروف' : 'expenses'}`}
           icon={ReceiptText}
         />
         <ExpenseSummaryCard
           title={isArabic ? 'إجمالي نتائج البحث' : 'Search Total'}
-          value={money(filteredTotal, currency)}
+          value={isCashier ? '-' : money(filteredTotal, currency)}
           hint={search.trim() ? (isArabic ? 'حسب البحث الحالي' : 'For current search') : (isArabic ? 'كل السجل الحالي' : 'Current ledger')}
           icon={Search}
         />
@@ -158,7 +178,7 @@ export default function DashboardExpensesPage() {
         <CardHeader>
           <CardTitle className="flex items-center justify-between gap-3">
             <span>{isArabic ? 'سجل المصروفات' : 'Expense Ledger'}</span>
-            <span className="text-base text-red-600">{total.toFixed(2)} {currency}</span>
+            {!isCashier && <span className="text-base text-red-600">{total.toFixed(2)} {currency}</span>}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -168,7 +188,7 @@ export default function DashboardExpensesPage() {
           </div>
           {loading ? (
             <p className="py-8 text-center text-slate-500">{isArabic ? 'جاري التحميل...' : 'Loading...'}</p>
-          ) : expenses.length === 0 ? (
+          ) : (isCashier ? dailyExpenses.length === 0 : expenses.length === 0) ? (
             <p className="py-8 text-center text-slate-500">{isArabic ? 'لا توجد مصروفات بعد.' : 'No expenses yet.'}</p>
           ) : filteredExpenses.length === 0 ? (
             <p className="py-8 text-center text-slate-500">{isArabic ? 'لا توجد مصروفات مطابقة.' : 'No matching expenses.'}</p>

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/logo'
 import { useLanguage } from '@/components/language-provider'
 import { DashboardPrintWatcher } from '@/components/dashboard-print-watcher'
+import { DashboardRouteGuard } from '@/components/dashboard-route-guard'
 import { ROUTES } from '@/lib/constants'
 import { dashboardLinks } from '@/lib/dashboard-routes'
 import { useSharedAppData } from '@/lib/use-shared-app-data'
@@ -16,6 +17,7 @@ const roleLabels: Record<string, { ar: string; en: string }> = {
   super_admin: { ar: 'مالك النظام', en: 'Super Admin' },
   admin: { ar: 'مدير', en: 'Admin' },
   manager: { ar: 'مشرف', en: 'Manager' },
+  supervisor: { ar: 'مشرف', en: 'Supervisor' },
   cashier: { ar: 'كاشير', en: 'Cashier' },
   delivery: { ar: 'مندوب توصيل', en: 'Delivery' },
   support: { ar: 'دعم العملاء', en: 'Support' },
@@ -28,12 +30,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const isArabic = language === 'ar'
 
   return (
-    <div className="flex min-h-screen w-full overflow-x-hidden bg-slate-50 dark:bg-slate-950">
-      <DashboardPrintWatcher />
-      {sidebarOpen && <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />}
-      <DashboardAside isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+    <DashboardRouteGuard>
+      <div className="flex min-h-screen w-full overflow-x-hidden bg-slate-50 dark:bg-slate-950">
+        <DashboardPrintWatcher />
+        {sidebarOpen && <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />}
+        <DashboardAside isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-      <main className="min-w-0 max-w-full flex-1 overflow-x-hidden">
+        <main className="min-w-0 max-w-full flex-1 overflow-x-hidden">
         <div className="sticky top-0 z-30 max-w-full border-b border-slate-200 bg-white/95 px-4 py-4 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95 sm:px-6">
           <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
@@ -58,9 +61,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </div>
-        <div className="min-w-0 max-w-full overflow-x-hidden p-4 sm:p-6">{children}</div>
-      </main>
-    </div>
+          <div className="min-w-0 max-w-full overflow-x-hidden p-4 sm:p-6">{children}</div>
+        </main>
+      </div>
+    </DashboardRouteGuard>
   )
 }
 

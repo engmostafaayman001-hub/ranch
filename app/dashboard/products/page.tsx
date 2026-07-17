@@ -276,9 +276,9 @@ export default function DashboardProductsPage() {
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" disabled={saving} onClick={() => toggleProductAvailability(product.id)}>{product.available ? (isArabic ? 'إخفاء' : 'Hide') : (isArabic ? 'إظهار' : 'Show')}</Button>
-                  <Button size="sm" variant="outline" disabled={saving} onClick={() => editProduct(product)}>{isArabic ? 'تعديل' : 'Edit'}</Button>
-                  <Button size="sm" variant="destructive" disabled={saving} onClick={() => deleteProduct(product.id)}>{isArabic ? 'حذف' : 'Delete'}</Button>
+                  <Button size="sm" variant="outline" disabled={saving} onClick={() => toggleProductAvailability(product.id)}>{saving ? (isArabic ? '...' : '...') : (product.available ? (isArabic ? 'إخفاء' : 'Hide') : (isArabic ? 'إظهار' : 'Show'))}</Button>
+                  <Button size="sm" variant="outline" disabled={saving} onClick={() => editProduct(product)}>{saving ? (isArabic ? '...' : '...') : (isArabic ? 'تعديل' : 'Edit')}</Button>
+                  <Button size="sm" variant="destructive" disabled={saving} onClick={() => deleteProduct(product.id)}>{saving ? (isArabic ? '...' : '...') : (isArabic ? 'حذف' : 'Delete')}</Button>
                 </div>
               </div>
             ))
