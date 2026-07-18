@@ -39,6 +39,12 @@ function driverKey(order: TrackedOrder) {
   return (order.driver?.email || order.driver?.phone || order.driver?.name || 'driver').trim().toLowerCase()
 }
 
+function getDriverClosingAmount(order: TrackedOrder) {
+  const subtotal = Number(order.subtotal ?? 0)
+  if (subtotal > 0) return subtotal
+  return Math.max(0, Number(order.total || 0) - Number(order.deliveryFee || 0) - Number(order.tax || 0) + Number(order.discount?.amount || 0))
+}
+
 export function getDriverClosingGroups(orders: TrackedOrder[]): DriverClosingGroup[] {
   const groups = new Map<string, DriverClosingGroup>()
   for (const order of orders) {
@@ -55,7 +61,7 @@ export function getDriverClosingGroups(orders: TrackedOrder[]): DriverClosingGro
       appOrders: 0,
       restaurantOrders: 0,
     }
-    const amount = Number(order.total || 0)
+    const amount = getDriverClosingAmount(order)
     current.orders.push(order)
     current.total += amount
     if (order.source === 'restaurant_pos') {

@@ -40,6 +40,14 @@ type PosCustomer = {
   address?: string
 }
 
+type PosDaySession = {
+  isOpen: boolean
+  openedAt: string
+  closedAt: string | null
+}
+
+const POS_DAY_SESSION_STORAGE_KEY = 'baseeta-pos-day-session-v1'
+
 const ORDER_TYPE_LABELS: Record<PosOrderType, { ar: string; en: string }> = {
   dine_in: { ar: 'داخل المطعم', en: 'Dine in' },
   delivery: { ar: 'دليفيري', en: 'Delivery' },
@@ -64,6 +72,49 @@ const NOTE_OPTIONS = [
   { ar: 'لا كومنت', en: 'No comment' },
 ]
 
+function loadPosDaySession(): PosDaySession {
+  if (typeof window === 'undefined') {
+    return { isOpen: true, openedAt: new Date().toISOString(), closedAt: null }
+  }
+
+  try {
+    const raw = window.localStorage.getItem(POS_DAY_SESSION_STORAGE_KEY)
+    if (!raw) {
+      const initial = { isOpen: true, openedAt: new Date().toISOString(), closedAt: null } satisfies PosDaySession
+      window.localStorage.setItem(POS_DAY_SESSION_STORAGE_KEY, JSON.stringify(initial))
+      return initial
+    }
+
+    const parsed = JSON.parse(raw) as Partial<PosDaySession>
+    if (typeof parsed?.openedAt === 'string') {
+      return {
+        isOpen: parsed.isOpen !== false,
+        openedAt: parsed.openedAt,
+        closedAt: typeof parsed.closedAt === 'string' ? parsed.closedAt : null,
+      }
+    }
+  } catch {
+    // ignore storage issues and fall back to a fresh session
+  }
+
+  return { isOpen: true, openedAt: new Date().toISOString(), closedAt: null }
+}
+
+function savePosDaySession(session: PosDaySession) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(POS_DAY_SESSION_STORAGE_KEY, JSON.stringify(session))
+}
+
+function isOrderWithinRange(orderDate: string | undefined, start: string, end: string) {
+  const startDate = new Date(start)
+  const endDate = new Date(end)
+  const checkDate = new Date(orderDate || '')
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || Number.isNaN(checkDate.getTime())) {
+    return false
+  }
+  return checkDate.getTime() >= startDate.getTime() && checkDate.getTime() <= endDate.getTime()
+}
+
 export default function DashboardPosPage() {
   useSharedAppData()
   const { language } = useLanguage()
@@ -79,6 +130,9 @@ export default function DashboardPosPage() {
   const [discountAmount, setDiscountAmount] = useState(0)
   const [dailyOrders, setDailyOrders] = useState<TrackedOrder[]>([])
   const [dailyExpenses, setDailyExpenses] = useState<Expense[]>([])
+  const [daySession, setDaySession] = useState<PosDaySession>(() => loadPosDaySession())
+  const [inventoryOpen, setInventoryOpen] = useState(false)
+  const [inventoryAt, setInventoryAt] = useState<string | null>(null)
   const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHODS.CASH)
   const [orderType, setOrderType] = useState<PosOrderType>('dine_in')
   const [deliveryFee, setDeliveryFee] = useState(0)
@@ -111,23 +165,22 @@ export default function DashboardPosPage() {
   const selectedDriver = drivers.find((driver) => driver.id === selectedDriverId)
   const activeDrivers = drivers.filter((driver) => driver.status === 'active')
   const activeCategories = categories.filter((category) => category.active && products.some((product) => product.available && product.categoryId === category.id))
-  const todayDriverClosingOrders = useMemo(() => {
-    const today = new Date()
-    const start = new Date(today)
-    start.setHours(0, 0, 0, 0)
-    const end = new Date(today)
-    end.setHours(23, 59, 59, 999)
-    return dailyOrders.filter((order) => {
-      const date = new Date(order.createdAt || '')
-      return !Number.isNaN(date.getTime()) && date.getTime() >= start.getTime() && date.getTime() <= end.getTime()
-    })
-  }, [dailyOrders])
-  const driverClosingGroups = useMemo(() => getDriverClosingGroups(todayDriverClosingOrders), [todayDriverClosingOrders])
+  const sessionRangeEnd = daySession.isOpen ? new Date().toISOString() : daySession.closedAt || daySession.openedAt
+  const sessionOrders = useMemo(() => dailyOrders.filter((order) => order.status !== 'cancelled' && isOrderWithinRange(order.createdAt, daySession.openedAt, sessionRangeEnd)), [dailyOrders, daySession.openedAt, sessionRangeEnd])
+  const sessionExpenses = useMemo(() => dailyExpenses.filter((expense) => isOrderWithinRange(expense.date, daySession.openedAt, sessionRangeEnd)), [dailyExpenses, daySession.openedAt, sessionRangeEnd])
+  const driverClosingGroups = useMemo(() => getDriverClosingGroups(sessionOrders), [sessionOrders])
   const driverClosingTotal = useMemo(() => driverClosingGroups.reduce((sum, group) => sum + group.total, 0), [driverClosingGroups])
   const driverClosingOrderCount = useMemo(() => driverClosingGroups.reduce((sum, group) => sum + group.orders.length, 0), [driverClosingGroups])
-  const todayTotal = useMemo(() => todayDriverClosingOrders
-    .filter((order) => order.status !== 'cancelled')
-    .reduce((sum, order) => sum + Number(order.total || 0), 0), [todayDriverClosingOrders])
+  const sessionRevenue = useMemo(() => sessionOrders.reduce((sum, order) => sum + Number(order.total || 0), 0), [sessionOrders])
+  const sessionExpenseTotal = useMemo(() => sessionExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0), [sessionExpenses])
+  const sessionDrawerNet = useMemo(() => sessionRevenue - sessionExpenseTotal, [sessionRevenue, sessionExpenseTotal])
+  const inventoryWindowEnd = inventoryAt || sessionRangeEnd
+  const inventoryOrders = useMemo(() => dailyOrders.filter((order) => order.status !== 'cancelled' && isOrderWithinRange(order.createdAt, daySession.openedAt, inventoryWindowEnd)), [dailyOrders, daySession.openedAt, inventoryWindowEnd])
+  const inventoryExpenses = useMemo(() => dailyExpenses.filter((expense) => isOrderWithinRange(expense.date, daySession.openedAt, inventoryWindowEnd)), [dailyExpenses, daySession.openedAt, inventoryWindowEnd])
+  const inventoryRevenue = useMemo(() => inventoryOrders.reduce((sum, order) => sum + Number(order.total || 0), 0), [inventoryOrders])
+  const inventoryExpenseTotal = useMemo(() => inventoryExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0), [inventoryExpenses])
+  const inventoryDrawerNet = useMemo(() => inventoryRevenue - inventoryExpenseTotal, [inventoryRevenue, inventoryExpenseTotal])
+  const inventoryDriverTotal = useMemo(() => getDriverClosingGroups(inventoryOrders).reduce((sum, group) => sum + group.total, 0), [inventoryOrders])
   const isCashier = dashboardRole === 'cashier'
   const showFinancialSummary = !isCashier
   const customerMatches = savedCustomers
@@ -231,6 +284,39 @@ export default function DashboardPosPage() {
       window.clearInterval(interval)
     }
   }, [])
+
+  const handleDaySessionToggle = async () => {
+    if (daySession.isOpen) {
+      const closedAt = new Date().toISOString()
+      const nextSession: PosDaySession = { ...daySession, isOpen: false, closedAt }
+      savePosDaySession(nextSession)
+      setDaySession(nextSession)
+      setMessage(isArabic ? 'تم إغلاق اليوم الحالي.' : 'The current day has been closed.')
+      setDailyClosingPrinting(true)
+      try {
+        await printPosDailyClosing({
+          orders: dailyOrders,
+          expenses: dailyExpenses,
+          isArabic,
+          currency,
+          paymentLabels: posPaymentLabels,
+          settings,
+          setMessage,
+          rangeStart: daySession.openedAt,
+          rangeEnd: closedAt,
+        })
+      } finally {
+        setDailyClosingPrinting(false)
+      }
+      return
+    }
+
+    const nextSession: PosDaySession = { isOpen: true, openedAt: new Date().toISOString(), closedAt: null }
+    savePosDaySession(nextSession)
+    setDaySession(nextSession)
+    setInventoryAt(null)
+    setMessage(isArabic ? 'تم فتح يوم جديد.' : 'A new day has been opened.')
+  }
 
   const addProduct = (productId: string) => {
     setLines((current) => {
@@ -464,29 +550,81 @@ export default function DashboardPosPage() {
           <p className="text-sm text-slate-500">{isArabic ? 'إتمام البيع وطباعة التقفيل اليومي من نفس الشاشة.' : 'Complete sales and print the daily closing from the same screen.'}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            className="gap-2"
-            disabled={dailyClosingPrinting}
-            onClick={async () => {
-              if (dailyClosingPrinting) return
-              setDailyClosingPrinting(true)
-              try {
-                await printPosDailyClosing({ orders: dailyOrders, expenses: dailyExpenses, isArabic, currency, paymentLabels: posPaymentLabels, settings, setMessage })
-              } finally {
-                setDailyClosingPrinting(false)
-              }
-            }}
-          >
-          <Printer className="h-4 w-4" />
-          {dailyClosingPrinting ? (isArabic ? 'جاري طباعة التقفيل...' : 'Printing closing...') : (isArabic ? 'طباعة تقفيل اليوم' : 'Print Daily Closing')}
-          </Button>
           <Button type="button" variant="outline" className="gap-2" onClick={() => setDriverClosingOpen(true)}>
             <Truck className="h-4 w-4" />
             {isArabic ? 'تقفيل السائقين' : 'Driver Closing'}
           </Button>
         </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-3">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Banknote className="h-4 w-4 text-red-600" />
+              {isArabic ? 'فتح/إغلاق اليوم' : 'Open / Close Day'}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-slate-500">
+              {daySession.isOpen
+                ? (isArabic ? 'اليوم مفتوح ويجمع المبيعات من بداية اليوم حتى الإغلاق.' : 'The day is open and collects sales from the opening moment until closure.')
+                : (isArabic ? 'اليوم مغلق ويمكنك فتح يوم جديد عند بدء التشغيل التالي.' : 'The day is closed and you can open a fresh session when the next shift starts.')}
+            </p>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-500">{isArabic ? 'الحالة' : 'Status'}</span>
+              <span className={`font-semibold ${daySession.isOpen ? 'text-emerald-600' : 'text-slate-700'}`}>{daySession.isOpen ? (isArabic ? 'مفتوح' : 'Open') : (isArabic ? 'مغلق' : 'Closed')}</span>
+            </div>
+            <Button type="button" variant="outline" className="w-full gap-2" disabled={dailyClosingPrinting} onClick={() => { void handleDaySessionToggle() }}>
+              <Printer className="h-4 w-4" />
+              {daySession.isOpen ? (isArabic ? 'إغلاق اليوم' : 'Close Day') : (isArabic ? 'فتح يوم جديد' : 'Open New Day')}
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Truck className="h-4 w-4 text-red-600" />
+              {isArabic ? 'تقفيل السائقين' : 'Driver Closing'}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-slate-500">
+              {isArabic ? 'يظهر المبلغ الصافي لطلبات التوصيل بعد استبعاد رسوم الخدمة.' : 'Shows the net delivery amount after excluding service fees.'}
+            </p>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-500">{isArabic ? 'المجموع' : 'Total'}</span>
+              <span className="font-semibold text-red-600">{driverClosingTotal.toFixed(2)} {currency}</span>
+            </div>
+            <Button type="button" variant="outline" className="w-full gap-2" onClick={() => setDriverClosingOpen(true)}>
+              <Truck className="h-4 w-4" />
+              {isArabic ? 'عرض التقفيل' : 'View Closing'}
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Store className="h-4 w-4 text-red-600" />
+              {isArabic ? 'عداد المخزون' : 'Inventory Count'}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-slate-500">
+              {isArabic ? 'يعرض صافي الدرج ومبالغ السائقين والمصروفات من بداية اليوم حتى لحظة العد.' : 'Shows drawer net, collected driver amounts and expenses from day start to the counting moment.'}
+            </p>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-500">{isArabic ? 'صافي الدرج' : 'Drawer net'}</span>
+              <span className="font-semibold">{sessionDrawerNet.toFixed(2)} {currency}</span>
+            </div>
+            <Button type="button" variant="outline" className="w-full gap-2" onClick={() => { setInventoryAt(new Date().toISOString()); setInventoryOpen(true) }}>
+              <Banknote className="h-4 w-4" />
+              {isArabic ? 'إجراء العداد' : 'Run Count'}
+            </Button>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
@@ -754,6 +892,51 @@ export default function DashboardPosPage() {
       </Card>
       </div>
 
+      {inventoryOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="inventory-count-title"
+          onMouseDown={() => setInventoryOpen(false)}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-md bg-white shadow-xl dark:bg-slate-950"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="sticky top-0 z-10 flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+              <div>
+                <h3 id="inventory-count-title" className="text-xl font-bold">{isArabic ? 'عداد المخزون' : 'Inventory Count'}</h3>
+                <p className="text-sm text-slate-500">{new Date(inventoryWindowEnd).toLocaleString(isArabic ? 'ar-EG' : 'en-US')}</p>
+              </div>
+              <Button type="button" variant="ghost" size="icon" onClick={() => setInventoryOpen(false)}>
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+
+            <div className="space-y-4 p-4">
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="rounded-md border border-slate-200 p-3 dark:border-slate-800">
+                  <p className="text-xs text-slate-500">{isArabic ? 'صافي الدرج' : 'Drawer net'}</p>
+                  <p className="text-xl font-bold text-red-600">{inventoryDrawerNet.toFixed(2)} {currency}</p>
+                </div>
+                <div className="rounded-md border border-slate-200 p-3 dark:border-slate-800">
+                  <p className="text-xs text-slate-500">{isArabic ? 'تحصيل السائقين' : 'Driver amounts'}</p>
+                  <p className="text-xl font-bold">{inventoryDriverTotal.toFixed(2)} {currency}</p>
+                </div>
+                <div className="rounded-md border border-slate-200 p-3 dark:border-slate-800">
+                  <p className="text-xs text-slate-500">{isArabic ? 'المصروفات' : 'Expenses'}</p>
+                  <p className="text-xl font-bold">{inventoryExpenseTotal.toFixed(2)} {currency}</p>
+                </div>
+              </div>
+              <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-900">
+                <p>{isArabic ? 'المدة' : 'Period'}: {new Date(daySession.openedAt).toLocaleString(isArabic ? 'ar-EG' : 'en-US')} → {new Date(inventoryWindowEnd).toLocaleString(isArabic ? 'ar-EG' : 'en-US')}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {driverClosingOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
@@ -775,7 +958,7 @@ export default function DashboardPosPage() {
                 <Button
                   type="button"
                   className="gap-2 bg-red-600 hover:bg-red-700"
-                  onClick={() => printPosDriverClosing({ orders: dailyOrders, isArabic, currency, settings, setMessage })}
+                  onClick={() => printPosDriverClosing({ orders: dailyOrders, isArabic, currency, settings, setMessage, rangeStart: daySession.openedAt, rangeEnd: daySession.isOpen ? new Date().toISOString() : daySession.closedAt || daySession.openedAt })}
                 >
                   <Printer className="h-4 w-4" />
                   {isArabic ? 'طباعة' : 'Print'}
@@ -854,22 +1037,19 @@ async function printPosDriverClosing({
   currency,
   settings,
   setMessage,
+  rangeStart,
+  rangeEnd,
 }: {
   orders: TrackedOrder[]
   isArabic: boolean
   currency: string
   settings: AppSettings
   setMessage: (message: string) => void
+  rangeStart: string
+  rangeEnd: string
 }) {
   const today = new Date()
-  const start = new Date(today)
-  start.setHours(0, 0, 0, 0)
-  const end = new Date(today)
-  end.setHours(23, 59, 59, 999)
-  const dayOrders = orders.filter((order) => {
-    const date = new Date(order.createdAt || '')
-    return !Number.isNaN(date.getTime()) && date.getTime() >= start.getTime() && date.getTime() <= end.getTime()
-  })
+  const dayOrders = orders.filter((order) => isOrderWithinRange(order.createdAt, rangeStart, rangeEnd))
   const cashierPrinter = settings.printers.cashier
   if (!cashierPrinter?.isEnabled) {
     setMessage(isArabic ? 'فعّل طابعة الكاشير من الإعدادات قبل طباعة تقفيل السائقين.' : 'Enable the cashier printer in settings before printing the driver closing.')
@@ -907,6 +1087,8 @@ async function printPosDailyClosing({
   paymentLabels,
   settings,
   setMessage,
+  rangeStart,
+  rangeEnd,
 }: {
   orders: TrackedOrder[]
   expenses: Expense[]
@@ -915,19 +1097,12 @@ async function printPosDailyClosing({
   paymentLabels: Record<string, string>
   settings: AppSettings
   setMessage: (message: string) => void
+  rangeStart: string
+  rangeEnd: string
 }) {
   const today = new Date()
-  const start = new Date(today)
-  start.setHours(0, 0, 0, 0)
-  const end = new Date(today)
-  end.setHours(23, 59, 59, 999)
-  const inToday = (value?: string) => {
-    const date = new Date(value || '')
-    if (Number.isNaN(date.getTime())) return false
-    return date.getTime() >= start.getTime() && date.getTime() <= end.getTime()
-  }
-  const dayOrders = orders.filter((order) => order.status !== 'cancelled' && inToday(order.createdAt))
-  const dayExpenses = expenses.filter((expense) => inToday(expense.date))
+  const dayOrders = orders.filter((order) => order.status !== 'cancelled' && isOrderWithinRange(order.createdAt, rangeStart, rangeEnd))
+  const dayExpenses = expenses.filter((expense) => isOrderWithinRange(expense.date, rangeStart, rangeEnd))
   const revenue = dayOrders.reduce((sum, order) => sum + Number(order.total || 0), 0)
   const expenseTotal = dayExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0)
   const net = revenue - expenseTotal

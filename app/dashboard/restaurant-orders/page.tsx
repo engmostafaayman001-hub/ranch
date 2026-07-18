@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Edit3, Printer, ReceiptText, Save, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -45,6 +45,7 @@ export default function DashboardRestaurantOrdersPage() {
   const [orders, setOrders] = useState<TrackedOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
+  const [search, setSearch] = useState('')
   const [driverSelections, setDriverSelections] = useState<Record<string, string>>({})
   const [dashboardRole, setDashboardRole] = useState<string | null>(null)
   const [editingOrder, setEditingOrder] = useState<TrackedOrder | null>(null)
@@ -267,6 +268,18 @@ export default function DashboardRestaurantOrdersPage() {
     logoUrl: settings.invoiceLogo,
   })
 
+  const filteredOrders = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    if (!term) return orders
+    return orders.filter((order) => {
+      const haystack = [order.customer, order.phone, order.address, order.notes, order.id]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      return haystack.includes(term)
+    })
+  }, [orders, search])
+
   const isPrinterAvailable = (role: PrinterRole) => {
     const printer = settings.printers[role]
     return printer?.isEnabled === true
@@ -385,14 +398,19 @@ export default function DashboardRestaurantOrdersPage() {
       {message && <p className="rounded-md bg-slate-100 p-3 text-sm dark:bg-slate-900">{message}</p>}
       <Card>
         <CardHeader><CardTitle>{isArabic ? 'طلبات المطعم' : 'Restaurant Orders'}</CardTitle></CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={isArabic ? 'ابحث بالاسم أو الهاتف أو العنوان' : 'Search by name, phone or address'}
+          />
           {loading ? (
             <p className="py-8 text-center text-slate-500">{isArabic ? 'جاري التحميل...' : 'Loading...'}</p>
-          ) : orders.length === 0 ? (
-            <p className="py-8 text-center text-slate-500">{isArabic ? 'لا توجد طلبات مطعم بعد.' : 'No restaurant orders yet.'}</p>
+          ) : filteredOrders.length === 0 ? (
+            <p className="py-8 text-center text-slate-500">{isArabic ? 'لا توجد نتائج مطابقة للبحث.' : 'No matching orders found.'}</p>
           ) : (
             <div className="min-w-0 space-y-3">
-              {orders.map((order) => (
+              {filteredOrders.map((order) => (
                 <div key={order.id} className="min-w-0 max-w-full overflow-hidden rounded-md border p-4 dark:border-slate-800">
                   <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">

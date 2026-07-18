@@ -61,6 +61,7 @@ export default function DashboardOrdersPage() {
   const [orders, setOrders] = useState<TrackedOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
+  const [search, setSearch] = useState('')
   const [savingRestaurantStatus, setSavingRestaurantStatus] = useState(false)
   const [driverSelections, setDriverSelections] = useState<Record<string, string>>({})
   const [dashboardRole, setDashboardRole] = useState<string | null>(null)
@@ -346,6 +347,18 @@ export default function DashboardOrdersPage() {
     setEditForm({ ...editForm, lines: nextLines.length ? nextLines : [{ name: isArabic ? 'منتج' : 'Item', quantity: 1, price: 0 }] })
   }
 
+  const filteredOrders = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    if (!term) return orders
+    return orders.filter((order) => {
+      const haystack = [order.customer, order.phone, order.address, order.notes, order.id]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      return haystack.includes(term)
+    })
+  }, [orders, search])
+
   const createPrintPayload = useCallback((order: TrackedOrder) => trackedOrderToReceiptPayload(order, {
     isArabic,
     currency,
@@ -532,7 +545,12 @@ export default function DashboardOrdersPage() {
       {message && <p className="rounded-md bg-slate-100 p-3 text-sm dark:bg-slate-900">{message}</p>}
       <Card>
         <CardHeader><CardTitle>{isArabic ? 'طلبات التطبيق' : 'App Orders'}</CardTitle></CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={isArabic ? 'ابحث بالاسم أو الهاتف أو العنوان' : 'Search by name, phone or address'}
+          />
           {loading ? (
             <p className="py-8 text-center text-slate-500">{isArabic ? 'جاري تحميل الطلبات...' : 'Loading orders...'}</p>
           ) : appOrders.length === 0 ? (

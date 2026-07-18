@@ -717,11 +717,15 @@ async function renderReceiptImage(job: PrintJob, printer: ThermalPrinterSettings
   if (job.payload.orderType) twoCol(isArabic ? 'نوع الطلب' : 'Order type', job.payload.orderType)
   if (job.kind === 'hall' && job.payload.tableNumber) twoCol(isArabic ? 'الترابيزة' : 'Table', job.payload.tableNumber)
 
-  if (job.kind === 'cashier') {
+  if (job.payload.customer?.name || job.payload.customer?.phone || job.payload.customer?.address) {
     divider()
-    twoCol(isArabic ? 'العميل' : 'Customer', job.payload.customer?.name || '-')
-    twoCol(isArabic ? 'الهاتف' : 'Phone', job.payload.customer?.phone || '-')
-    twoCol(isArabic ? 'المكان' : 'Place', job.payload.customer?.address || '-')
+    drawText(isArabic ? 'بيانات العميل' : 'Customer information', { size: 21, weight: 900, align: 'center' })
+    if (job.payload.customer?.name) twoCol(isArabic ? 'العميل' : 'Customer', job.payload.customer.name)
+    if (job.payload.customer?.phone) twoCol(isArabic ? 'الهاتف' : 'Phone', job.payload.customer.phone)
+    if (job.payload.customer?.address) twoCol(isArabic ? 'العنوان' : 'Address', job.payload.customer.address)
+  }
+
+  if (job.kind === 'cashier') {
     if (job.payload.paymentMethod) twoCol(isArabic ? 'الدفع' : 'Payment', job.payload.paymentMethod)
     if (job.payload.driver?.name && job.payload.driver.name !== 'Pending assignment') {
       divider()
