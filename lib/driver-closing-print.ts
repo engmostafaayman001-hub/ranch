@@ -31,8 +31,10 @@ function driverAssigned(order: TrackedOrder) {
   return Boolean(name && name !== 'Pending assignment' && name !== '-' && (phone || order.driver?.email))
 }
 
-function isCashOnDelivery(order: TrackedOrder) {
-  return order.payment?.status === 'cash_on_delivery' || (order.payment?.method || '').toLowerCase() === 'cash'
+function isDriverSettlementEligible(order: TrackedOrder) {
+  const method = String(order.payment?.method || '').toLowerCase()
+  const status = String(order.payment?.status || '').toLowerCase()
+  return method === 'cash' || method === 'cash_on_delivery' || method === 'cod' || status === 'cash_on_delivery'
 }
 
 function driverKey(order: TrackedOrder) {
@@ -40,15 +42,18 @@ function driverKey(order: TrackedOrder) {
 }
 
 function getDriverClosingAmount(order: TrackedOrder) {
+  const deliveryFee = Number(order.deliveryFee || 0)
   const subtotal = Number(order.subtotal ?? 0)
-  if (subtotal > 0) return subtotal
-  return Math.max(0, Number(order.total || 0) - Number(order.deliveryFee || 0) - Number(order.tax || 0) + Number(order.discount?.amount || 0))
+  if (subtotal > 0) {
+    return Math.max(0, subtotal - deliveryFee)
+  }
+  return Math.max(0, Number(order.total || 0) - deliveryFee - Number(order.tax || 0) + Number(order.discount?.amount || 0))
 }
 
 export function getDriverClosingGroups(orders: TrackedOrder[]): DriverClosingGroup[] {
   const groups = new Map<string, DriverClosingGroup>()
   for (const order of orders) {
-    if (order.status === 'cancelled' || !driverAssigned(order) || !isCashOnDelivery(order)) continue
+    if (order.status === 'cancelled' || !driverAssigned(order) || !isDriverSettlementEligible(order)) continue
     const key = driverKey(order)
     const current = groups.get(key) || {
       key,
