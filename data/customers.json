@@ -1,1 +1,11 @@
-[]
+[
+  {
+    "id": "CUS1784353405929",
+    "name": "m",
+    "email": "m@gmail.com",
+    "phone": "",
+    "address": "",
+    "createdAt": "2026-07-18T05:43:25.683Z",
+    "updatedAt": "2026-07-18T05:43:25.683Z"
+  }
+]

@@ -1,11 +1,14 @@
 // lib/permissions.ts
 
-// Define the user roles using a simple enum-like object.
-// These are the new, simplified roles for the entire application.
+
 export const UserRole = {
+  SUPER_ADMIN: 'super_admin',
   ADMIN: 'admin',
+  MANAGER: 'manager',
   SUPERVISOR: 'supervisor',
   CASHIER: 'cashier',
+  DELIVERY: 'delivery',
+  SUPPORT: 'support',
 } as const;
 
 export type UserRole = (typeof UserRole)[keyof typeof UserRole];
@@ -60,9 +63,20 @@ export type Permission = (typeof Permission)[keyof typeof Permission];
 
 // Map roles to their specific permissions.
 const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
+  [UserRole.SUPER_ADMIN]: [
+    // Super Admin has all permissions implicitly.
+    Permission.SYSTEM_ADMIN,
+  ],
   [UserRole.ADMIN]: [
     // Admin has all permissions, granted implicitly by the SYSTEM_ADMIN permission.
     Permission.SYSTEM_ADMIN,
+  ],
+  [UserRole.MANAGER]: [
+    Permission.DASHBOARD_VIEW,
+    Permission.PRODUCTS_MANAGE,
+    Permission.DISCOUNTS_MANAGE,
+    Permission.TEAM_MANAGE,
+    Permission.SETTINGS_MANAGE,
   ],
   [UserRole.SUPERVISOR]: [
     Permission.DASHBOARD_VIEW,
@@ -78,13 +92,26 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     Permission.DRIVERS_CLOSEOUT,
     Permission.EXPENSES_MANAGE,
   ],
+  [UserRole.DELIVERY]: [
+    Permission.DASHBOARD_VIEW,
+    Permission.ORDERS_VIEW_OWN,
+  ],
+  [UserRole.SUPPORT]: [
+    Permission.DASHBOARD_VIEW,
+    Permission.CUSTOMERS_VIEW,
+    Permission.CUSTOMERS_MANAGE,
+  ],
 };
 
 // Display names for roles, useful for UI components.
 export const ROLE_DISPLAY_NAMES: Record<UserRole, string> = {
-  [UserRole.ADMIN]: 'المدير',
-  [UserRole.SUPERVISOR]: 'المشرف',
-  [UserRole.CASHIER]: 'الكاشير',
+  [UserRole.SUPER_ADMIN]: 'مسؤول فائق',
+  [UserRole.ADMIN]: 'مدير',
+  [UserRole.MANAGER]: 'مدير عام',
+  [UserRole.SUPERVISOR]: 'مشرف',
+  [UserRole.CASHIER]: 'كاشير',
+  [UserRole.DELIVERY]: 'مندوب توصيل',
+  [UserRole.SUPPORT]: 'دعم العملاء',
 };
 
 /**

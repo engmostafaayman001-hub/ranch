@@ -1,19 +1,22 @@
 'use client'
 
+import Link from 'next/link'
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Banknote, Bike, CreditCard, Printer, Minus, Plus, Search, ShoppingCart, Smartphone, Store, Trash2, Truck, Utensils, X } from 'lucide-react'
+import { ArrowLeft, Banknote, Bike, CreditCard, Printer, Minus, Plus, Search, ShoppingCart, Smartphone, Store, Trash2, Truck, Utensils, X, CalendarDays } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useLanguage } from '@/components/language-provider'
-import { CURRENCY, CURRENCY_EN, PAYMENT_METHOD_OPTIONS, PAYMENT_METHODS, PAYMENT_METHOD_LABELS, PAYMENT_METHOD_LABELS_EN } from '@/lib/constants'
+import { CURRENCY, CURRENCY_EN, PAYMENT_METHOD_OPTIONS, PAYMENT_METHODS, PAYMENT_METHOD_LABELS, PAYMENT_METHOD_LABELS_EN, ROUTES } from '@/lib/constants'
 import { AppSettings, MenuProduct, useAppStore } from '@/lib/app-store'
 import { isDisplayableImage } from '@/lib/client-images'
 import { TrackedOrder } from '@/lib/order-tracking'
 import { printerManager, syncPrinterManagerSettings } from '@/lib/printer'
 import { createClosingReceiptPayload } from '@/lib/closing-print'
 import { createDriverClosingReceiptPayload, getDriverClosingGroups } from '@/lib/driver-closing-print'
+import { queueOfflineAction, syncOfflineQueue } from '@/lib/offline-queue'
+import { onOnlineStatusChange, readOfflineStatus } from '@/lib/offline-storage'
 import { useSharedAppData } from '@/lib/use-shared-app-data'
 
 type PosLine = {
@@ -69,7 +72,7 @@ const NOTE_OPTIONS = [
   { ar: 'عيش وسط', en: 'Medium bread' },
   { ar: 'بدون كابوتشا', en: 'No lettuce' },
   { ar: 'خيار زيادة', en: 'Extra pickles' },
-  { ar: 'لا كومنت', en: 'No comment' },
+  { ar: 'أخرى', en: 'Other' },
 ]
 
 function loadPosDaySession(): PosDaySession {
@@ -161,6 +164,7 @@ export default function DashboardPosPage() {
   const [selectedCategoryId, setSelectedCategoryId] = useState('')
   const [selectedDriverId, setSelectedDriverId] = useState('')
   const [savedCustomers, setSavedCustomers] = useState<PosCustomer[]>([])
+  const [customNoteDrafts, setCustomNoteDrafts] = useState<Record<string, string>>({})
   const [customerSearch, setCustomerSearch] = useState('')
   const [showCustomerResults, setShowCustomerResults] = useState(false)
   const [driverClosingOpen, setDriverClosingOpen] = useState(false)
@@ -168,6 +172,8 @@ export default function DashboardPosPage() {
   const [driverClosingRangeStart, setDriverClosingRangeStart] = useState(() => getDateInputValue(daySession.openedAt))
   const [driverClosingRangeEnd, setDriverClosingRangeEnd] = useState(() => getDateInputValue(daySession.isOpen ? new Date().toISOString() : daySession.closedAt || daySession.openedAt))
   const [dashboardRole, setDashboardRole] = useState<string | null>(null)
+  const [isOnline, setIsOnline] = useState(true)
+  const [syncingOffline, setSyncingOffline] = useState(false)
   const loadingDailyClosing = useRef(false)
   const [customer, setCustomer] = useState({
     name: isArabic ? 'عميل مطعم' : 'Restaurant Customer',
@@ -302,6 +308,36 @@ export default function DashboardPosPage() {
 
   useEffect(() => {
     let active = true
+    const initialStatus = readOfflineStatus()
+    setIsOnline(initialStatus.isOnline)
+
+    const unsubscribe = onOnlineStatusChange((onlineStatus) => {
+      if (active) {
+        setIsOnline(onlineStatus)
+        if (onlineStatus && typeof window !== 'undefined') {
+          setSyncingOffline(true)
+          void syncOfflineQueue()
+            .then(() => {
+              if (active) setMessage(isArabic ? 'تم مزامنة البيانات بنجاح.' : 'Data synced successfully.')
+            })
+            .catch(() => {
+              if (active) setMessage(isArabic ? 'خطأ في مزامنة البيانات.' : 'Sync error.')
+            })
+            .finally(() => {
+              if (active) setSyncingOffline(false)
+            })
+        }
+      }
+    })
+
+    return () => {
+      active = false
+      unsubscribe()
+    }
+  }, [])
+
+  useEffect(() => {
+    let active = true
     fetch('/api/auth/dashboard-access', { cache: 'no-store' })
       .then((response) => response.json())
       .then((data) => {
@@ -314,6 +350,15 @@ export default function DashboardPosPage() {
     return () => {
       active = false
     }
+  }, [])
+
+  useEffect(() => {
+    void syncOfflineQueue()
+    const handleOnline = () => {
+      void syncOfflineQueue()
+    }
+    window.addEventListener('online', handleOnline)
+    return () => window.removeEventListener('online', handleOnline)
   }, [])
 
   useEffect(() => {
@@ -401,12 +446,43 @@ export default function DashboardPosPage() {
     setLines((current) => current.map((line) => {
       if (line.productId !== productId) return line
       const notes = (line.notes || '')
-      .split('،')
-      .map((item) => item.trim())
-      .filter(Boolean)
+        .split('،')
+        .map((item) => item.trim())
+        .filter(Boolean)
       const exists = notes.includes(note)
       const next = exists ? notes.filter((item) => item !== note) : [...notes, note]
-      return { ...line, notes: next.join('، ') }
+      return { ...line, notes: next.filter(Boolean).join('، ') }
+    }))
+  }
+
+  const handleOtherNoteToggle = (productId: string) => {
+    setLines((current) => current.map((line) => {
+      if (line.productId !== productId) return line
+      const notes = (line.notes || '')
+        .split('،')
+        .map((item) => item.trim())
+        .filter(Boolean)
+      const otherLabel = isArabic ? 'أخرى' : 'Other'
+      const hasOther = notes.some((item) => item === otherLabel || item.startsWith(`${otherLabel}:`) || item.startsWith(`${otherLabel} -`))
+      const next = hasOther
+        ? notes.filter((item) => item !== otherLabel && !item.startsWith(`${otherLabel}:`) && !item.startsWith(`${otherLabel} -`))
+        : [...notes, otherLabel]
+      return { ...line, notes: next.filter(Boolean).join('، ') }
+    }))
+  }
+
+  const updateCustomNote = (productId: string, value: string) => {
+    setCustomNoteDrafts((current) => ({ ...current, [productId]: value }))
+    setLines((current) => current.map((line) => {
+      if (line.productId !== productId) return line
+      const notes = (line.notes || '')
+        .split('،')
+        .map((item) => item.trim())
+        .filter(Boolean)
+      const otherLabel = isArabic ? 'أخرى' : 'Other'
+      const withoutOther = notes.filter((item) => item !== otherLabel && !item.startsWith(`${otherLabel}:`) && !item.startsWith(`${otherLabel} -`))
+      const next = value.trim() ? [...withoutOther, `${otherLabel}: ${value.trim()}`] : withoutOther
+      return { ...line, notes: next.filter(Boolean).join('، ') }
     }))
   }
 
@@ -480,39 +556,67 @@ export default function DashboardPosPage() {
         discountAmount,
         total,
       }
-      const response = await fetch('/api/pos/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          source: 'restaurant_pos',
-          customer: { name: customer.name, phone: customer.phone, address: orderAddress },
-          driver: orderType === 'delivery' && selectedDriver
-            ? { name: selectedDriver.name, email: selectedDriver.email || '', phone: selectedDriver.phone, rating: 0 }
-            : undefined,
-          phone: customer.phone,
-          address: orderAddress,
-          lines: cartItems.map((item) => ({
-            productId: item.product.id,
-            name: isArabic ? item.product.nameAr : item.product.nameEn,
-            quantity: item.quantity,
-            price: item.product.price,
-            notes: item.notes,
-            categoryName: categories.find((category) => category.id === item.product.categoryId)?.[isArabic ? 'nameAr' : 'nameEn'] || '',
-            categoryId: item.product.categoryId,
-          })),
-          items: cartItems.reduce((sum, item) => sum + item.quantity, 0),
-          subtotal,
-          tax,
-          deliveryFee: appliedDeliveryFee,
-          discountCode: discountAmount > 0 ? discountCode : undefined,
-          paymentMethod,
-          paymentStatus: 'paid',
-          status: 'received',
-          estimatedDelivery: orderTypeLabel,
-        }),
-      })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(data.message || data.error || 'Could not create sale')
+      const requestPayload = {
+        source: 'restaurant_pos',
+        customer: { name: customer.name, phone: customer.phone, address: orderAddress },
+        driver: orderType === 'delivery' && selectedDriver
+          ? { name: selectedDriver.name, email: selectedDriver.email || '', phone: selectedDriver.phone, rating: 0 }
+          : undefined,
+        phone: customer.phone,
+        address: orderAddress,
+        lines: cartItems.map((item) => ({
+          productId: item.product.id,
+          name: isArabic ? item.product.nameAr : item.product.nameEn,
+          quantity: item.quantity,
+          price: item.product.price,
+          notes: item.notes,
+          categoryName: categories.find((category) => category.id === item.product.categoryId)?.[isArabic ? 'nameAr' : 'nameEn'] || '',
+          categoryId: item.product.categoryId,
+        })),
+        items: cartItems.reduce((sum, item) => sum + item.quantity, 0),
+        subtotal,
+        tax,
+        deliveryFee: appliedDeliveryFee,
+        discountCode: discountAmount > 0 ? discountCode : undefined,
+        paymentMethod,
+        paymentStatus: (orderType === 'delivery' && paymentMethod === 'cash') ? 'cash_on_delivery' : 'paid',
+        status: 'confirmed',
+        estimatedDelivery: orderTypeLabel,
+      }
+      let data: { order?: { id?: string; createdAt?: string }; message?: string; error?: string } = {}
+      if (!window.navigator.onLine) {
+        queueOfflineAction({ type: 'create-order', payload: requestPayload })
+        data = { order: { id: `offline-${Date.now()}` } }
+      } else {
+        try {
+          const response = await fetch('/api/pos/orders', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestPayload),
+          })
+          data = await response.json().catch(() => ({}))
+          if (!response.ok) throw new Error(data.message || data.error || 'Could not create sale')
+        } catch (error) {
+          queueOfflineAction({ type: 'create-order', payload: requestPayload })
+          data = { order: { id: `offline-${Date.now()}` } }
+          setMessage(error instanceof Error ? error.message : (isArabic ? 'تم حفظ الطلب في وضع غير متصل وسيتم رفعه عند عودة الاتصال.' : 'Order queued while offline and will sync when the connection returns.'))
+        }
+      }
+      if (paymentMethod === PAYMENT_METHODS.OFFERS && total > 0) {
+        const expensePayload = {
+          name: isArabic ? `خصم عرض - طلب ${data.order?.id?.slice(0, 8)}` : `Offer Discount - Order ${data.order?.id?.slice(0, 8)}`,
+          amount: total,
+          note: isArabic ? `خصم قيمة طلب العميل ${customer.name}` : `Discount for customer order ${customer.name}`,
+          date: new Date().toISOString(),
+        }
+        const expenseRequest = { type: 'create-expense' as const, payload: expensePayload }
+        if (!window.navigator.onLine) {
+          queueOfflineAction(expenseRequest)
+        } else {
+          // Fire and forget
+          fetch('/api/expenses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(expensePayload) }).catch(() => queueOfflineAction(expenseRequest))
+        }
+      }
       if (customer.name.trim() || customer.phone.trim()) {
         void fetch('/api/customers', {
           method: 'POST',
@@ -583,12 +687,20 @@ export default function DashboardPosPage() {
           ? `تم البيع وإنشاء الطلب، لكن فشل إرسال ${failedPrints.length} أمر طباعة. راجع إعدادات الطابعات.`
           : `Sale completed, but ${failedPrints.length} print job(s) failed. Check printer settings.`)
       }
+      // Reset form completely after sale
       setLines([])
       setDiscountCode('')
       setDiscountAmount(0)
+      setPaymentMethod(PAYMENT_METHODS.CASH)
       setSelectedDriverId('')
       setDeliveryFee(0)
-      setCustomer((current) => ({ ...current, deliveryAddress: '', notes: '' }))
+      setSelectedCategoryId('')
+      setSearch('')
+      setCustomer({ name: isArabic ? 'عميل مطعم' : 'Restaurant Customer', phone: '', deliveryAddress: '', notes: '' })
+      setCustomerSearch('')
+      setShowCustomerResults(false)
+      setCustomNoteDrafts({})
+      setOrderType('dine_in')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : (isArabic ? 'تعذر إتمام البيع.' : 'Could not complete sale.'))
     } finally {
@@ -598,106 +710,26 @@ export default function DashboardPosPage() {
 
   return (
     <div className="space-y-4">
+      {!isOnline && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
+          <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">{isArabic ? '⚠️ بدون إنترنت - يعمل بدون اتصال' : '⚠️ Offline Mode - Working without internet'}</p>
+          <p className="text-xs text-amber-800 dark:text-amber-200">{isArabic ? 'سيتم رفع جميع البيانات عند عودة الاتصال.' : 'All data will be synced when connection returns.'}</p>
+        </div>
+      )}
+      {syncingOffline && (
+        <div className="rounded-md border border-blue-300 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-950">
+          <p className="text-sm font-semibold text-blue-900 dark:text-blue-100">{isArabic ? '⏳ جاري المزامنة...' : '⏳ Syncing...'}</p>
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950">
         <div>
           <h2 className="text-xl font-bold">{isArabic ? 'نقطة البيع' : 'Point of Sale'}</h2>
-          <p className="text-sm text-slate-500">{isArabic ? 'إتمام البيع وطباعة التقفيل اليومي من نفس الشاشة.' : 'Complete sales and print the daily closing from the same screen.'}</p>
+            <p className="text-sm text-slate-500">{isArabic ? 'انتقل إلى صفحات التقفيل الحديثة لإدارة التسويات اليومية والسائقين.' : 'Move to the modern closing pages to manage daily and driver settlements.'}</p>
+          </div>
+          
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" className="gap-2" onClick={() => setLegacyAppCardOpen(true)}>
-            <Truck className="h-4 w-4" />
-            {isArabic ? 'تيست' : 'Test'}
-          </Button>
-          <Button type="button" variant="outline" className="gap-2" onClick={() => {
-            setDriverClosingRangeStart(getDateInputValue(daySession.openedAt))
-            setDriverClosingRangeEnd(getDateInputValue(daySession.isOpen ? new Date().toISOString() : daySession.closedAt || daySession.openedAt))
-            setDriverClosingOpen(true)
-          }}>
-            <Truck className="h-4 w-4" />
-            {isArabic ? 'تقفيل السائقين' : 'Driver Closing'}
-          </Button>
-        </div>
-      </div>
 
-      <div className="grid gap-3 md:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Banknote className="h-4 w-4 text-red-600" />
-              {isArabic ? 'فتح/إغلاق اليوم' : 'Open / Close Day'}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm text-slate-500">
-              {daySession.isOpen
-                ? (isArabic ? 'اليوم مفتوح ويجمع المبيعات من بداية اليوم حتى الإغلاق.' : 'The day is open and collects sales from the opening moment until closure.')
-                : (isArabic ? 'اليوم مغلق ويمكنك فتح يوم جديد عند بدء التشغيل التالي.' : 'The day is closed and you can open a fresh session when the next shift starts.')}
-            </p>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-500">{isArabic ? 'الحالة' : 'Status'}</span>
-              <span className={`font-semibold ${daySession.isOpen ? 'text-emerald-600' : 'text-slate-700'}`}>{daySession.isOpen ? (isArabic ? 'مفتوح' : 'Open') : (isArabic ? 'مغلق' : 'Closed')}</span>
-            </div>
-            <Button type="button" variant="outline" className="w-full gap-2" disabled={dailyClosingPrinting} onClick={() => { void handleDaySessionToggle() }}>
-              <Printer className="h-4 w-4" />
-              {daySession.isOpen ? (isArabic ? 'إغلاق اليوم' : 'Close Day') : (isArabic ? 'فتح يوم جديد' : 'Open New Day')}
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Truck className="h-4 w-4 text-red-600" />
-              {isArabic ? 'تقفيل السائقين' : 'Driver Closing'}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm text-slate-500">
-              {isArabic ? 'يظهر المبلغ الصافي لطلبات التوصيل بعد استبعاد رسوم الخدمة.' : 'Shows the net delivery amount after excluding service fees.'}
-            </p>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-500">{isArabic ? 'المجموع' : 'Total'}</span>
-              <span className="font-semibold text-red-600">{driverClosingTotal.toFixed(2)} {currency}</span>
-            </div>
-            <Button type="button" variant="outline" className="w-full gap-2" onClick={() => {
-              setDriverClosingRangeStart(getDateInputValue(daySession.openedAt))
-              setDriverClosingRangeEnd(getDateInputValue(daySession.isOpen ? new Date().toISOString() : daySession.closedAt || daySession.openedAt))
-              setDriverClosingOpen(true)
-            }}>
-              <Truck className="h-4 w-4" />
-              {isArabic ? 'عرض التقفيل' : 'View Closing'}
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Store className="h-4 w-4 text-red-600" />
-              {isArabic ? 'عداد المخزون' : 'Inventory Count'}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm text-slate-500">
-              {isArabic ? 'يعرض صافي الدرج ومبالغ السائقين والمصروفات من بداية اليوم حتى لحظة العد.' : 'Shows drawer net, collected driver amounts and expenses from day start to the counting moment.'}
-            </p>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-500">{isArabic ? 'صافي الدرج' : 'Drawer net'}</span>
-              <span className="font-semibold">{sessionDrawerNet.toFixed(2)} {currency}</span>
-            </div>
-            <Button type="button" variant="outline" className="w-full gap-2" onClick={() => {
-              setInventoryRangeStart(getDateInputValue(daySession.openedAt))
-              setInventoryRangeEnd(getDateInputValue(daySession.isOpen ? new Date().toISOString() : daySession.closedAt || daySession.openedAt))
-              setInventoryOpen(true)
-            }}>
-              <Banknote className="h-4 w-4" />
-              {isArabic ? 'إجراء العداد' : 'Run Count'}
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+      <div className="grid gap-3 md:grid-cols-2">
       <Card>
         <CardHeader>
           <CardTitle>{isArabic ? 'نقطة بيع المطعم' : 'Restaurant Point of Sale'}</CardTitle>
@@ -893,12 +925,12 @@ export default function DashboardPosPage() {
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                       {NOTE_OPTIONS.map((option) => {
                         const label = option[isArabic ? 'ar' : 'en']
-                        const selected = (item.notes || '').split('،').map((note) => note.trim()).includes(label)
+                        const selected = (item.notes || '').split('،').map((note) => note.trim()).some((note) => note === label || note.startsWith(`${label}:`) || note.startsWith(`${label} -`))
                         return (
                           <button
                             key={`${item.productId}-${option.ar}`}
                             type="button"
-                            onClick={() => toggleLineNote(item.productId, label)}
+                            onClick={() => label === (isArabic ? 'أخرى' : 'Other') ? handleOtherNoteToggle(item.productId) : toggleLineNote(item.productId, label)}
                             className={`min-h-10 rounded-md border px-2 py-2 text-center text-xs font-bold transition ${
                               selected
                                 ? 'border-red-600 bg-red-600 text-white shadow-sm'
@@ -910,6 +942,14 @@ export default function DashboardPosPage() {
                         )
                       })}
                     </div>
+                    {(item.notes || '').split('،').map((note) => note.trim()).filter(Boolean).some((note) => note === (isArabic ? 'أخرى' : 'Other') || note.startsWith(`${isArabic ? 'أخرى' : 'Other'}:`) || note.startsWith(`${isArabic ? 'أخرى' : 'Other'} -`)) && (
+                      <Input
+                        value={customNoteDrafts[item.productId] || ''}
+                        onChange={(event) => updateCustomNote(item.productId, event.target.value)}
+                        placeholder={isArabic ? 'اكتب ملاحظة أخرى' : 'Write a custom note'}
+                        className="mt-2"
+                      />
+                    )}
                   </div>
                 </div>
               ))}
@@ -925,7 +965,7 @@ export default function DashboardPosPage() {
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
                 {PAYMENT_METHOD_OPTIONS.map((option) => {
                   const selected = paymentMethod === option.value
-                  const Icon = option.value === PAYMENT_METHODS.CASH ? Banknote : option.value === PAYMENT_METHODS.CARD ? CreditCard : Smartphone
+                  const Icon = option.value === PAYMENT_METHODS.CASH ? Banknote : Smartphone
                   return (
                     <button
                       key={option.value}

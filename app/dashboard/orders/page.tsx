@@ -46,7 +46,7 @@ function canManageOrderRole(role: string | null) {
 }
 
 function canDeleteOrderRole(role: string | null) {
-  return role === 'super_admin' || role === 'admin' || role === 'cashier'
+  return role === 'super_admin' || role === 'admin'
 }
 
 export default function DashboardOrdersPage() {
@@ -181,8 +181,8 @@ export default function DashboardOrdersPage() {
       paymentMethod: order.payment?.method || 'cash',
       paymentStatus: order.payment?.status || 'pending',
       lines: order.lines?.length
-        ? order.lines.map((line) => ({ ...line }))
-        : [{ name: isArabic ? 'منتج' : 'Item', quantity: Math.max(1, Number(order.items || 1)), price: Number(order.total || 0), notes: order.notes }],
+        ? order.lines.map((line) => ({ ...line, name: getOrderLineName(line) }))
+        : [{ name: getOrderLineName({ name: '', quantity: 1, price: 0 }), quantity: Math.max(1, Number(order.items || 1)), price: Number(order.total || 0), notes: order.notes }],
     })
   }
 
@@ -195,8 +195,14 @@ export default function DashboardOrdersPage() {
     const taxAmount = subtotalAfterDiscount * (settings.taxRate || 0)
     const finalTotal = subtotalAfterDiscount + taxAmount
 
-    setEditForm(currentForm => currentForm ? { ...currentForm, subtotal: linesSubtotal.toFixed(2), tax: taxAmount.toFixed(2), total: finalTotal.toFixed(2) } : null)
-  }, [editForm?.lines, editForm?.discount, settings.taxRate])
+    const nextSubtotal = linesSubtotal.toFixed(2)
+    const nextTax = taxAmount.toFixed(2)
+    const nextTotal = finalTotal.toFixed(2)
+
+    if (nextSubtotal !== editForm.subtotal || nextTax !== editForm.tax || nextTotal !== editForm.total) {
+      setEditForm((currentForm) => currentForm ? { ...currentForm, subtotal: nextSubtotal, tax: nextTax, total: nextTotal } : null)
+    }
+  }, [editForm?.lines, editForm?.discount, settings.taxRate, editForm])
 
   const closeEditOrder = () => {
     setEditingOrder(null)
@@ -298,6 +304,17 @@ export default function DashboardOrdersPage() {
   }
 
   const label = (status: string) => (isArabic ? ORDER_STATUS_LABELS : ORDER_STATUS_LABELS_EN)[status as keyof typeof ORDER_STATUS_LABELS] || status
+
+  const getOrderLineName = (line: OrderLine) => {
+    const trimmedName = line.name?.toString().trim()
+    const product = products.find((item) => item.id === (line as any).productId)
+    const placeholderNames = new Set([isArabic ? 'منتج' : 'Item', isArabic ? 'منتج جديد' : 'New item'])
+    if (product && (!trimmedName || placeholderNames.has(trimmedName))) {
+      return isArabic ? product.nameAr : product.nameEn
+    }
+    if (trimmedName) return trimmedName
+    return isArabic ? 'منتج' : 'Item'
+  }
 
   const paymentMethodLabel = (method?: string) => {
     const labels = isArabic ? PAYMENT_METHOD_LABELS : PAYMENT_METHOD_LABELS_EN
@@ -567,12 +584,17 @@ export default function DashboardOrdersPage() {
             <p className="py-8 text-center text-slate-500">{isArabic ? 'لا توجد طلبات بعد.' : 'No orders yet.'}</p>
           ) : (
             <div className="min-w-0 space-y-3">
-              {appOrders.map((order) => (
+              {appOrders.map((order) => {
+                const isOrderCompleted = ['delivered', 'received'].includes(order.status)
+                return (
                 <div key={order.id} className="min-w-0 max-w-full overflow-hidden rounded-md border p-4 dark:border-slate-800">
                   <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="break-all font-semibold">{order.id}</p>
-                      <p className="text-sm text-slate-500">{order.customer} - {order.phone || '-'}</p>
+                      <p className="text-sm text-slate-500">
+                        {order.customer} - {order.phone || '-'}
+                        {order.createdAt && <span className="block pt-1 text-xs">{new Date(order.createdAt).toLocaleString(isArabic ? 'ar-EG' : 'en-US')}</span>}
+                      </p>
                       <p className="text-sm text-slate-500">{order.address}</p>
                       {order.notes && (
                         <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">
@@ -599,15 +621,15 @@ export default function DashboardOrdersPage() {
                       {isArabic ? 'فاتورة الصالة' : 'Hall'}
                     </Button>}
                     {statuses.map((status) => (
-                      <Button key={status} size="sm" variant={order.status === status ? 'default' : 'outline'} onClick={() => updateStatus(order.id, status)}>
+                      <Button key={status} size="sm" variant={order.status === status ? 'default' : 'outline'} onClick={() => updateStatus(order.id, status)} disabled={isOrderCompleted && status !== order.status}>
                         {label(status)}
                       </Button>
                     ))}
-                    {canEditOrders && <Button size="sm" variant="outline" className="gap-2" onClick={() => openEditOrder(order)}>
+                    {canEditOrders && <Button size="sm" variant="outline" className="gap-2" onClick={() => openEditOrder(order)} disabled={isOrderCompleted}>
                       <Edit3 className="h-4 w-4" />
                       {isArabic ? 'تعديل الطلب' : 'Edit Order'}
                     </Button>}
-                    {canDeleteOrders && <Button size="sm" variant="destructive" onClick={() => deleteOrder(order.id)}>{isArabic ? 'حذف الطلب' : 'Delete Order'}</Button>}
+                    {canDeleteOrders && <Button size="sm" variant="destructive" onClick={() => deleteOrder(order.id)} disabled={isOrderCompleted}>{isArabic ? 'حذف الطلب' : 'Delete Order'}</Button>}
                   </div>
                   <div className="mt-4 grid min-w-0 gap-3 overflow-hidden rounded-md border bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/40 md:grid-cols-[minmax(0,1fr)_auto]">
                     <div className="min-w-0 space-y-1">
@@ -666,7 +688,8 @@ export default function DashboardOrdersPage() {
                     </p>
                   </div>}
                 </div>
-              ))}
+              )
+            })}
             </div>
           )}
         </CardContent>

@@ -1,6 +1,7 @@
 import {
   BarChart3,
   BellRing,
+  CalendarDays,
   CreditCard,
   DollarSign,
   LayoutDashboard,
@@ -19,6 +20,8 @@ import { DASHBOARD_ROLES } from '@/lib/dashboard-permissions'
 export const dashboardLinks = [
   { href: ROUTES.DASHBOARD, labelAr: 'نظرة عامة', labelEn: 'Overview', icon: LayoutDashboard, roles: ['super_admin', 'admin'] },
   { href: ROUTES.DASHBOARD_POS, labelAr: 'نقطة البيع', labelEn: 'POS', icon: Store, roles: ['super_admin', 'admin', 'cashier'] },
+  { href: ROUTES.DASHBOARD_DRIVER_CLOSING, labelAr: 'تقفيل السائقين', labelEn: 'Driver Closing', icon: Truck, roles: ['super_admin', 'admin', 'cashier'] },
+  { href: ROUTES.DASHBOARD_DAILY_CLOSING, labelAr: 'التقفيل اليومي', labelEn: 'Daily Closing', icon: CalendarDays, roles: ['super_admin', 'admin', 'cashier'] },
   { href: ROUTES.DASHBOARD_RESTAURANT_ORDERS, labelAr: 'طلبات المطعم', labelEn: 'Restaurant Orders', icon: Store, roles: ['super_admin', 'admin', 'cashier'] },
   { href: ROUTES.DASHBOARD_ORDERS, labelAr: 'طلبات التطبيق', labelEn: 'App Orders', icon: ReceiptText, roles: ['super_admin', 'admin', 'delivery'] },
   { href: ROUTES.DASHBOARD_EXPENSES, labelAr: 'المصروفات', labelEn: 'Expenses', icon: DollarSign, roles: ['super_admin', 'admin', 'cashier'] },

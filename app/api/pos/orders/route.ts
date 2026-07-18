@@ -117,6 +117,10 @@ function normalizePaymentStatus(value: unknown, method: string): PaymentStatus {
 }
 
 function canManageOrders(role?: string | null) {
+  return role === 'super_admin' || role === 'admin' || role === 'cashier'
+}
+
+function canDeleteOrders(role?: string | null) {
   return role === 'super_admin' || role === 'admin'
 }
 
@@ -157,6 +161,7 @@ function normalizeOrderLines(body: Record<string, unknown>) {
         ? item.additions.map((addition) => String(addition)).filter(Boolean)
         : undefined
       return {
+        productId: item.productId || (product.id ? String(product.id) : undefined),
         name: String(item.name || item.nameAr || item.nameEn || item.productName || product.name || product.nameAr || product.nameEn || 'Item'),
         quantity: Number(item.quantity || item.qty || 1),
         price: Number(item.price || product.price || 0),
@@ -359,6 +364,8 @@ export async function PATCH(request: NextRequest) {
       'paymentStatus',
     ].some((key) => hasOwn(body, key)) || (body.payment && typeof body.payment === 'object')
 
+    const existingOrder = id ? (await readServerOrders({ orderId: id, includeReceipts: true }))[0] : null
+
     if (hasDetailUpdates && !hasValidPosKey && !canManageOrders(access.role)) {
       return json({ error: 'Forbidden', message: 'You do not have permission to edit order details' }, { status: 403 })
     }
@@ -446,7 +453,7 @@ export async function DELETE(request: NextRequest) {
       return json({ error: 'Invalid POS API key' }, { status: 401 })
     }
 
-    if (!hasValidPosKey && !canManageOrders(access.role)) {
+    if (!hasValidPosKey && !canDeleteOrders(access.role)) {
       return json({ error: 'Forbidden', message: 'You do not have permission to delete orders' }, { status: 403 })
     }
 

@@ -1,9 +1,22 @@
 import { createBrowserClient, createServerClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key'
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || supabaseAnonKey
+
+function validateSupabaseConfig() {
+  if (!supabaseUrl || supabaseUrl.includes('placeholder')) {
+    throw new Error(
+      'Missing NEXT_PUBLIC_SUPABASE_URL. Please set the Supabase URL in your environment variables.'
+    )
+  }
+  if (!supabaseAnonKey || supabaseAnonKey.includes('placeholder')) {
+    throw new Error(
+      'Missing NEXT_PUBLIC_SUPABASE_ANON_KEY. Please set the Supabase anon key in your environment variables.'
+    )
+  }
+}
 
 type SupabaseBrowserClient = ReturnType<typeof createBrowserClient>
 
@@ -26,12 +39,14 @@ type SupabaseCookieStore = {
 }
 
 export function createSupabaseBrowserClient() {
+  validateSupabaseConfig()
+  
   if (typeof window === 'undefined') {
-    return createBrowserClient(supabaseUrl, supabaseAnonKey)
+    return createBrowserClient(supabaseUrl as string, supabaseAnonKey as string)
   }
 
   if (!globalThis.__ranchSupabaseBrowserClient) {
-    globalThis.__ranchSupabaseBrowserClient = createBrowserClient(supabaseUrl, supabaseAnonKey)
+    globalThis.__ranchSupabaseBrowserClient = createBrowserClient(supabaseUrl as string, supabaseAnonKey as string)
   }
 
   return globalThis.__ranchSupabaseBrowserClient
@@ -40,9 +55,11 @@ export function createSupabaseBrowserClient() {
 export function createSupabaseServerClient(
   cookieStore: SupabaseCookieStore
 ) {
+  validateSupabaseConfig()
+  
   return createServerClient(
-    supabaseUrl,
-    supabaseAnonKey,
+    supabaseUrl as string,
+    supabaseAnonKey as string,
     {
       cookies: {
         getAll() {
@@ -64,7 +81,8 @@ export function createSupabaseServerClient(
 }
 
 export function createSupabaseAdminClient() {
-  return createClient(supabaseUrl, supabaseServiceKey, {
+  validateSupabaseConfig()
+  return createClient(supabaseUrl as string, supabaseServiceKey as string, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,

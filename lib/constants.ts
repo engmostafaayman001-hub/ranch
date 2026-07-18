@@ -40,30 +40,30 @@ export const ORDER_STATUS_LABELS_EN = {
 
 export const PAYMENT_METHODS = {
   CASH: 'cash',
-  CARD: 'card',
   VODAFONE_CASH: 'vodafone_cash',
   INSTAPAY: 'instapay',
+  OFFERS: 'offers',
 }
 
 export const PAYMENT_METHOD_LABELS = {
   cash: 'الدفع عند الاستلام',
-  card: 'بطاقة بنكية',
   vodafone_cash: 'Vodafone Cash',
   instapay: 'InstaPay',
+  offers: 'عروض',
 }
 
 export const PAYMENT_METHOD_LABELS_EN = {
   cash: 'Cash on Delivery',
-  card: 'Card',
   vodafone_cash: 'Vodafone Cash',
   instapay: 'InstaPay',
+  offers: 'Offers',
 }
 
 export const PAYMENT_METHOD_OPTIONS = [
   { value: PAYMENT_METHODS.CASH, ar: 'الدفع عند الاستلام', en: 'Cash on Delivery', arHint: 'ادفع نقدا عند استلام الطلب.', enHint: 'Pay in cash when the order arrives.', requiresReceipt: false },
-  { value: PAYMENT_METHODS.CARD, ar: 'بطاقة بنكية', en: 'Card', arHint: 'الدفع بالكارت عند الاستلام أو داخل المطعم.', enHint: 'Pay by card on delivery or in-store.', requiresReceipt: false },
   { value: PAYMENT_METHODS.VODAFONE_CASH, ar: 'Vodafone Cash', en: 'Vodafone Cash', arHint: 'حوّل المبلغ وارفع صورة الإيصال.', enHint: 'Transfer the amount and upload the receipt.', requiresReceipt: true },
   { value: PAYMENT_METHODS.INSTAPAY, ar: 'InstaPay', en: 'InstaPay', arHint: 'حوّل المبلغ وارفع صورة الإيصال.', enHint: 'Transfer the amount and upload the receipt.', requiresReceipt: true },
+  { value: PAYMENT_METHODS.OFFERS, ar: 'عروض', en: 'Offers', arHint: 'خصم من العروض المتاحة.', enHint: 'Discount from available offers.', requiresReceipt: false },
 ] as const
 
 export const VODAFONE_CASH_NUMBER = process.env.NEXT_PUBLIC_VODAFONE_CASH_NUMBER || '01090886364'
@@ -125,4 +125,6 @@ export const ROUTES = {
   DASHBOARD_SETTINGS: '/dashboard/settings',
   DASHBOARD_POS: '/dashboard/pos',
   DASHBOARD_EXPENSES: '/dashboard/expenses',
+  DASHBOARD_DRIVER_CLOSING: '/dashboard/driver-closing',
+  DASHBOARD_DAILY_CLOSING: '/dashboard/daily-closing',
 }

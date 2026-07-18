@@ -23,37 +23,38 @@ type DriverClosingPrintInput = {
   invoiceAddress?: string
   invoicePhone?: string
   logoUrl?: string
+  singleOrderMode?: boolean
 }
 
-function driverAssigned(order: TrackedOrder) {
+export function driverAssigned(order: TrackedOrder) {
   const name = (order.driver?.name || '').trim()
   const phone = (order.driver?.phone || '').trim()
   return Boolean(name && name !== 'Pending assignment' && name !== '-' && (phone || order.driver?.email))
 }
 
-function isDriverSettlementEligible(order: TrackedOrder) {
+export function isDriverSettlementEligible(order: TrackedOrder) {
   const method = String(order.payment?.method || '').toLowerCase()
   const status = String(order.payment?.status || '').toLowerCase()
-  return method === 'cash' || method === 'cash_on_delivery' || method === 'cod' || status === 'cash_on_delivery'
+  return method === 'cash' && status === 'cash_on_delivery'
 }
 
 function driverKey(order: TrackedOrder) {
   return (order.driver?.email || order.driver?.phone || order.driver?.name || 'driver').trim().toLowerCase()
 }
 
-function getDriverClosingAmount(order: TrackedOrder) {
+export function getDriverClosingAmount(order: TrackedOrder) {
   const deliveryFee = Number(order.deliveryFee || 0)
   const subtotal = Number(order.subtotal ?? 0)
   if (subtotal > 0) {
-    return Math.max(0, subtotal - deliveryFee)
+    return Math.max(0, subtotal)
   }
-  return Math.max(0, Number(order.total || 0) - deliveryFee - Number(order.tax || 0) + Number(order.discount?.amount || 0))
+  return Math.max(0, Number(order.total || 0) - deliveryFee - Number(order.tax || 0))
 }
 
 export function getDriverClosingGroups(orders: TrackedOrder[]): DriverClosingGroup[] {
   const groups = new Map<string, DriverClosingGroup>()
   for (const order of orders) {
-    if (order.status === 'cancelled' || !driverAssigned(order) || !isDriverSettlementEligible(order)) continue
+    if (order.status === 'cancelled' || !driverAssigned(order)) continue
     const key = driverKey(order)
     const current = groups.get(key) || {
       key,
@@ -66,15 +67,17 @@ export function getDriverClosingGroups(orders: TrackedOrder[]): DriverClosingGro
       appOrders: 0,
       restaurantOrders: 0,
     }
-    const amount = getDriverClosingAmount(order)
     current.orders.push(order)
-    current.total += amount
-    if (order.source === 'restaurant_pos') {
-      current.restaurantTotal += amount
-      current.restaurantOrders += 1
-    } else {
-      current.appTotal += amount
-      current.appOrders += 1
+    if (isDriverSettlementEligible(order)) {
+      const amount = getDriverClosingAmount(order)
+      current.total += amount
+      if (order.source === 'restaurant_pos') {
+        current.restaurantTotal += amount
+        current.restaurantOrders += 1
+      } else {
+        current.appTotal += amount
+        current.appOrders += 1
+      }
     }
     groups.set(key, current)
   }
@@ -83,6 +86,33 @@ export function getDriverClosingGroups(orders: TrackedOrder[]): DriverClosingGro
 }
 
 export function createDriverClosingReceiptPayload(input: DriverClosingPrintInput): ReceiptPayload {
+  if (input.singleOrderMode && input.orders.length === 1) {
+    const order = input.orders[0]
+    return {
+      orderId: order.id,
+      orderType: order.estimatedDelivery || (input.isArabic ? 'طلب' : 'Order'),
+      createdAt: order.createdAt || new Date().toISOString(),
+      customer: { name: order.customer || '-', address: order.address, phone: order.phone },
+      lines: order.lines?.map(line => ({
+        name: line.name,
+        quantity: line.quantity,
+        price: line.price,
+        notes: line.notes,
+      })) || [],
+      subtotal: Number(order.subtotal || 0),
+      tax: Number(order.tax || 0),
+      deliveryFee: Number(order.deliveryFee || 0),
+      discountAmount: Number(order.discount?.amount || 0),
+      total: Number(order.total || 0),
+      paymentMethod: input.isArabic ? 'الدفع عند الاستلام' : 'Cash on delivery',
+      currency: input.currency,
+      invoiceName: input.invoiceName,
+      invoiceAddress: input.invoiceAddress,
+      invoicePhone: input.invoicePhone,
+      logoUrl: input.logoUrl,
+      isArabic: input.isArabic,
+    }
+  }
   const groups = getDriverClosingGroups(input.orders)
   const grandTotal = groups.reduce((sum, group) => sum + group.total, 0)
   const appTotal = groups.reduce((sum, group) => sum + group.appTotal, 0)

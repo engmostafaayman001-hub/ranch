@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN } from '@/lib/constants'
+import { queueOfflineAction, syncOfflineQueue } from '@/lib/offline-queue'
 
 type Expense = {
   id: string
@@ -63,6 +64,15 @@ export default function DashboardExpensesPage() {
   }, [])
 
   useEffect(() => {
+    void syncOfflineQueue()
+    const handleOnline = () => {
+      void syncOfflineQueue()
+    }
+    window.addEventListener('online', handleOnline)
+    return () => window.removeEventListener('online', handleOnline)
+  }, [])
+
+  useEffect(() => {
     let active = true
     fetch('/api/auth/dashboard-access', { cache: 'no-store' })
       .then((response) => response.json())
@@ -100,15 +110,33 @@ export default function DashboardExpensesPage() {
     event.preventDefault()
     const amount = Number(form.amount)
     if (!form.name.trim() || !Number.isFinite(amount) || amount <= 0) return
-    const response = await fetch('/api/expenses', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: form.name.trim(), amount, date: form.date, note: form.note.trim() }),
-    })
-    const data = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      setMessage(data.message || data.error || (isArabic ? 'تعذر حفظ المصروف.' : 'Could not save expense.'))
+    const payload = { name: form.name.trim(), amount, date: form.date, note: form.note.trim() }
+    if (!window.navigator.onLine) {
+      queueOfflineAction({ type: 'create-expense', payload })
+      setMessage(isArabic ? 'تم حفظ المصروف في وضع غير متصل وسيتم رفعه عند عودة الاتصال.' : 'Expense queued while offline and will sync when the connection returns.')
+      closeForm()
+      loadExpenses()
       return
+    }
+
+    try {
+      const response = await fetch('/api/expenses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.message || data.error || (isArabic ? 'تعذر حفظ المصروف.' : 'Could not save expense.'))
+      }
+      setMessage(isArabic ? 'تم حفظ المصروف.' : 'Expense saved.')
+      closeForm()
+      loadExpenses()
+    } catch (error) {
+      queueOfflineAction({ type: 'create-expense', payload })
+      setMessage(error instanceof Error ? error.message : (isArabic ? 'تم حفظ المصروف في وضع غير متصل وسيتم رفعه عند عودة الاتصال.' : 'Expense queued while offline and will sync when the connection returns.'))
+      closeForm()
+      loadExpenses()
     }
     setMessage(isArabic ? 'تم حفظ المصروف.' : 'Expense saved.')
     closeForm()
@@ -132,7 +160,7 @@ export default function DashboardExpensesPage() {
           <p className="mt-2 text-slate-500 dark:text-slate-400">{isArabic ? 'سجل مصروفات المطعم اليومية.' : 'Track daily restaurant expenses.'}</p>
           {message && <p className="mt-2 text-sm text-green-600">{message}</p>}
         </div>
-        <Button onClick={() => setFormOpen(true)} className="bg-red-600 hover:bg-red-700">{isArabic ? 'إضافة مصروف' : 'Add Expense'}</Button>
+        {!isCashier && <Button onClick={() => setFormOpen(true)} className="bg-red-600 hover:bg-red-700">{isArabic ? 'إضافة مصروف' : 'Add Expense'}</Button>}
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">

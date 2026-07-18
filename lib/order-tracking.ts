@@ -46,6 +46,7 @@ export interface OrderLine {
   additions?: string[]
   categoryName?: string
   categoryId?: string
+  productId?: string
 }
 
 export interface TrackedOrder {

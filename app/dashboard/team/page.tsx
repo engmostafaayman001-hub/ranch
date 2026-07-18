@@ -25,8 +25,23 @@ export default function DashboardTeamPage() {
   const [message, setMessage] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [formOpen, setFormOpen] = useState(false)
-  const [form, setForm] = useState({ name: '', email: '', role: 'support', status: 'active' as 'active' | 'inactive' })
+  const [form, setForm] = useState({ name: '', email: '', role: 'admin', status: 'active' as 'active' | 'inactive' })
   const [search, setSearch] = useState('')
+
+  const ROLES = [
+    { value: 'super_admin', label: isArabic ? 'مسؤول فائق (Super Admin)' : 'Super Admin' },
+    { value: 'admin', label: isArabic ? 'مدير (Admin)' : 'Admin' },
+    { value: 'manager', label: isArabic ? 'مدير عام (Manager)' : 'Manager' },
+    { value: 'supervisor', label: isArabic ? 'مشرف (Supervisor)' : 'Supervisor' },
+    { value: 'cashier', label: isArabic ? 'كاشير (Cashier)' : 'Cashier' },
+    { value: 'delivery', label: isArabic ? 'مندوب توصيل (Delivery)' : 'Delivery' },
+    { value: 'support', label: isArabic ? 'دعم العملاء (Support)' : 'Support' },
+  ]
+
+  const getRoleLabel = (role: string) => {
+    const roleObj = ROLES.find((r) => r.value === role)
+    return roleObj ? roleObj.label : role
+  }
   const filteredTeam = useMemo(() => {
     const term = search.trim().toLowerCase()
     if (!term) return team
@@ -57,7 +72,7 @@ export default function DashboardTeamPage() {
 
   const closeForm = () => {
     setEditingId(null)
-    setForm({ name: '', email: '', role: 'support', status: 'active' })
+    setForm({ name: '', email: '', role: 'admin', status: 'active' })
     setFormOpen(false)
   }
 
@@ -77,7 +92,7 @@ export default function DashboardTeamPage() {
 
   const openNewMember = () => {
     setEditingId(null)
-    setForm({ name: '', email: '', role: 'support', status: 'active' })
+    setForm({ name: '', email: '', role: 'admin', status: 'active' })
     setFormOpen(true)
   }
 
@@ -177,10 +192,9 @@ export default function DashboardTeamPage() {
               <div>
                 <Label htmlFor="role">{isArabic ? 'الدور' : 'Role'}</Label>
                 <select id="role" value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })} className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 dark:border-slate-800 dark:bg-slate-950">
-                  <option value="admin">{isArabic ? 'مدير (Admin)' : 'Admin'}</option>
-                  <option value="supervisor">{isArabic ? 'مشرف (Supervisor)' : 'Supervisor'}</option>
-                  <option value="cashier">{isArabic ? 'كاشير' : 'Cashier'}</option>
-                  <option value="delivery">{isArabic ? 'مندوب توصيل' : 'Delivery'}</option>
+                  {ROLES.map((r) => (
+                    <option key={r.value} value={r.value}>{r.label}</option>
+                  ))}
                 </select>
               </div>
               <div className="flex items-end gap-2">
@@ -205,7 +219,7 @@ export default function DashboardTeamPage() {
             <div key={member.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 dark:border-slate-800">
               <div>
                 <p className="font-semibold">{member.name}</p>
-                <p className="text-sm text-slate-500">{member.email} - {member.role}</p>
+                <p className="text-sm text-slate-500">{member.email} - {getRoleLabel(member.role)}</p>
                 <Badge className={member.status === 'active' ? 'bg-green-600' : 'bg-slate-500'}>{member.status === 'active' ? (isArabic ? 'نشط' : 'Active') : (isArabic ? 'غير نشط' : 'Inactive')}</Badge>
               </div>
               <div className="flex flex-wrap gap-2">

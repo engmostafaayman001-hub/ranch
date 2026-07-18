@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, BarChart3, CalendarDays, CheckCircle2, Printer, ReceiptText, X } from 'lucide-react'
+import { Activity, BarChart3, CalendarDays, CheckCircle2, Printer, ReceiptText, Trash2, X, AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -125,6 +125,8 @@ export default function DashboardReportsPage() {
   const [closingDate, setClosingDate] = useState(todayKey)
   const [closingOpen, setClosingOpen] = useState(false)
   const [printStatus, setPrintStatus] = useState('')
+  const [clearMemoryOpen, setClearMemoryOpen] = useState(false)
+  const [clearingMemory, setClearingMemory] = useState(false)
   const loadingReports = useRef(false)
 
   useEffect(() => {
@@ -219,6 +221,28 @@ export default function DashboardReportsPage() {
     return labels[method as keyof typeof PAYMENT_METHOD_LABELS] || method
   }
 
+  const resetMemory = async () => {
+    const confirmed = window.confirm(isArabic ? 'هل تريد حذف جميع الطلبات المؤقتة؟' : 'Delete all temporary orders?')
+    if (!confirmed) return
+
+    try {
+      const response = await fetch('/api/pos/orders?limit=500', { cache: 'no-store' })
+      const ordersData = await response.json().catch(() => ({}))
+      const ordersToDelete = Array.isArray(ordersData.orders) ? ordersData.orders : []
+      if (ordersToDelete.length > 0) {
+        await Promise.all(ordersToDelete.map((order: TrackedOrder) => fetch('/api/pos/orders', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderId: order.id }),
+        })))
+      }
+      setOrders([])
+      setPrintStatus(isArabic ? 'تم حذف الطلبات المؤقتة.' : 'Temporary orders cleared.')
+    } catch {
+      setPrintStatus(isArabic ? 'تعذر حذف الطلبات المؤقتة.' : 'Could not clear temporary orders.')
+    }
+  }
+
   const printDailyClosing = async () => {
     setPrintStatus('')
     const cashierPrinter = settings.printers.cashier
@@ -257,6 +281,39 @@ export default function DashboardReportsPage() {
     }
   }
 
+  const clearMemory = async () => {
+    if (!clearMemoryOpen) {
+      setClearMemoryOpen(true)
+      return
+    }
+
+    setClearingMemory(true)
+    setPrintStatus('')
+    try {
+      // Delete all restaurant and app orders
+      const orderIds = orders.map((order) => order.id)
+      if (orderIds.length > 0) {
+        await Promise.all(
+          orderIds.map((orderId) =>
+            fetch('/api/pos/orders', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ orderId }),
+            })
+          )
+        )
+      }
+
+      setOrders([])
+      setPrintStatus(isArabic ? 'تم مسح جميع الطلبات بنجاح.' : 'All orders cleared successfully.')
+      setClearMemoryOpen(false)
+    } catch (error) {
+      setPrintStatus(error instanceof Error ? error.message : (isArabic ? 'تعذر مسح الذاكرة.' : 'Could not clear memory.'))
+    } finally {
+      setClearingMemory(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -271,6 +328,10 @@ export default function DashboardReportsPage() {
             <Label htmlFor="closing-date">{isArabic ? 'تاريخ التقفيل' : 'Closing date'}</Label>
             <Input id="closing-date" type="date" value={closingDate} onChange={(event) => setClosingDate(event.target.value)} />
           </div>
+          <Button variant="outline" className="gap-2 border-red-600 text-red-600 hover:bg-red-50" onClick={() => clearMemory()} disabled={clearingMemory}>
+            <Trash2 className="h-4 w-4" />
+            {isArabic ? 'مسح الذاكرة' : 'Clear memory'}
+          </Button>
           <Button className="gap-2 bg-red-600 hover:bg-red-700" onClick={() => setClosingOpen(true)}>
             <CalendarDays className="h-4 w-4" />
             {isArabic ? 'تقفيل يومي' : 'Daily Closing'}
@@ -428,6 +489,44 @@ export default function DashboardReportsPage() {
               </Card>
             </div>
           </div>
+        </div>
+      )}
+
+      {clearMemoryOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-red-600">
+                <AlertTriangle className="h-5 w-5" />
+                {isArabic ? 'تأكيد مسح الذاكرة' : 'Confirm Clear Memory'}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-slate-600 dark:text-slate-400">
+                {isArabic
+                  ? 'هل أنت متأكد من حذف جميع الطلبات؟ لا يمكن التراجع عن هذه العملية.'
+                  : 'Are you sure you want to delete all orders? This action cannot be undone.'}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setClearMemoryOpen(false)}
+                  disabled={clearingMemory}
+                >
+                  {isArabic ? 'إلغاء' : 'Cancel'}
+                </Button>
+                <Button
+                  className="flex-1 gap-2 bg-red-600 hover:bg-red-700"
+                  onClick={clearMemory}
+                  disabled={clearingMemory}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {isArabic ? 'حذف' : 'Delete'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
 

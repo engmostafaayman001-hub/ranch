@@ -375,7 +375,7 @@ export default function CheckoutPage() {
                     <div className="mt-2 grid gap-2 sm:grid-cols-2">
                       {PAYMENT_METHOD_OPTIONS.map((option) => {
                         const selected = formData.paymentMethod === option.value
-                        const Icon = option.value === PAYMENT_METHODS.CASH ? Banknote : option.value === PAYMENT_METHODS.CARD ? CreditCard : Smartphone
+                        const Icon = option.value === PAYMENT_METHODS.CASH ? Banknote : Smartphone
                         return (
                           <button
                             key={option.value}
@@ -434,36 +434,37 @@ export default function CheckoutPage() {
                       </div>
                     </div>
                   ) : (
-                    <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-200">
-                      {formData.paymentMethod === PAYMENT_METHODS.CASH
-                        ? (isArabic ? 'سيتم تحصيل الدفع نقدا عند الاستلام.' : 'Cash will be collected on delivery.')
-                        : (isArabic ? 'سيتم تحصيل الدفع بالكارت عند الاستلام أو داخل المطعم.' : 'Card payment will be collected on delivery or in-store.')}
-                    </p>
-                  )}
-
-                  <div className="rounded-md border border-slate-200 p-3 dark:border-slate-800">
-                    <Label htmlFor="discountCode">{isArabic ? 'كود الخصم' : 'Discount Code'}</Label>
-                    <div className="mt-2 flex gap-2">
-                      <Input
-                        id="discountCode"
-                        value={discountCode}
-                        onChange={(event) => {
-                          setDiscountCode(event.target.value.toUpperCase())
-                          setAppliedDiscount(null)
-                          setDiscountMessage('')
-                        }}
-                        placeholder="RANCH20"
-                      />
-                      <Button type="button" variant="outline" disabled={validatingDiscount || subtotal <= 0} onClick={applyDiscountCode}>
-                        {validatingDiscount ? (isArabic ? 'جاري الفحص...' : 'Checking...') : (isArabic ? 'تطبيق' : 'Apply')}
-                      </Button>
-                    </div>
-                    {discountMessage && (
-                      <p className={`mt-2 text-sm ${appliedDiscount ? 'text-green-700 dark:text-green-300' : 'text-slate-600 dark:text-slate-400'}`}>
-                        {discountMessage}
+                    <>
+                      <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-200">
+                        {formData.paymentMethod === PAYMENT_METHODS.CASH
+                          ? (isArabic ? 'سيتم تحصيل الدفع نقدا عند الاستلام.' : 'Cash will be collected on delivery.')
+                          : formData.paymentMethod === PAYMENT_METHODS.OFFERS
+                            ? (isArabic ? 'سيتم تطبيق العرض المختار على الطلب.' : 'The selected offer will be applied to this order.')
+                            : (isArabic ? 'سيتم تحصيل الدفع بعد تحويل المبلغ ورفع الإيصال.' : 'The payment will be collected after the transfer and receipt upload.')}
                       </p>
-                    )}
-                  </div>
+                      <Label htmlFor="discountCode">{isArabic ? 'كود الخصم' : 'Discount Code'}</Label>
+                      <div className="mt-2 flex gap-2">
+                        <Input
+                          id="discountCode"
+                          value={discountCode}
+                          onChange={(event) => {
+                            setDiscountCode(event.target.value.toUpperCase())
+                            setAppliedDiscount(null)
+                            setDiscountMessage('')
+                          }}
+                          placeholder="RANCH20"
+                        />
+                        <Button type="button" variant="outline" disabled={validatingDiscount || subtotal <= 0} onClick={applyDiscountCode}>
+                          {validatingDiscount ? (isArabic ? 'جاري الفحص...' : 'Checking...') : (isArabic ? 'تطبيق' : 'Apply')}
+                        </Button>
+                      </div>
+                      {discountMessage && (
+                        <p className={`mt-2 text-sm ${appliedDiscount ? 'text-green-700 dark:text-green-300' : 'text-slate-600 dark:text-slate-400'}`}>
+                          {discountMessage}
+                        </p>
+                      )}
+                    </>
+                  )}
                 </CardContent>
               </Card>
 

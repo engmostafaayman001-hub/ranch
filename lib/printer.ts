@@ -931,8 +931,42 @@ export function trackedOrderToReceiptPayload(order: TrackedOrder, options: Parti
   }
 }
 
+function normalizeKitchenSectionName(value?: string) {
+  const text = String(value || '').trim()
+  if (!text) return 'Kitchen'
+  const normalized = text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+  if (!normalized) return 'Kitchen'
+  const aliases: Record<string, string> = {
+    crepe: 'كريب',
+    كريب: 'كريب',
+    pasta: 'مكرونة',
+    مكرونة: 'مكرونة',
+    pizza: 'بيتزا',
+    بيتزا: 'بيتزا',
+    burger: 'برجر',
+    برجر: 'برجر',
+    sandwich: 'ساندويتش',
+    ساندويتش: 'ساندويتش',
+    salad: 'سلطة',
+    سلطة: 'سلطة',
+    drink: 'مشروب',
+    مشروب: 'مشروب',
+  }
+  const direct = aliases[normalized]
+  if (direct) return direct
+  const words = normalized.split(/\s+/).filter(Boolean)
+  return words[0] || text
+}
+
 function getKitchenSectionKey(line: ReceiptLine) {
-  return (line.categoryName || line.categoryId || 'Kitchen').trim() || 'Kitchen'
+  const categoryLabel = line.categoryName || line.categoryId || ''
+  const categoryKey = normalizeKitchenSectionName(categoryLabel)
+  if (categoryKey !== 'Kitchen') return categoryKey
+  const nameKey = normalizeKitchenSectionName(line.name)
+  return nameKey !== 'Kitchen' ? nameKey : 'Kitchen'
 }
 
 function splitKitchenPayloadBySection(payload: ReceiptPayload): ReceiptPayload[] {

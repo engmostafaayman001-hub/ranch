@@ -35,32 +35,50 @@ export async function signUpWithEmail(
   password: string,
   name: string
 ) {
-  const supabase = createSupabaseBrowserClient()
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: {
-        name,
+  try {
+    const supabase = createSupabaseBrowserClient()
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          name,
+        },
       },
-    },
-  })
+    })
 
-  if (error) throw error
+    if (error) throw error
 
-  return data
+    return data
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message.includes('NEXT_PUBLIC_SUPABASE_URL')) {
+        throw new Error('System configuration error: Supabase is not properly configured. Please contact support.')
+      }
+    }
+    throw error
+  }
 }
 
 export async function signInWithEmail(email: string, password: string) {
-  const supabase = createSupabaseBrowserClient()
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  })
+  try {
+    const supabase = createSupabaseBrowserClient()
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    })
 
-  if (error) throw error
+    if (error) throw error
 
-  return data
+    return data
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message.includes('NEXT_PUBLIC_SUPABASE_URL')) {
+        throw new Error('System configuration error: Supabase is not properly configured. Please contact support.')
+      }
+    }
+    throw error
+  }
 }
 
 export async function signInWithGoogle(nextPath = '/') {

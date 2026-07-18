@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useLanguage } from '@/components/language-provider'
-import { CURRENCY, CURRENCY_EN, ORDER_STATUS_LABELS, ORDER_STATUS_LABELS_EN } from '@/lib/constants'
+import { CURRENCY, CURRENCY_EN, ORDER_STATUS_LABELS, ORDER_STATUS_LABELS_EN, PAYMENT_METHOD_OPTIONS } from '@/lib/constants'
 import { MenuProduct, PrinterRole, useAppStore } from '@/lib/app-store'
 import { fetchDashboardOrderDetails, fetchDashboardOrdersBySource } from '@/lib/dashboard-order-fetch'
 import { OrderLine, TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
@@ -35,6 +35,10 @@ function canManageOrderRole(role: string | null) {
   return role === 'super_admin' || role === 'admin' || role === 'cashier'
 }
 
+function canDeleteOrderRole(role: string | null) {
+  return role === 'super_admin' || role === 'admin'
+}
+
 export default function DashboardRestaurantOrdersPage() {
   const { language } = useLanguage()
   const isArabic = language === 'ar'
@@ -55,7 +59,7 @@ export default function DashboardRestaurantOrdersPage() {
   const [savingEdit, setSavingEdit] = useState(false)
   const loadingOrders = useRef(false)
   const canEditOrders = canManageOrderRole(dashboardRole)
-  const canDeleteOrders = canEditOrders
+  const canDeleteOrders = canDeleteOrderRole(dashboardRole)
   const canModifyPrices = dashboardRole === 'super_admin' || dashboardRole === 'admin'
   const isCashier = dashboardRole === 'cashier'
 
@@ -107,6 +111,17 @@ export default function DashboardRestaurantOrdersPage() {
 
   const label = (status: string) => (isArabic ? ORDER_STATUS_LABELS : ORDER_STATUS_LABELS_EN)[status as keyof typeof ORDER_STATUS_LABELS] || status
 
+  const getOrderLineName = (line: OrderLine) => {
+    const trimmedName = line.name?.toString().trim()
+    const product = products.find((item) => item.id === (line as any).productId)
+    const placeholderNames = new Set([isArabic ? 'منتج' : 'Item', isArabic ? 'منتج جديد' : 'New item'])
+    if (product && (!trimmedName || placeholderNames.has(trimmedName))) {
+      return isArabic ? product.nameAr : product.nameEn
+    }
+    if (trimmedName) return trimmedName
+    return isArabic ? 'منتج' : 'Item'
+  }
+
   const isDeliveryOrder = (order: TrackedOrder) => {
     const text = `${order.estimatedDelivery || ''} ${order.address || ''}`.toLowerCase()
     return text.includes('delivery') || text.includes('دليف') || text.includes('توصيل')
@@ -148,8 +163,8 @@ export default function DashboardRestaurantOrdersPage() {
       paymentMethod: order.payment?.method || 'cash',
       paymentStatus: order.payment?.status || 'pending',
       lines: order.lines?.length
-        ? order.lines.map((line) => ({ ...line }))
-        : [{ name: isArabic ? 'منتج' : 'Item', quantity: Math.max(1, Number(order.items || 1)), price: Number(order.total || 0), notes: order.notes }],
+        ? order.lines.map((line) => ({ ...line, name: getOrderLineName(line) }))
+        : [{ name: getOrderLineName({ name: '', quantity: 1, price: 0 }), quantity: Math.max(1, Number(order.items || 1)), price: Number(order.total || 0), notes: order.notes }],
     })
   }
 
@@ -157,6 +172,16 @@ export default function DashboardRestaurantOrdersPage() {
     setEditingOrder(null)
     setEditForm(null)
   }
+
+  useEffect(() => {
+    if (!editForm) return
+
+    const linesTotal = editForm.lines.reduce((sum, line) => sum + Number(line.price || 0) * Number(line.quantity || 0), 0)
+    const nextTotal = linesTotal.toFixed(2)
+    if (nextTotal !== editForm.total) {
+      setEditForm((current) => (current ? { ...current, total: nextTotal } : null))
+    }
+  }, [editForm?.lines, editForm])
 
   const saveEditedOrder = async () => {
     if (!editForm || savingEdit) return
@@ -340,10 +365,9 @@ export default function DashboardRestaurantOrdersPage() {
               <Input type="number" min="0" step="0.01" value={editForm.total} onChange={(event) => setEditForm({ ...editForm, total: event.target.value })} placeholder={isArabic ? 'الإجمالي' : 'Total'} />
               <Input value={editForm.estimatedDelivery} onChange={(event) => setEditForm({ ...editForm, estimatedDelivery: event.target.value })} placeholder={isArabic ? 'نوع/وقت الطلب' : 'Order type/time'} />
               <select value={editForm.paymentMethod} onChange={(event) => setEditForm({ ...editForm, paymentMethod: event.target.value })} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950">
-                <option value="cash">{isArabic ? 'نقدي' : 'Cash'}</option>
-                <option value="card">{isArabic ? 'بطاقة' : 'Card'}</option>
-                <option value="vodafone_cash">Vodafone Cash</option>
-                <option value="instapay">InstaPay</option>
+                {PAYMENT_METHOD_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value}>{isArabic ? option.ar : option.en}</option>
+                ))}
               </select>
               <select value={editForm.paymentStatus} onChange={(event) => setEditForm({ ...editForm, paymentStatus: event.target.value })} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950">
                 <option value="cash_on_delivery">{isArabic ? 'الدفع عند الاستلام' : 'Cash on delivery'}</option>
@@ -420,12 +444,17 @@ export default function DashboardRestaurantOrdersPage() {
             <p className="py-8 text-center text-slate-500">{isArabic ? 'لا توجد نتائج مطابقة للبحث.' : 'No matching orders found.'}</p>
           ) : (
             <div className="min-w-0 space-y-3">
-              {filteredOrders.map((order) => (
+              {filteredOrders.map((order) => {
+                const isOrderCompleted = ['delivered', 'received'].includes(order.status)
+                return (
                 <div key={order.id} className="min-w-0 max-w-full overflow-hidden rounded-md border p-4 dark:border-slate-800">
                   <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="break-all font-semibold">{order.id}</p>
-                      <p className="text-sm text-slate-500">{order.customer} - {order.phone || '-'}</p>
+                      <p className="text-sm text-slate-500">
+                        {order.customer} - {order.phone || '-'}
+                        {order.createdAt && <span className="block pt-1 text-xs">{new Date(order.createdAt).toLocaleString(isArabic ? 'ar-EG' : 'en-US')}</span>}
+                      </p>
                       <p className="text-sm text-slate-500">{order.address}</p>
                       {order.notes && (
                         <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">
@@ -452,15 +481,15 @@ export default function DashboardRestaurantOrdersPage() {
                       {isArabic ? 'فاتورة الصالة' : 'Hall'}
                     </Button>
                     {statuses.map((status) => (
-                      <Button key={status} size="sm" variant={order.status === status ? 'default' : 'outline'} onClick={() => updateStatus(order.id, status)}>
+                      <Button key={status} size="sm" variant={order.status === status ? 'default' : 'outline'} onClick={() => updateStatus(order.id, status)} disabled={isOrderCompleted && status !== order.status}>
                         {label(status)}
                       </Button>
                     ))}
-                    {canEditOrders && <Button size="sm" variant="outline" className="gap-2" onClick={() => openEditOrder(order)}>
+                    {canEditOrders && <Button size="sm" variant="outline" className="gap-2" onClick={() => openEditOrder(order)} disabled={isOrderCompleted}>
                       <Edit3 className="h-4 w-4" />
                       {isArabic ? 'تعديل' : 'Edit'}
                     </Button>}
-                    {canDeleteOrders && <Button size="sm" variant="destructive" onClick={() => deleteOrder(order.id)}>{isArabic ? 'حذف' : 'Delete'}</Button>}
+                    {canDeleteOrders && <Button size="sm" variant="destructive" onClick={() => deleteOrder(order.id)} disabled={isOrderCompleted}>{isArabic ? 'حذف' : 'Delete'}</Button>}
                   </div>
                   {isDeliveryOrder(order) && (
                     <div className="mt-4 grid min-w-0 gap-2 rounded-md border bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/40 md:grid-cols-[minmax(0,1fr)_auto]">
@@ -488,7 +517,8 @@ export default function DashboardRestaurantOrdersPage() {
                     </div>
                   )}
                 </div>
-              ))}
+              )
+            })}
             </div>
           )}
         </CardContent>

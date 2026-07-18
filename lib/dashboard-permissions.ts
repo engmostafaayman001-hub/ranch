@@ -4,7 +4,7 @@ export const DASHBOARD_ROLES = ['super_admin', 'admin', 'manager', 'supervisor',
 
 export const DASHBOARD_ROUTE_ROLES: Record<string, readonly string[]> = {
   [ROUTES.DASHBOARD]: ['super_admin', 'admin', 'manager', 'cashier', 'delivery', 'support'],
-  [ROUTES.DASHBOARD_ORDERS]: ['super_admin', 'admin', 'delivery'],
+  [ROUTES.DASHBOARD_ORDERS]: ['super_admin', 'admin', 'cashier', 'delivery'],
   [ROUTES.DASHBOARD_RESTAURANT_ORDERS]: ['super_admin', 'admin', 'cashier'],
   [ROUTES.DASHBOARD_CATEGORIES]: ['super_admin', 'admin', 'manager', 'supervisor'],
   [ROUTES.DASHBOARD_PRODUCTS]: ['super_admin', 'admin', 'manager', 'supervisor'],
@@ -17,6 +17,8 @@ export const DASHBOARD_ROUTE_ROLES: Record<string, readonly string[]> = {
   [ROUTES.DASHBOARD_EXPENSES]: ['super_admin', 'admin', 'cashier'],
   [ROUTES.DASHBOARD_REPORTS]: ['super_admin', 'admin'],
   [ROUTES.DASHBOARD_SETTINGS]: ['super_admin', 'admin'],
+  [ROUTES.DASHBOARD_DRIVER_CLOSING]: ['super_admin', 'admin', 'cashier'],
+  [ROUTES.DASHBOARD_DAILY_CLOSING]: ['super_admin', 'admin', 'cashier'],
 }
 
 export function getDefaultDashboardRouteForRole(role: string | null | undefined) {

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CheckCircle2, Clock3, CreditCard, Eye, ReceiptText, Search, Wallet, XCircle } from 'lucide-react'
+import { CheckCircle2, Clock3, CreditCard, Eye, ReceiptText, Search, Trash2, Wallet, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -10,6 +10,10 @@ import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN, PAYMENT_METHOD_LABELS, PAYMENT_METHOD_LABELS_EN } from '@/lib/constants'
 import { fetchDashboardOrderReceipt } from '@/lib/dashboard-order-fetch'
 import { PaymentStatus, TrackedOrder } from '@/lib/order-tracking'
+
+function canDeleteRole(role: string | null) {
+  return role === 'super_admin' || role === 'admin'
+}
 
 const statusStyles: Record<PaymentStatus, string> = {
   cash_on_delivery: 'bg-amber-600 text-white hover:bg-amber-600',
@@ -30,7 +34,21 @@ export default function DashboardPaymentsPage() {
   const [loadingReceiptId, setLoadingReceiptId] = useState<string | null>(null)
   const [message, setMessage] = useState('')
   const [search, setSearch] = useState('')
+  const [dashboardRole, setDashboardRole] = useState<string | null>(null)
   const loadingPayments = useRef(false)
+  const canDelete = canDeleteRole(dashboardRole)
+
+  useEffect(() => {
+    let active = true
+    fetch('/api/auth/dashboard-access', { cache: 'no-store' })
+      .then((response) => response.json())
+      .then((data) => {
+        if (active) setDashboardRole(typeof data.role === 'string' ? data.role : null)
+      })
+    return () => {
+      active = false
+    }
+  }, [])
 
   useEffect(() => {
     let mounted = true
@@ -61,7 +79,7 @@ export default function DashboardPaymentsPage() {
       mounted = false
       window.clearInterval(interval)
     }
-  }, [isArabic])
+  }, [isArabic, orders])
 
   const paymentOrders = useMemo(() => orders.filter((order) => order.payment), [orders])
   const filteredPaymentOrders = useMemo(() => {
@@ -117,6 +135,25 @@ export default function DashboardPaymentsPage() {
       setMessage(isArabic ? 'تعذر فتح الإيصال لهذا الطلب.' : 'Could not open the receipt for this order.')
     } finally {
       setLoadingReceiptId(null)
+    }
+  }
+
+  const deleteOrder = async (orderId: string) => {
+    const confirmed = window.confirm(isArabic ? 'هل أنت متأكد من رغبتك في حذف هذا الطلب نهائياً؟' : 'Are you sure you want to permanently delete this order?')
+    if (!confirmed) return
+
+    setMessage('')
+    const response = await fetch('/api/pos/orders', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderId }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      setMessage(data.message || data.error || (isArabic ? 'تعذر حذف الطلب.' : 'Could not delete order.'))
+    } else {
+      setMessage(isArabic ? 'تم حذف الطلب نهائياً.' : 'Order permanently deleted.')
+      setOrders(current => current.filter(o => o.id !== orderId))
     }
   }
 
@@ -200,6 +237,7 @@ export default function DashboardPaymentsPage() {
                     <th className="py-3 font-medium">{isArabic ? 'الحالة' : 'Status'}</th>
                     <th className="py-3 font-medium">{isArabic ? 'المبلغ' : 'Amount'}</th>
                     <th className="py-3 font-medium">{isArabic ? 'الإيصال' : 'Receipt'}</th>
+                    {canDelete && <th className="py-3 font-medium">{isArabic ? 'إجراء' : 'Action'}</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -241,6 +279,11 @@ export default function DashboardPaymentsPage() {
                           </span>
                         )}
                       </td>
+                      {canDelete && (
+                        <td className="py-3">
+                          <Button size="sm" variant="destructive" onClick={() => deleteOrder(order.id)}><Trash2 className="h-4 w-4" /></Button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
