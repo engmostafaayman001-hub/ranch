@@ -246,10 +246,56 @@ export async function updateSharedSettings(settings: Partial<AppSettings>) {
   })
 }
 
+function mergeDriverRecords(existingDrivers: DeliveryDriver[], incomingDrivers: Array<Partial<DeliveryDriver>> = []): DeliveryDriver[] {
+  const normalizedExisting = existingDrivers.map((driver) => ({
+    ...driver,
+    id: driver.id || `driver-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: typeof driver.name === 'string' ? driver.name.trim() : '',
+    email: typeof driver.email === 'string' ? driver.email.trim() : '',
+    phone: typeof driver.phone === 'string' ? driver.phone.trim() : '',
+    area: typeof driver.area === 'string' ? driver.area.trim() : '',
+    status: (driver.status === 'inactive' ? 'inactive' : 'active') as DeliveryDriver['status'],
+  }))
+
+  const map = new Map<string, DeliveryDriver>()
+
+  const addDriver = (driver: DeliveryDriver) => {
+    const key = driver.id || `${driver.email || ''}:${driver.phone || ''}:${driver.name || ''}`
+    const existing = map.get(key)
+    if (existing) {
+      map.set(key, {
+        ...existing,
+        ...driver,
+        name: (driver.name || existing.name || '').trim() || 'Driver',
+        email: (driver.email || existing.email || '').trim(),
+        phone: (driver.phone || existing.phone || '').trim(),
+        area: (driver.area || existing.area || '').trim(),
+        status: driver.status === 'inactive' ? 'inactive' : (existing.status === 'inactive' ? 'inactive' : 'active'),
+      })
+      return
+    }
+    map.set(key, driver)
+  }
+
+  normalizedExisting.forEach(addDriver)
+  incomingDrivers.forEach((driver) => {
+    addDriver({
+      id: driver.id || `driver-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      name: typeof driver.name === 'string' ? driver.name.trim() : '',
+      email: typeof driver.email === 'string' ? driver.email.trim() : '',
+      phone: typeof driver.phone === 'string' ? driver.phone.trim() : '',
+      area: typeof driver.area === 'string' ? driver.area.trim() : '',
+      status: (driver.status === 'inactive' ? 'inactive' : 'active') as DeliveryDriver['status'],
+    })
+  })
+
+  return Array.from(map.values()).map((driver, index) => ({ ...driver, id: driver.id || `driver-${index + 1}` }))
+}
+
 export async function updateSharedDrivers(drivers: DeliveryDriver[]) {
   const current = await readSharedAppData()
   return writeSharedAppData({
     ...current,
-    drivers,
+    drivers: mergeDriverRecords(current.drivers, drivers),
   })
 }

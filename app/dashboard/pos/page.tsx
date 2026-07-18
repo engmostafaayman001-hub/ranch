@@ -115,6 +115,27 @@ function isOrderWithinRange(orderDate: string | undefined, start: string, end: s
   return checkDate.getTime() >= startDate.getTime() && checkDate.getTime() <= endDate.getTime()
 }
 
+function getDateInputValue(date: string | undefined) {
+  const parsed = new Date(date || new Date().toISOString())
+  if (Number.isNaN(parsed.getTime())) {
+    return new Date().toISOString().slice(0, 10)
+  }
+  return parsed.toISOString().slice(0, 10)
+}
+
+function getDateRangeBounds(startValue: string, endValue: string) {
+  const startDate = new Date(`${startValue}T00:00:00`)
+  const endDate = new Date(`${endValue}T23:59:59.999`)
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    const fallback = new Date().toISOString()
+    return { start: fallback, end: fallback }
+  }
+  if (startDate.getTime() <= endDate.getTime()) {
+    return { start: startDate.toISOString(), end: endDate.toISOString() }
+  }
+  return { start: endDate.toISOString(), end: startDate.toISOString() }
+}
+
 export default function DashboardPosPage() {
   useSharedAppData()
   const { language } = useLanguage()
@@ -132,7 +153,8 @@ export default function DashboardPosPage() {
   const [dailyExpenses, setDailyExpenses] = useState<Expense[]>([])
   const [daySession, setDaySession] = useState<PosDaySession>(() => loadPosDaySession())
   const [inventoryOpen, setInventoryOpen] = useState(false)
-  const [inventoryAt, setInventoryAt] = useState<string | null>(null)
+  const [inventoryRangeStart, setInventoryRangeStart] = useState(() => getDateInputValue(daySession.openedAt))
+  const [inventoryRangeEnd, setInventoryRangeEnd] = useState(() => getDateInputValue(daySession.isOpen ? new Date().toISOString() : daySession.closedAt || daySession.openedAt))
   const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHODS.CASH)
   const [orderType, setOrderType] = useState<PosOrderType>('dine_in')
   const [deliveryFee, setDeliveryFee] = useState(0)
@@ -142,6 +164,9 @@ export default function DashboardPosPage() {
   const [customerSearch, setCustomerSearch] = useState('')
   const [showCustomerResults, setShowCustomerResults] = useState(false)
   const [driverClosingOpen, setDriverClosingOpen] = useState(false)
+  const [legacyAppCardOpen, setLegacyAppCardOpen] = useState(false)
+  const [driverClosingRangeStart, setDriverClosingRangeStart] = useState(() => getDateInputValue(daySession.openedAt))
+  const [driverClosingRangeEnd, setDriverClosingRangeEnd] = useState(() => getDateInputValue(daySession.isOpen ? new Date().toISOString() : daySession.closedAt || daySession.openedAt))
   const [dashboardRole, setDashboardRole] = useState<string | null>(null)
   const loadingDailyClosing = useRef(false)
   const [customer, setCustomer] = useState({
@@ -168,19 +193,22 @@ export default function DashboardPosPage() {
   const sessionRangeEnd = daySession.isOpen ? new Date().toISOString() : daySession.closedAt || daySession.openedAt
   const sessionOrders = useMemo(() => dailyOrders.filter((order) => order.status !== 'cancelled' && isOrderWithinRange(order.createdAt, daySession.openedAt, sessionRangeEnd)), [dailyOrders, daySession.openedAt, sessionRangeEnd])
   const sessionExpenses = useMemo(() => dailyExpenses.filter((expense) => isOrderWithinRange(expense.date, daySession.openedAt, sessionRangeEnd)), [dailyExpenses, daySession.openedAt, sessionRangeEnd])
-  const driverClosingGroups = useMemo(() => getDriverClosingGroups(sessionOrders), [sessionOrders])
-  const driverClosingTotal = useMemo(() => driverClosingGroups.reduce((sum, group) => sum + group.total, 0), [driverClosingGroups])
-  const driverClosingOrderCount = useMemo(() => driverClosingGroups.reduce((sum, group) => sum + group.orders.length, 0), [driverClosingGroups])
   const sessionRevenue = useMemo(() => sessionOrders.reduce((sum, order) => sum + Number(order.total || 0), 0), [sessionOrders])
   const sessionExpenseTotal = useMemo(() => sessionExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0), [sessionExpenses])
   const sessionDrawerNet = useMemo(() => sessionRevenue - sessionExpenseTotal, [sessionRevenue, sessionExpenseTotal])
-  const inventoryWindowEnd = inventoryAt || sessionRangeEnd
-  const inventoryOrders = useMemo(() => dailyOrders.filter((order) => order.status !== 'cancelled' && isOrderWithinRange(order.createdAt, daySession.openedAt, inventoryWindowEnd)), [dailyOrders, daySession.openedAt, inventoryWindowEnd])
-  const inventoryExpenses = useMemo(() => dailyExpenses.filter((expense) => isOrderWithinRange(expense.date, daySession.openedAt, inventoryWindowEnd)), [dailyExpenses, daySession.openedAt, inventoryWindowEnd])
+  const legacyAppOrders = useMemo(() => dailyOrders.filter((order) => order.status !== 'cancelled' && order.source === 'app'), [dailyOrders])
+  const inventoryRange = useMemo(() => getDateRangeBounds(inventoryRangeStart, inventoryRangeEnd), [inventoryRangeStart, inventoryRangeEnd])
+  const inventoryOrders = useMemo(() => dailyOrders.filter((order) => order.status !== 'cancelled' && isOrderWithinRange(order.createdAt, inventoryRange.start, inventoryRange.end)), [dailyOrders, inventoryRange.end, inventoryRange.start])
+  const inventoryExpenses = useMemo(() => dailyExpenses.filter((expense) => isOrderWithinRange(expense.date, inventoryRange.start, inventoryRange.end)), [dailyExpenses, inventoryRange.end, inventoryRange.start])
   const inventoryRevenue = useMemo(() => inventoryOrders.reduce((sum, order) => sum + Number(order.total || 0), 0), [inventoryOrders])
   const inventoryExpenseTotal = useMemo(() => inventoryExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0), [inventoryExpenses])
   const inventoryDrawerNet = useMemo(() => inventoryRevenue - inventoryExpenseTotal, [inventoryRevenue, inventoryExpenseTotal])
   const inventoryDriverTotal = useMemo(() => getDriverClosingGroups(inventoryOrders).reduce((sum, group) => sum + group.total, 0), [inventoryOrders])
+  const driverClosingRange = useMemo(() => getDateRangeBounds(driverClosingRangeStart, driverClosingRangeEnd), [driverClosingRangeEnd, driverClosingRangeStart])
+  const driverClosingOrders = useMemo(() => dailyOrders.filter((order) => order.status !== 'cancelled' && isOrderWithinRange(order.createdAt, driverClosingRange.start, driverClosingRange.end)), [dailyOrders, driverClosingRange.end, driverClosingRange.start])
+  const driverClosingGroups = useMemo(() => getDriverClosingGroups(driverClosingOrders), [driverClosingOrders])
+  const driverClosingTotal = useMemo(() => driverClosingGroups.reduce((sum, group) => sum + group.total, 0), [driverClosingGroups])
+  const driverClosingOrderCount = useMemo(() => driverClosingGroups.reduce((sum, group) => sum + group.orders.length, 0), [driverClosingGroups])
   const isCashier = dashboardRole === 'cashier'
   const showFinancialSummary = !isCashier
   const customerMatches = savedCustomers
@@ -314,7 +342,10 @@ export default function DashboardPosPage() {
     const nextSession: PosDaySession = { isOpen: true, openedAt: new Date().toISOString(), closedAt: null }
     savePosDaySession(nextSession)
     setDaySession(nextSession)
-    setInventoryAt(null)
+    setInventoryRangeStart(getDateInputValue(new Date().toISOString()))
+    setInventoryRangeEnd(getDateInputValue(new Date().toISOString()))
+    setDriverClosingRangeStart(getDateInputValue(new Date().toISOString()))
+    setDriverClosingRangeEnd(getDateInputValue(new Date().toISOString()))
     setMessage(isArabic ? 'تم فتح يوم جديد.' : 'A new day has been opened.')
   }
 
@@ -550,7 +581,15 @@ export default function DashboardPosPage() {
           <p className="text-sm text-slate-500">{isArabic ? 'إتمام البيع وطباعة التقفيل اليومي من نفس الشاشة.' : 'Complete sales and print the daily closing from the same screen.'}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" className="gap-2" onClick={() => setDriverClosingOpen(true)}>
+          <Button type="button" variant="outline" className="gap-2" onClick={() => setLegacyAppCardOpen(true)}>
+            <Truck className="h-4 w-4" />
+            {isArabic ? 'تيست' : 'Test'}
+          </Button>
+          <Button type="button" variant="outline" className="gap-2" onClick={() => {
+            setDriverClosingRangeStart(getDateInputValue(daySession.openedAt))
+            setDriverClosingRangeEnd(getDateInputValue(daySession.isOpen ? new Date().toISOString() : daySession.closedAt || daySession.openedAt))
+            setDriverClosingOpen(true)
+          }}>
             <Truck className="h-4 w-4" />
             {isArabic ? 'تقفيل السائقين' : 'Driver Closing'}
           </Button>
@@ -597,7 +636,11 @@ export default function DashboardPosPage() {
               <span className="text-slate-500">{isArabic ? 'المجموع' : 'Total'}</span>
               <span className="font-semibold text-red-600">{driverClosingTotal.toFixed(2)} {currency}</span>
             </div>
-            <Button type="button" variant="outline" className="w-full gap-2" onClick={() => setDriverClosingOpen(true)}>
+            <Button type="button" variant="outline" className="w-full gap-2" onClick={() => {
+              setDriverClosingRangeStart(getDateInputValue(daySession.openedAt))
+              setDriverClosingRangeEnd(getDateInputValue(daySession.isOpen ? new Date().toISOString() : daySession.closedAt || daySession.openedAt))
+              setDriverClosingOpen(true)
+            }}>
               <Truck className="h-4 w-4" />
               {isArabic ? 'عرض التقفيل' : 'View Closing'}
             </Button>
@@ -619,7 +662,11 @@ export default function DashboardPosPage() {
               <span className="text-slate-500">{isArabic ? 'صافي الدرج' : 'Drawer net'}</span>
               <span className="font-semibold">{sessionDrawerNet.toFixed(2)} {currency}</span>
             </div>
-            <Button type="button" variant="outline" className="w-full gap-2" onClick={() => { setInventoryAt(new Date().toISOString()); setInventoryOpen(true) }}>
+            <Button type="button" variant="outline" className="w-full gap-2" onClick={() => {
+              setInventoryRangeStart(getDateInputValue(daySession.openedAt))
+              setInventoryRangeEnd(getDateInputValue(daySession.isOpen ? new Date().toISOString() : daySession.closedAt || daySession.openedAt))
+              setInventoryOpen(true)
+            }}>
               <Banknote className="h-4 w-4" />
               {isArabic ? 'إجراء العداد' : 'Run Count'}
             </Button>
@@ -907,7 +954,7 @@ export default function DashboardPosPage() {
             <div className="sticky top-0 z-10 flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
               <div>
                 <h3 id="inventory-count-title" className="text-xl font-bold">{isArabic ? 'عداد المخزون' : 'Inventory Count'}</h3>
-                <p className="text-sm text-slate-500">{new Date(inventoryWindowEnd).toLocaleString(isArabic ? 'ar-EG' : 'en-US')}</p>
+                <p className="text-sm text-slate-500">{new Date(inventoryRange.end).toLocaleString(isArabic ? 'ar-EG' : 'en-US')}</p>
               </div>
               <Button type="button" variant="ghost" size="icon" onClick={() => setInventoryOpen(false)}>
                 <X className="h-5 w-5" />
@@ -929,8 +976,100 @@ export default function DashboardPosPage() {
                   <p className="text-xl font-bold">{inventoryExpenseTotal.toFixed(2)} {currency}</p>
                 </div>
               </div>
-              <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-900">
-                <p>{isArabic ? 'المدة' : 'Period'}: {new Date(daySession.openedAt).toLocaleString(isArabic ? 'ar-EG' : 'en-US')} → {new Date(inventoryWindowEnd).toLocaleString(isArabic ? 'ar-EG' : 'en-US')}</p>
+              <div className="space-y-3 rounded-md bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-900">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="space-y-1">
+                    <span className="text-xs font-semibold uppercase tracking-wide">{isArabic ? 'من' : 'From'}</span>
+                    <Input type="date" value={inventoryRangeStart} onChange={(event) => setInventoryRangeStart(event.target.value)} />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-xs font-semibold uppercase tracking-wide">{isArabic ? 'إلى' : 'To'}</span>
+                    <Input type="date" value={inventoryRangeEnd} onChange={(event) => setInventoryRangeEnd(event.target.value)} />
+                  </label>
+                </div>
+                <p>{isArabic ? 'المدة' : 'Period'}: {new Date(inventoryRange.start).toLocaleString(isArabic ? 'ar-EG' : 'en-US')} → {new Date(inventoryRange.end).toLocaleString(isArabic ? 'ar-EG' : 'en-US')}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {legacyAppCardOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="legacy-app-card-title"
+          onMouseDown={() => setLegacyAppCardOpen(false)}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-md bg-white shadow-xl dark:bg-slate-950"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="sticky top-0 z-10 flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+              <div>
+                <h3 id="legacy-app-card-title" className="text-xl font-bold">{isArabic ? 'بطاقة السائقين والطلبات القديمة' : 'Drivers and legacy app orders card'}</h3>
+                <p className="text-sm text-slate-500">{isArabic ? 'عرض سريع للسائقين وجميع الطلبات القديمة على التطبيق' : 'Quick view of drivers and all legacy app orders'}</p>
+              </div>
+              <Button type="button" variant="ghost" size="icon" onClick={() => setLegacyAppCardOpen(false)}>
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+
+            <div className="space-y-4 p-4">
+              <div className="grid gap-4 xl:grid-cols-2">
+                <div className="rounded-md border border-slate-200 p-4 dark:border-slate-800">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h4 className="text-lg font-bold">{isArabic ? 'السائقين' : 'Drivers'}</h4>
+                    <span className="text-sm text-slate-500">{drivers.length}</span>
+                  </div>
+                  {drivers.length === 0 ? (
+                    <p className="text-sm text-slate-500">{isArabic ? 'لا يوجد سائقون مسجلون.' : 'No drivers are registered.'}</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {drivers.map((driver) => (
+                        <div key={driver.id} className="rounded-md bg-slate-50 p-3 text-sm dark:bg-slate-900">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-semibold">{driver.name || '-'}</span>
+                            <span className={`rounded-full px-2 py-1 text-xs ${driver.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'}`}>
+                              {driver.status === 'active' ? (isArabic ? 'نشط' : 'Active') : (isArabic ? 'غير نشط' : 'Inactive')}
+                            </span>
+                          </div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            {driver.phone || '-'} {driver.email ? `• ${driver.email}` : ''}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-md border border-slate-200 p-4 dark:border-slate-800">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h4 className="text-lg font-bold">{isArabic ? 'الطلبات القديمة على التطبيق' : 'Legacy app orders'}</h4>
+                    <span className="text-sm text-slate-500">{legacyAppOrders.length}</span>
+                  </div>
+                  {legacyAppOrders.length === 0 ? (
+                    <p className="text-sm text-slate-500">{isArabic ? 'لا توجد طلبات قديمة على التطبيق.' : 'No legacy app orders found.'}</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {legacyAppOrders.map((order) => (
+                        <div key={order.id} className="rounded-md bg-slate-50 p-3 text-sm dark:bg-slate-900">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-semibold">{order.id}</span>
+                            <span className="font-bold text-red-600">{Number(order.total || 0).toFixed(2)} {currency}</span>
+                          </div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            {order.customer || '-'} • {order.phone || '-'}
+                          </div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            {order.driver?.name ? `${isArabic ? 'السائق' : 'Driver'}: ${order.driver.name}` : (isArabic ? 'بدون سائق' : 'No driver')}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -952,13 +1091,13 @@ export default function DashboardPosPage() {
             <div className="sticky top-0 z-10 flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
               <div>
                 <h3 id="driver-closing-title" className="text-xl font-bold">{isArabic ? 'تقفيل السائقين' : 'Driver Closing'}</h3>
-                <p className="text-sm text-slate-500">{new Date().toLocaleDateString(isArabic ? 'ar-EG' : 'en-US')}</p>
+                <p className="text-sm text-slate-500">{new Date(driverClosingRange.end).toLocaleDateString(isArabic ? 'ar-EG' : 'en-US')}</p>
               </div>
               <div className="flex gap-2">
                 <Button
                   type="button"
                   className="gap-2 bg-red-600 hover:bg-red-700"
-                  onClick={() => printPosDriverClosing({ orders: dailyOrders, isArabic, currency, settings, setMessage, rangeStart: daySession.openedAt, rangeEnd: daySession.isOpen ? new Date().toISOString() : daySession.closedAt || daySession.openedAt })}
+                  onClick={() => printPosDriverClosing({ orders: dailyOrders, isArabic, currency, settings, setMessage, rangeStart: driverClosingRange.start, rangeEnd: driverClosingRange.end })}
                 >
                   <Printer className="h-4 w-4" />
                   {isArabic ? 'طباعة' : 'Print'}

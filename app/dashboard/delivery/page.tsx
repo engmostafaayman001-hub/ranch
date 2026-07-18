@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useLanguage } from '@/components/language-provider'
 import { DeliveryDriver, useAppStore } from '@/lib/app-store'
-import { fetchSharedDrivers, saveSharedDrivers } from '@/lib/use-shared-app-data'
+import { fetchSharedDrivers, mergeDrivers, saveSharedDrivers } from '@/lib/use-shared-app-data'
 
 const createId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
@@ -28,7 +28,8 @@ export default function DashboardDeliveryPage() {
     if (loadingDrivers.current) return
     loadingDrivers.current = true
     try {
-      setDrivers(await fetchSharedDrivers())
+      const serverDrivers = await fetchSharedDrivers()
+      setDrivers(mergeDrivers(drivers, serverDrivers))
       setSaveStatus('')
     } catch (error) {
       setSaveStatus(error instanceof Error ? error.message : (isArabic ? 'تعذر تحميل السائقين.' : 'Could not load drivers.'))
@@ -82,10 +83,27 @@ export default function DashboardDeliveryPage() {
     event.preventDefault()
     if (!form.name.trim() || !form.phone.trim()) return
 
+    const nextDriverData = {
+      name: form.name.trim(),
+      email: form.email.trim(),
+      phone: form.phone.trim(),
+      area: form.area.trim(),
+      status: form.status,
+    }
+
     if (editingId) {
-      publishDrivers(drivers.map((driver) => (driver.id === editingId ? { ...driver, ...form } : driver)))
+      publishDrivers(mergeDrivers(drivers, drivers.map((driver) => (driver.id === editingId ? { ...driver, ...nextDriverData } : driver))))
     } else {
-      publishDrivers([...drivers, { ...form, id: createId('driver') }])
+      const existingDriver = drivers.find((driver) => {
+        const matchesName = driver.name && nextDriverData.name && driver.name.toLowerCase() === nextDriverData.name.toLowerCase()
+        const matchesPhone = driver.phone && nextDriverData.phone && driver.phone === nextDriverData.phone
+        const matchesEmail = driver.email && nextDriverData.email && driver.email.toLowerCase() === nextDriverData.email.toLowerCase()
+        return matchesName || matchesPhone || matchesEmail
+      })
+
+      publishDrivers(mergeDrivers(drivers, existingDriver
+        ? [{ ...existingDriver, ...nextDriverData }]
+        : [{ ...nextDriverData, id: createId('driver') }]))
     }
     closeForm()
   }

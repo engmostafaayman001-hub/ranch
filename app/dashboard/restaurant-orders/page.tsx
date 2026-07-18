@@ -13,6 +13,7 @@ import { MenuProduct, PrinterRole, useAppStore } from '@/lib/app-store'
 import { fetchDashboardOrderDetails, fetchDashboardOrdersBySource } from '@/lib/dashboard-order-fetch'
 import { OrderLine, TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
 import { printerManager, syncPrinterManagerSettings, trackedOrderToReceiptPayload } from '@/lib/printer'
+import { mergeDrivers } from '@/lib/use-shared-app-data'
 
 const statuses: TrackingStatus[] = ['placed', 'confirmed', 'preparing', 'ready_for_delivery', 'out_for_delivery', 'delivered', 'cancelled']
 
@@ -40,6 +41,7 @@ export default function DashboardRestaurantOrdersPage() {
   const currency = isArabic ? CURRENCY : CURRENCY_EN
   const settings = useAppStore((state) => state.settings)
   const drivers = useAppStore((state) => state.drivers)
+  const setDrivers = useAppStore((state) => state.setDrivers)
   const products = useAppStore((state) => state.products)
   const categories = useAppStore((state) => state.categories)
   const [orders, setOrders] = useState<TrackedOrder[]>([])
@@ -61,7 +63,15 @@ export default function DashboardRestaurantOrdersPage() {
     if (loadingOrders.current) return
     loadingOrders.current = true
     try {
-      setOrders(await fetchDashboardOrdersBySource('restaurant_pos', 120))
+      const nextOrders = await fetchDashboardOrdersBySource('restaurant_pos', 120)
+      setOrders(nextOrders)
+      const inferredDrivers = nextOrders.flatMap((order) => {
+        if (!order.driver?.name || order.driver.name === 'Pending assignment') return []
+        return [{ id: order.driver.email || order.driver.phone || order.driver.name, name: order.driver.name, email: order.driver.email || '', phone: order.driver.phone || '', area: '', status: 'active' as const }]
+      })
+      if (inferredDrivers.length > 0) {
+        setDrivers(mergeDrivers(drivers, inferredDrivers))
+      }
       setMessage('')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not refresh orders. Showing the last loaded list.')
