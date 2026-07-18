@@ -197,6 +197,29 @@ export default function DashboardPosPage() {
   const sessionExpenseTotal = useMemo(() => sessionExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0), [sessionExpenses])
   const sessionDrawerNet = useMemo(() => sessionRevenue - sessionExpenseTotal, [sessionRevenue, sessionExpenseTotal])
   const legacyAppOrders = useMemo(() => dailyOrders.filter((order) => order.status !== 'cancelled' && order.source === 'app'), [dailyOrders])
+  const restaurantDriverSummaries = useMemo(() => {
+    const groups = new Map<string, { key: string; name: string; phone: string; count: number; total: number; orders: TrackedOrder[] }>()
+
+    for (const order of dailyOrders) {
+      if (order.status === 'cancelled' || order.source !== 'restaurant_pos') continue
+      const driverName = (order.driver?.name || '').trim()
+      const driverPhone = (order.driver?.phone || '').trim()
+      if (!driverName || driverName === 'Pending assignment' || driverName === '-') continue
+
+      const key = (order.driver?.email || driverPhone || driverName || 'driver').trim().toLowerCase()
+      const current = groups.get(key) || { key, name: driverName, phone: driverPhone || '-', count: 0, total: 0, orders: [] }
+      const amount = typeof order.subtotal === 'number' && Number.isFinite(order.subtotal)
+        ? Number(order.subtotal || 0)
+        : Math.max(0, Number(order.total || 0) - Number(order.deliveryFee || 0))
+
+      current.count += 1
+      current.total += amount
+      current.orders.push(order)
+      groups.set(key, current)
+    }
+
+    return Array.from(groups.values()).sort((first, second) => second.total - first.total)
+  }, [dailyOrders])
   const inventoryRange = useMemo(() => getDateRangeBounds(inventoryRangeStart, inventoryRangeEnd), [inventoryRangeStart, inventoryRangeEnd])
   const inventoryOrders = useMemo(() => dailyOrders.filter((order) => order.status !== 'cancelled' && isOrderWithinRange(order.createdAt, inventoryRange.start, inventoryRange.end)), [dailyOrders, inventoryRange.end, inventoryRange.start])
   const inventoryExpenses = useMemo(() => dailyExpenses.filter((expense) => isOrderWithinRange(expense.date, inventoryRange.start, inventoryRange.end)), [dailyExpenses, inventoryRange.end, inventoryRange.start])
@@ -1044,31 +1067,58 @@ export default function DashboardPosPage() {
                   )}
                 </div>
 
-                <div className="rounded-md border border-slate-200 p-4 dark:border-slate-800">
-                  <div className="mb-3 flex items-center justify-between">
-                    <h4 className="text-lg font-bold">{isArabic ? 'الطلبات القديمة على التطبيق' : 'Legacy app orders'}</h4>
-                    <span className="text-sm text-slate-500">{legacyAppOrders.length}</span>
-                  </div>
-                  {legacyAppOrders.length === 0 ? (
-                    <p className="text-sm text-slate-500">{isArabic ? 'لا توجد طلبات قديمة على التطبيق.' : 'No legacy app orders found.'}</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {legacyAppOrders.map((order) => (
-                        <div key={order.id} className="rounded-md bg-slate-50 p-3 text-sm dark:bg-slate-900">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="font-semibold">{order.id}</span>
-                            <span className="font-bold text-red-600">{Number(order.total || 0).toFixed(2)} {currency}</span>
-                          </div>
-                          <div className="mt-1 text-xs text-slate-500">
-                            {order.customer || '-'} • {order.phone || '-'}
-                          </div>
-                          <div className="mt-1 text-xs text-slate-500">
-                            {order.driver?.name ? `${isArabic ? 'السائق' : 'Driver'}: ${order.driver.name}` : (isArabic ? 'بدون سائق' : 'No driver')}
-                          </div>
-                        </div>
-                      ))}
+                <div className="space-y-4 rounded-md border border-slate-200 p-4 dark:border-slate-800">
+                  <div>
+                    <div className="mb-3 flex items-center justify-between">
+                      <h4 className="text-lg font-bold">{isArabic ? 'طلبات المطعم على السائقين' : 'Restaurant orders on drivers'}</h4>
+                      <span className="text-sm text-slate-500">{restaurantDriverSummaries.length}</span>
                     </div>
-                  )}
+                    {restaurantDriverSummaries.length === 0 ? (
+                      <p className="text-sm text-slate-500">{isArabic ? 'لا توجد طلبات مطعم مع سائق معين.' : 'No restaurant orders are assigned to drivers.'}</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {restaurantDriverSummaries.map((driverSummary) => (
+                          <div key={driverSummary.key} className="rounded-md bg-slate-50 p-3 text-sm dark:bg-slate-900">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-semibold">{driverSummary.name}</span>
+                              <span className="font-bold text-red-600">{driverSummary.count} {isArabic ? 'طلب' : 'orders'}</span>
+                            </div>
+                            <div className="mt-1 text-xs text-slate-500">{driverSummary.phone}</div>
+                            <div className="mt-1 text-xs text-slate-500">
+                              {isArabic ? 'الإجمالي بدون خدمة التوصيل' : 'Total without delivery fee'}: {driverSummary.total.toFixed(2)} {currency}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <div className="mb-3 flex items-center justify-between">
+                      <h4 className="text-lg font-bold">{isArabic ? 'الطلبات القديمة على التطبيق' : 'Legacy app orders'}</h4>
+                      <span className="text-sm text-slate-500">{legacyAppOrders.length}</span>
+                    </div>
+                    {legacyAppOrders.length === 0 ? (
+                      <p className="text-sm text-slate-500">{isArabic ? 'لا توجد طلبات قديمة على التطبيق.' : 'No legacy app orders found.'}</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {legacyAppOrders.map((order) => (
+                          <div key={order.id} className="rounded-md bg-slate-50 p-3 text-sm dark:bg-slate-900">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-semibold">{order.id}</span>
+                              <span className="font-bold text-red-600">{Number(order.total || 0).toFixed(2)} {currency}</span>
+                            </div>
+                            <div className="mt-1 text-xs text-slate-500">
+                              {order.customer || '-'} • {order.phone || '-'}
+                            </div>
+                            <div className="mt-1 text-xs text-slate-500">
+                              {order.driver?.name ? `${isArabic ? 'السائق' : 'Driver'}: ${order.driver.name}` : (isArabic ? 'بدون سائق' : 'No driver')}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
