@@ -876,7 +876,7 @@ export default function DashboardPosPage() {
 
             {orderType === 'delivery' && (
               <div className="grid gap-3 sm:grid-cols-2">
-                <Field id="delivery-address" label={isArabic ? 'عنوان الدليفيري' : 'Delivery address'} value={customer.deliveryAddress} onChange={(value) => setCustomer({ ...customer, deliveryAddress: value })} />
+                <Field id="delivery-address" label={isArabic ? 'عنوان العميل' : 'Delivery address'} value={customer.deliveryAddress} onChange={(value) => setCustomer({ ...customer, deliveryAddress: value })} />
                 <Field id="delivery-fee" label={isArabic ? 'قيمة التوصيل' : 'Delivery fee'} value={String(deliveryFee)} onChange={(value) => setDeliveryFee(Number(value || 0))} type="number" />
               </div>
             )}
