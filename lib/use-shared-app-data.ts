@@ -95,7 +95,7 @@ export function useSharedAppData(options: { poll?: boolean } = {}) {
     }
 
     const timer = window.setTimeout(load, 0)
-    const interval = poll ? window.setInterval(load, 10000) : undefined
+    const interval = poll ? window.setInterval(load, 60000) : undefined
     return () => {
       active = false
       window.clearTimeout(timer)

@@ -63,7 +63,7 @@ export default function DashboardTeamPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(loadTeam, 0)
-    const interval = window.setInterval(loadTeam, 15000)
+    const interval = window.setInterval(loadTeam, 120000)
     return () => {
       window.clearTimeout(timer)
       window.clearInterval(interval)

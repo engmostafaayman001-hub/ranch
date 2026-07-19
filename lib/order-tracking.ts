@@ -51,6 +51,8 @@ export interface OrderLine {
 
 export interface TrackedOrder {
   id: string
+  // Shift association (optional for existing historic orders)
+  shiftId?: string
   source?: string
   externalReference?: string
   customer: string

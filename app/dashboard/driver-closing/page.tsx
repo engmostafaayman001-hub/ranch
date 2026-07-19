@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, useRef } from 'react'
-import { Search, Printer, CheckCircle2, X, Wallet, User, ChevronDown, ChevronUp, ShoppingBag } from 'lucide-react'
+import { Search, Printer, X, Wallet, User, ShoppingBag } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -11,8 +11,9 @@ import { TrackedOrder, PaymentStatus } from '@/lib/order-tracking'
 import { useAppStore } from '@/lib/app-store'
 import { printerManager, syncPrinterManagerSettings } from '@/lib/printer'
 import { createDriverClosingReceiptPayload, getDriverClosingAmount, getDriverClosingGroups, DriverClosingGroup, isDriverSettlementEligible } from '@/lib/driver-closing-print'
-import { getSessionDateRange, loadPosDaySession, savePosDaySession, type PosDaySession } from '@/lib/pos-day-session'
-import { saveClosing } from '@/lib/closings'
+import { getShiftSessionDateRange, type ShiftSession } from '@/lib/pos-day-session'
+import useShiftSession from '@/lib/use-shift-session'
+import { readClosings } from '@/lib/closings'
 
 function getDateInputValue(date: Date) {
   return date.toISOString().slice(0, 10)
@@ -27,6 +28,19 @@ function isOrderWithinRange(orderDate: string | undefined, start: string, end: s
   }
   return checkDate.getTime() >= startDate.getTime() && checkDate.getTime() <= endDate.getTime()
 }
+
+function getDateRangeFromInputs(startValue: string, endValue: string, fallbackStart: string, fallbackEnd: string) {
+  const startDate = new Date(`${startValue}T00:00:00`)
+  const endDate = new Date(`${endValue}T23:59:59.999`)
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    return { start: fallbackStart, end: fallbackEnd }
+  }
+  if (startDate.getTime() <= endDate.getTime()) {
+    return { start: startDate.toISOString(), end: endDate.toISOString() }
+  }
+  return { start: endDate.toISOString(), end: startDate.toISOString() }
+}
+
 export default function DriverClosingPage() {
   const { language } = useLanguage()
   const isArabic = language === 'ar'
@@ -44,15 +58,16 @@ export default function DriverClosingPage() {
   const [rangeEnd, setRangeEnd] = useState(() => getDateInputValue(new Date()))
   const [modalRangeStart, setModalRangeStart] = useState(() => getDateInputValue(new Date()))
   const [modalRangeEnd, setModalRangeEnd] = useState(() => getDateInputValue(new Date()))
-  const [daySession, setDaySession] = useState<PosDaySession>(() => loadPosDaySession())
+  const [daySession, setDaySession] = useShiftSession()
   const loadingRef = useRef(false)
   const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set())
 
-  const loadOrders = useCallback(async (active: boolean) => {
+  const loadOrders = useCallback(async (active: boolean, shiftId?: string) => {
     try {
       if (loadingRef.current) return
       loadingRef.current = true
-      const response = await fetch('/api/pos/orders?limit=500', { cache: 'no-store' })
+      const url = `/api/pos/orders?limit=200${shiftId ? `&shiftId=${encodeURIComponent(shiftId)}` : ''}`
+      const response = await fetch(url, { cache: 'no-store' })
       const data = await response.json()
       if (active && Array.isArray(data.orders)) {
         setOrders(data.orders)
@@ -65,59 +80,46 @@ export default function DriverClosingPage() {
 
   useEffect(() => {
     let active = true
-    loadOrders(active)
-    const interval = setInterval(() => loadOrders(active), 15000)
+    const timer = window.setTimeout(() => {
+      void loadOrders(active, daySession.shiftId)
+    }, 0)
+    const interval = window.setInterval(() => {
+      void loadOrders(active, daySession.shiftId)
+    }, 60000)
     return () => {
       active = false
-      clearInterval(interval)
+      window.clearTimeout(timer)
+      window.clearInterval(interval)
     }
-  }, [loadOrders])
+  }, [loadOrders, daySession.shiftId])
 
-  const sessionRange = useMemo(() => getSessionDateRange(daySession), [daySession])
+  // daySession is kept in sync via `useShiftSession` hook
+
+  const sessionRange = useMemo(() => getShiftSessionDateRange(daySession), [daySession])
+  const selectedRange = useMemo(() => getDateRangeFromInputs(rangeStart, rangeEnd, sessionRange.start, sessionRange.end), [rangeEnd, rangeStart, sessionRange.end, sessionRange.start])
+  const previousClosings = useMemo(() => readClosings(), [daySession])
+  const settledOrderIds = useMemo(() => new Set(previousClosings.flatMap((closing) => closing.orders?.map((order) => order.id) || [])), [previousClosings])
+
+  const visibleOrders = useMemo(() => {
+    return orders.filter((order) => {
+      if (settledOrderIds.has(order.id) || order.status === 'cancelled') return false
+      return isOrderWithinRange(order.createdAt, selectedRange.start, selectedRange.end)
+    })
+  }, [orders, selectedRange.end, selectedRange.start, settledOrderIds])
 
   const driverGroups = useMemo(() => {
-    const groups = getDriverClosingGroups(orders.filter(o => isOrderWithinRange(o.createdAt, sessionRange.start, sessionRange.end)))
+    const groups = getDriverClosingGroups(visibleOrders)
     const term = search.trim().toLowerCase()
     if (!term) return groups
     return groups.filter((group) => group.name.toLowerCase().includes(term) || group.phone.toLowerCase().includes(term))
-  }, [orders, search, sessionRange]);
+  }, [search, visibleOrders]);
 
   const openDriverModal = (group: DriverClosingGroup) => {
     setSelectedGroup(group)
     setModalSearch('')
-    setModalRangeStart(getDateInputValue(new Date(sessionRange.start)))
-    setModalRangeEnd(getDateInputValue(new Date(sessionRange.end)))
+    setModalRangeStart(rangeStart)
+    setModalRangeEnd(rangeEnd)
     setExpandedOrders(new Set())
-  }
-
-  const persistDriverClosing = async (session: PosDaySession, closedAt: string) => {
-    try {
-      const sessionOrders = orders.filter((order) => isOrderWithinRange(order.createdAt, session.openedAt, closedAt))
-      const groups = getDriverClosingGroups(sessionOrders)
-      const total = groups.reduce((sum, group) => sum + group.total, 0)
-      const uncollectedTotal = sessionOrders
-        .filter((order) => String(order.payment?.status || '').toLowerCase() === 'cash_on_delivery')
-        .reduce((sum, order) => sum + getDriverClosingAmount(order), 0)
-      const otherPaymentsTotal = sessionOrders
-        .filter((order) => ['vodafone_cash', 'instapay'].includes(String(order.payment?.method || '').toLowerCase()))
-        .reduce((sum, order) => sum + Number(order.total || 0), 0)
-
-      saveClosing({
-        id: `DRIVER_CLOSE-${Date.now()}`,
-        type: 'driver',
-        openedAt: session.openedAt,
-        closedAt,
-        ordersCount: sessionOrders.length,
-        salesWithoutDelivery: total,
-        expensesTotal: 0,
-        uncollectedTotal,
-        otherPaymentsTotal,
-        drawerNet: total,
-        currency,
-      })
-    } catch (error) {
-      console.warn('Could not persist driver closing', error)
-    }
   }
 
   function orderDriverKey(order: TrackedOrder) {
@@ -167,18 +169,6 @@ export default function DriverClosingPage() {
     }
   }
   
-  const toggleOrderExpansion = (orderId: string) => {
-    setExpandedOrders(prev => {
-        const newSet = new Set(prev);
-        if (newSet.has(orderId)) {
-            newSet.delete(orderId);
-        } else {
-            newSet.add(orderId);
-        }
-        return newSet;
-    });
-  };
-
   const modalDateRange = useMemo(() => {
     const start = new Date(`${modalRangeStart}T00:00:00`)
     const end = new Date(`${modalRangeEnd}T23:59:59.999`)
@@ -189,11 +179,10 @@ export default function DriverClosingPage() {
   const filteredModalOrders = useMemo(() => {
     if (!selectedGroup) return []
     const term = modalSearch.trim().toLowerCase()
-    // derive orders from the global orders list so modal can show all orders for the driver (not only those from the precomputed group)
-    const dateFiltered = orders.filter(o => orderDriverKey(o) === selectedGroup.key && isOrderWithinRange(o.createdAt, modalDateRange.start, modalDateRange.end) && o.status !== 'cancelled')
+    const dateFiltered = visibleOrders.filter((order) => orderDriverKey(order) === selectedGroup.key && isOrderWithinRange(order.createdAt, modalDateRange.start, modalDateRange.end) && order.status !== 'cancelled')
     if (!term) return dateFiltered
-    return dateFiltered.filter(o => `${o.customer} ${o.phone} ${o.externalReference} ${o.id}`.toLowerCase().includes(term))
-  }, [selectedGroup, modalSearch, modalDateRange, orders])
+    return dateFiltered.filter((order) => `${order.customer} ${order.phone} ${order.externalReference} ${order.id}`.toLowerCase().includes(term))
+  }, [modalDateRange.end, modalDateRange.start, modalSearch, selectedGroup, visibleOrders])
 
   const paymentStatusLabel = (status?: string) => {
     const labels: Record<string, string> = isArabic
@@ -233,24 +222,6 @@ export default function DriverClosingPage() {
     }
   }
 
-  const openShift = () => {
-    const next: PosDaySession = { isOpen: true, openedAt: new Date().toISOString(), closedAt: null }
-    savePosDaySession(next)
-    setDaySession(next)
-    setMessage(isArabic ? 'تم فتح وردية جديدة للسائقين.' : 'New shift opened for driver settlements.')
-  }
-
-  const endShift = () => {
-    const confirmMsg = isArabic ? 'هل أنت متأكد من إغلاق وردية السائقين؟ ستتوقف الحسابات عن جمع الطلبات الجديدة في هذه الورديه.' : 'Are you sure you want to close the driver shift? New orders will stop being counted in this shift.'
-    if (typeof window !== 'undefined' && !window.confirm(confirmMsg)) return
-    const closedAt = new Date().toISOString()
-    const next: PosDaySession = { ...daySession, isOpen: false, closedAt }
-    savePosDaySession(next)
-    setDaySession(next)
-    persistDriverClosing(daySession, closedAt)
-    setMessage(isArabic ? 'تم إغلاق وردية السائقين.' : 'Driver shift closed.')
-  }
-
   const paymentStatuses: PaymentStatus[] = ['cash_on_delivery', 'paid', 'receipt_uploaded', 'pending', 'rejected'];
 
   return (
@@ -266,15 +237,9 @@ export default function DriverClosingPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          {daySession.isOpen ? (
-            <Button className="gap-2 bg-red-600 hover:bg-red-700" onClick={endShift}>
-              {isArabic ? 'إغلاق الورديه' : 'Close Shift'}
-            </Button>
-          ) : (
-            <Button className="gap-2 bg-green-600 hover:bg-green-700" onClick={openShift}>
-              {isArabic ? 'فتح وردية جديدة' : 'Open Shift'}
-            </Button>
-          )}
+          <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+            {daySession.isOpen ? (isArabic ? 'الوردية مفتوحة حاليًا' : 'Shift currently open') : (isArabic ? 'الوردية مغلقة حاليًا' : 'Shift currently closed')}
+          </div>
         </div>
       </div>
 

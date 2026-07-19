@@ -56,7 +56,7 @@ export default function OrdersPage() {
     }
 
     const timer = window.setTimeout(loadOrders, 0)
-    const interval = window.setInterval(loadOrders, 10000)
+    const interval = window.setInterval(loadOrders, 30000)
     return () => {
       active = false
       window.clearTimeout(timer)

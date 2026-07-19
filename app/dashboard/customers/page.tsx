@@ -119,7 +119,7 @@ export default function DashboardCustomersPage() {
     }
 
     const timer = window.setTimeout(loadCustomers, 0)
-    const interval = window.setInterval(loadCustomers, 15000)
+    const interval = window.setInterval(loadCustomers, 120000)
     return () => {
       active = false
       window.clearTimeout(timer)

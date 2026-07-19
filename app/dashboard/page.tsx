@@ -7,6 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN } from '@/lib/constants'
 import { TrackedOrder } from '@/lib/order-tracking'
+import { type ShiftSession } from '@/lib/pos-day-session'
+import useShiftSession from '@/lib/use-shift-session'
 
 type DashboardCustomer = {
   id: string
@@ -20,6 +22,7 @@ export default function DashboardPage() {
   const [orders, setOrders] = useState<TrackedOrder[]>([])
   const [customers, setCustomers] = useState<DashboardCustomer[]>([])
   const [loading, setLoading] = useState(true)
+  const [shiftSession] = useShiftSession()
   const loadingDashboard = useRef(false)
 
   useEffect(() => {
@@ -46,7 +49,7 @@ export default function DashboardPage() {
     }
 
     const timer = window.setTimeout(loadDashboardData, 0)
-    const interval = window.setInterval(loadDashboardData, 15000)
+    const interval = window.setInterval(loadDashboardData, 120000)
     return () => {
       active = false
       window.clearTimeout(timer)
@@ -58,14 +61,14 @@ export default function DashboardPage() {
     const activeStatuses = new Set(['placed', 'confirmed', 'preparing', 'ready_for_delivery', 'out_for_delivery'])
     const revenue = orders.reduce((sum, order) => sum + Number(order.total || 0), 0)
     const activeOrders = orders.filter((order) => activeStatuses.has(order.status)).length
-    const today = new Date().toDateString()
-    const todayOrders = orders.filter((order) => new Date(order.createdAt).toDateString() === today).length
+    const shiftOrders = orders.filter((order) => shiftSession.shiftId && order.shiftId === shiftSession.shiftId)
+    const shiftRevenue = shiftOrders.reduce((sum, order) => sum + Number(order.total || 0), 0)
 
     return [
       [isArabic ? 'إجمالي الطلبات' : 'Total Orders', String(orders.length)],
-      [isArabic ? 'إيرادات الطلبات' : 'Order Revenue', `${revenue.toFixed(2)} ${currency}`],
+      [isArabic ? 'طلبات الوردية' : 'Shift Orders', String(shiftOrders.length)],
+      [isArabic ? 'إيرادات الوردية' : 'Shift Revenue', `${shiftRevenue.toFixed(2)} ${currency}`],
       [isArabic ? 'طلبات نشطة' : 'Active Orders', String(activeOrders)],
-      [isArabic ? 'طلبات اليوم' : 'Today Orders', String(todayOrders)],
       [isArabic ? 'العملاء' : 'Customers', String(customers.length)],
     ]
   }, [orders, customers, isArabic, currency])

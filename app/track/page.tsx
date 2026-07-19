@@ -42,7 +42,7 @@ export default function TrackPage() {
     }
 
     const timer = window.setTimeout(loadRecentOrders, 0)
-    const interval = window.setInterval(loadRecentOrders, 10000)
+    const interval = window.setInterval(loadRecentOrders, 30000)
     return () => {
       active = false
       window.clearTimeout(timer)

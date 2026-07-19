@@ -25,7 +25,7 @@ export function NotificationBell() {
     }
 
     loadNotifications().catch(() => {})
-    const interval = window.setInterval(() => loadNotifications().catch(() => {}), 10000)
+    const interval = window.setInterval(() => loadNotifications().catch(() => {}), 60000)
     window.addEventListener('focus', loadNotifications)
 
     return () => {

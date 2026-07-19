@@ -277,7 +277,7 @@ export function DashboardPrintWatcher() {
     }
 
     checkOrders()
-    const interval = window.setInterval(checkOrders, 3000)
+    const interval = window.setInterval(checkOrders, 15000)
     return () => {
       active = false
       window.clearInterval(interval)

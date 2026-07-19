@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { ReceiptPreviewDialog } from '@/components/receipt-preview-dialog'
 import { Textarea } from '@/components/ui/textarea'
 import { useLanguage } from '@/components/language-provider'
+import { canDeleteOrders, canManageOrders } from '@/lib/permissions'
 import {
   CURRENCY,
   CURRENCY_EN,
@@ -42,11 +43,11 @@ type OrderEditForm = {
   lines: OrderLine[]
 }
 function canManageOrderRole(role: string | null) {
-  return role === 'super_admin' || role === 'admin' || role === 'cashier'
+  return canManageOrders(role)
 }
 
 function canDeleteOrderRole(role: string | null) {
-  return role === 'super_admin' || role === 'admin'
+  return canDeleteOrders(role)
 }
 
 export default function DashboardOrdersPage() {
@@ -109,7 +110,7 @@ export default function DashboardOrdersPage() {
   }, [dashboardRole])
   useEffect(() => {
     const timer = window.setTimeout(loadOrders, 0)
-    const interval = window.setInterval(loadOrders, 10000)
+    const interval = window.setInterval(loadOrders, 30000)
     return () => {
       window.clearTimeout(timer)
       window.clearInterval(interval)
@@ -634,7 +635,7 @@ export default function DashboardOrdersPage() {
                       <Edit3 className="h-4 w-4" />
                       {isArabic ? 'تعديل الطلب' : 'Edit Order'}
                     </Button>}
-                    {canDeleteOrders && <Button size="sm" variant="destructive" onClick={() => deleteOrder(order.id)} disabled={isOrderCompleted}>{isArabic ? 'حذف الطلب' : 'Delete Order'}</Button>}
+                    {canDeleteOrders && <Button size="sm" variant="destructive" onClick={() => deleteOrder(order.id)} disabled={isOrderCompleted && dashboardRole !== 'super_admin' && dashboardRole !== 'admin'}>{isArabic ? 'حذف الطلب' : 'Delete Order'}</Button>}
                   </div>
                   <div className="mt-4 grid min-w-0 gap-3 overflow-hidden rounded-md border bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/40 md:grid-cols-[minmax(0,1fr)_auto]">
                     <div className="min-w-0 space-y-1">

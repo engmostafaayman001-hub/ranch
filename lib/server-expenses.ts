@@ -11,6 +11,8 @@ export type ServerExpense = {
   name: string
   amount: number
   date: string
+  // optional shift association
+  shiftId?: string
   note: string
   createdAt: string
 }
@@ -42,15 +44,18 @@ async function ensureDataFile() {
   }
 }
 
-export async function readServerExpenses(): Promise<ServerExpense[]> {
+export type ReadServerExpensesOptions = {
+  shiftId?: string
+}
+
+export async function readServerExpenses(options: ReadServerExpensesOptions = {}): Promise<ServerExpense[]> {
   if (canUseSupabaseRuntimeTables()) {
     const supabase = createSupabaseAdminClient()
-    const { data, error } = await supabase
-      .from('app_data')
-      .select('data')
-      .eq('key', EXPENSES_KEY)
-      .maybeSingle()
-    if (!error && Array.isArray(data?.data)) return data.data as ServerExpense[]
+    const { data, error } = await supabase.from('app_data').select('data').eq('key', EXPENSES_KEY).maybeSingle()
+    if (!error && Array.isArray(data?.data)) {
+      const expenses = data.data as ServerExpense[]
+      return options.shiftId ? expenses.filter((expense) => expense.shiftId === options.shiftId) : expenses
+    }
     if (error && shouldRequireSupabaseRuntimeTables()) {
       throw new Error(`Could not read expenses from Supabase: ${getSupabaseErrorMessage(error)}`)
     }
@@ -60,7 +65,8 @@ export async function readServerExpenses(): Promise<ServerExpense[]> {
   try {
     const raw = await readFile(EXPENSES_FILE, 'utf8')
     const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
+    const expenses = Array.isArray(parsed) ? parsed : []
+    return options.shiftId ? expenses.filter((expense) => expense.shiftId === options.shiftId) : expenses
   } catch {
     return []
   }

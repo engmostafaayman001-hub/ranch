@@ -5,6 +5,7 @@ import { getRequestAuthenticatedUserEmail, getRequestDashboardAccess } from '@/l
 import { validateNotificationDiscount } from '@/lib/discounts'
 import { readServerNotifications } from '@/lib/server-notifications'
 import { readSharedAppData } from '@/lib/server-app-data'
+import { createShift, ensureShiftExists, getCurrentOpenShift, isShiftLocked } from '@/lib/shifts'
 
 export const runtime = 'nodejs'
 
@@ -187,10 +188,12 @@ export async function GET(request: NextRequest) {
     const requestedOrderIdRaw = request.nextUrl.searchParams.get('orderId')?.trim()
     const requestedOrderId = requestedOrderIdRaw?.toLowerCase()
     const source = requestedOrderId ? undefined : normalizeSourceFilter(request.nextUrl.searchParams.get('source'))
+    const requestedShiftId = request.nextUrl.searchParams.get('shiftId')?.trim() || undefined
     const limit = normalizeLimit(request.nextUrl.searchParams.get('limit'))
     const readLimit = access.role === 'delivery' && !requestedOrderIdRaw ? Math.max(limit, 500) : limit
     const allOrders = await readServerOrders({
       source,
+      shiftId: requestedShiftId,
       limit: readLimit,
       orderId: requestedOrderIdRaw || undefined,
       includeReceipts,
@@ -249,6 +252,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    let resolvedShiftId = String(body.shiftId || body.shift || request.headers.get('x-shift-id') || '').trim() || undefined
+    if (resolvedShiftId) {
+      if (await isShiftLocked(resolvedShiftId)) {
+        const currentOpenShift = await getCurrentOpenShift()
+        resolvedShiftId = currentOpenShift?.id || resolvedShiftId
+      }
+    } else {
+      const currentOpenShift = await getCurrentOpenShift()
+      resolvedShiftId = currentOpenShift?.id
+    }
+
     const subtotal = getOrderSubtotal(body)
     const tax = Math.max(0, Number(body.tax || 0))
     const deliveryFee = Math.max(0, Number(body.deliveryFee || body.delivery || 0))
@@ -274,6 +288,8 @@ export async function POST(request: NextRequest) {
     const lines = normalizeOrderLines(body)
 
     const order: TrackedOrder = {
+      // associate with shiftId provided by header or body when available
+      shiftId: resolvedShiftId,
       id,
       source: orderSource,
       externalReference: body.externalReference || body.posOrderId ? String(body.externalReference || body.posOrderId) : undefined,
@@ -308,6 +324,24 @@ export async function POST(request: NextRequest) {
       history: Array.isArray(body.history) && body.history.length > 0
         ? body.history
         : [{ status, at: String(body.createdAt || now) }],
+    }
+
+    // Require shift association for non-admin/non-pos-key clients
+    const orderShiftId = order.shiftId
+    if (!orderShiftId && !hasValidPosKey && !isAdmin) {
+      return json({ error: 'shift_id_required', message: 'A shift id must be provided in x-shift-id header or body.shiftId' }, { status: 412 })
+    }
+
+    if (orderShiftId) {
+      if (!(await ensureShiftExists(orderShiftId))) {
+        await createShift(requestEmail || customerEmail || null, {
+          id: orderShiftId,
+          openedAt: String(body.shiftOpenedAt || body.openedAt || body.createdAt || now),
+        })
+      }
+      if (await isShiftLocked(orderShiftId)) {
+        return json({ error: 'shift_locked', message: 'Cannot create orders for a closed or locked shift' }, { status: 423 })
+      }
     }
 
     await upsertServerOrder(order)
@@ -365,6 +399,9 @@ export async function PATCH(request: NextRequest) {
     ].some((key) => hasOwn(body, key)) || (body.payment && typeof body.payment === 'object')
 
     const existingOrder = id ? (await readServerOrders({ orderId: id, includeReceipts: true }))[0] : null
+    if (existingOrder?.shiftId && await isShiftLocked(existingOrder.shiftId)) {
+      return json({ error: 'shift_locked', message: 'Cannot update orders from a closed or locked shift' }, { status: 423 })
+    }
 
     if (hasDetailUpdates && !hasValidPosKey && !canManageOrders(access.role)) {
       return json({ error: 'Forbidden', message: 'You do not have permission to edit order details' }, { status: 403 })
@@ -462,6 +499,11 @@ export async function DELETE(request: NextRequest) {
 
     if (!id) {
       return json({ error: 'Order id is required' }, { status: 400 })
+    }
+
+    const existingOrder = (await readServerOrders({ orderId: id, includeReceipts: true }))[0]
+    if (existingOrder?.shiftId && await isShiftLocked(existingOrder.shiftId)) {
+      return json({ error: 'shift_locked', message: 'Cannot delete orders from a closed or locked shift' }, { status: 423 })
     }
 
     const deleted = await deleteServerOrder(id)

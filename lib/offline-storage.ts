@@ -164,6 +164,9 @@ export function clearOfflineData() {
     window.localStorage.removeItem(OFFLINE_DATA_KEY)
     window.localStorage.removeItem(OFFLINE_STATUS_KEY)
     window.localStorage.removeItem(LAST_SYNC_KEY)
+    window.localStorage.removeItem('ranch-offline-queue-v1')
+    window.localStorage.removeItem('ranch-shift-session-v1')
+    window.localStorage.removeItem('baseeta-pos-day-session-v1')
   } catch {
     // ignore
   }

@@ -41,7 +41,7 @@ export default function DashboardDeliveryPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(loadDrivers, 0)
-    const interval = window.setInterval(loadDrivers, 10000)
+    const interval = window.setInterval(loadDrivers, 120000)
     return () => {
       window.clearTimeout(timer)
       window.clearInterval(interval)

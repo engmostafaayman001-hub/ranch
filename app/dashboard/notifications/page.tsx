@@ -51,7 +51,7 @@ export default function DashboardNotificationsPage() {
     const interval = window.setInterval(() => {
       setReadIds(getReadNotificationIds())
       loadNotifications().catch(() => setNotifications([]))
-    }, 15000)
+    }, 120000)
     return () => {
       window.clearTimeout(timer)
       window.clearInterval(interval)

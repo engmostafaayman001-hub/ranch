@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useLanguage } from '@/components/language-provider'
+import { canDeleteOrders, canManageOrders } from '@/lib/permissions'
 import { CURRENCY, CURRENCY_EN, ORDER_STATUS_LABELS, ORDER_STATUS_LABELS_EN, PAYMENT_METHOD_OPTIONS } from '@/lib/constants'
 import { MenuProduct, PrinterRole, useAppStore } from '@/lib/app-store'
 import { fetchDashboardOrderDetails, fetchDashboardOrdersBySource } from '@/lib/dashboard-order-fetch'
@@ -33,11 +34,11 @@ type OrderEditForm = {
 }
 
 function canManageOrderRole(role: string | null) {
-  return role === 'super_admin' || role === 'admin' || role === 'cashier'
+  return canManageOrders(role)
 }
 
 function canDeleteOrderRole(role: string | null) {
-  return role === 'super_admin' || role === 'admin'
+  return canDeleteOrders(role)
 }
 
 export default function DashboardRestaurantOrdersPage() {
@@ -88,7 +89,7 @@ export default function DashboardRestaurantOrdersPage() {
   }, [])
   useEffect(() => {
     const timer = window.setTimeout(loadOrders, 0)
-    const interval = window.setInterval(loadOrders, 10000)
+    const interval = window.setInterval(loadOrders, 30000)
     return () => {
       window.clearTimeout(timer)
       window.clearInterval(interval)
@@ -592,7 +593,7 @@ export default function DashboardRestaurantOrdersPage() {
                       <Edit3 className="h-4 w-4" />
                       {isArabic ? 'تعديل' : 'Edit'}
                     </Button>}
-                    {canDeleteOrders && <Button size="sm" variant="destructive" onClick={() => deleteOrder(order.id)} disabled={isOrderCompleted}>{isArabic ? 'حذف' : 'Delete'}</Button>}
+                    {canDeleteOrders && <Button size="sm" variant="destructive" onClick={() => deleteOrder(order.id)} disabled={isOrderCompleted && dashboardRole !== 'super_admin' && dashboardRole !== 'admin'}>{isArabic ? 'حذف' : 'Delete'}</Button>}
                   </div>
                   {isDeliveryOrder(order) && (
                     <div className="mt-4 grid min-w-0 gap-2 rounded-md border bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/40 md:grid-cols-[minmax(0,1fr)_auto]">

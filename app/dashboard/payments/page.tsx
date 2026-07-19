@@ -7,12 +7,13 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ReceiptPreviewDialog } from '@/components/receipt-preview-dialog'
 import { useLanguage } from '@/components/language-provider'
+import { canDeleteOrders } from '@/lib/permissions'
 import { CURRENCY, CURRENCY_EN, PAYMENT_METHOD_LABELS, PAYMENT_METHOD_LABELS_EN } from '@/lib/constants'
 import { fetchDashboardOrderReceipt } from '@/lib/dashboard-order-fetch'
 import { PaymentStatus, TrackedOrder } from '@/lib/order-tracking'
 
 function canDeleteRole(role: string | null) {
-  return role === 'super_admin' || role === 'admin'
+  return canDeleteOrders(role)
 }
 
 const statusStyles: Record<PaymentStatus, string> = {
@@ -74,7 +75,7 @@ export default function DashboardPaymentsPage() {
     }
 
     loadPayments()
-    const interval = window.setInterval(loadPayments, 10000)
+    const interval = window.setInterval(loadPayments, 60000)
     return () => {
       mounted = false
       window.clearInterval(interval)

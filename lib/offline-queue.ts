@@ -1,8 +1,10 @@
+import { loadShiftSession } from '@/lib/pos-day-session'
+
 const OFFLINE_QUEUE_STORAGE_KEY = 'ranch-offline-queue-v1'
 
 export type OfflineQueueAction = {
   id: string
-  type: 'create-order' | 'update-order' | 'delete-order' | 'create-expense' | 'clear-orders' | 'print-receipt'
+  type: 'create-order' | 'update-order' | 'delete-order' | 'create-expense' | 'create-shift' | 'close-shift' | 'clear-orders' | 'print-receipt'
   payload: Record<string, unknown>
   createdAt: string
   attempts: number
@@ -49,39 +51,93 @@ export function clearOfflineQueue() {
   window.localStorage.removeItem(OFFLINE_QUEUE_STORAGE_KEY)
 }
 
+function getActiveShiftId(payload: Record<string, unknown> = {}) {
+  const explicitShiftId = String(payload.shiftId || payload.shift || '').trim()
+  if (explicitShiftId) return explicitShiftId
+
+  if (typeof window === 'undefined') return ''
+  const session = loadShiftSession()
+  return session.shiftId ? String(session.shiftId) : ''
+}
+
+function resolvePayload(actionType: OfflineQueueAction['type'], payload: Record<string, unknown>) {
+  const nextPayload = { ...payload }
+  const activeShiftId = getActiveShiftId(payload)
+
+  if (activeShiftId) {
+    if (actionType === 'create-order' || actionType === 'create-expense') {
+      const currentShiftId = String((nextPayload as Record<string, unknown>).shiftId || '').trim()
+      if (!currentShiftId) {
+        ;(nextPayload as Record<string, unknown>).shiftId = activeShiftId
+      }
+    }
+
+    if (actionType === 'close-shift') {
+      const currentShiftId = String((nextPayload as Record<string, unknown>).shiftId || '').trim()
+      if (!currentShiftId) {
+        ;(nextPayload as Record<string, unknown>).shiftId = activeShiftId
+      }
+    }
+  }
+
+  return nextPayload
+}
+
 async function runQueuedAction(action: OfflineQueueAction) {
   const payload = action.payload || {}
+  const resolvedPayload = resolvePayload(action.type, payload)
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const activeShiftId = getActiveShiftId(resolvedPayload)
+  if (activeShiftId) {
+    headers['x-shift-id'] = activeShiftId
+  }
 
   switch (action.type) {
     case 'create-order': {
       const response = await fetch('/api/pos/orders', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        headers,
+        body: JSON.stringify(resolvedPayload),
       })
       return response.ok
     }
     case 'update-order': {
       const response = await fetch('/api/pos/orders', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        headers,
+        body: JSON.stringify(resolvedPayload),
       })
       return response.ok
     }
     case 'delete-order': {
       const response = await fetch('/api/pos/orders', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        headers,
+        body: JSON.stringify(resolvedPayload),
       })
       return response.ok
     }
     case 'create-expense': {
       const response = await fetch('/api/expenses', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        headers,
+        body: JSON.stringify(resolvedPayload),
+      })
+      return response.ok
+    }
+    case 'create-shift': {
+      const response = await fetch('/api/shifts', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(resolvedPayload),
+      })
+      return response.ok
+    }
+    case 'close-shift': {
+      const response = await fetch('/api/shifts', {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify(resolvedPayload),
       })
       return response.ok
     }
@@ -90,7 +146,7 @@ async function runQueuedAction(action: OfflineQueueAction) {
       if (!orderIds.length) return true
       const results = await Promise.all(orderIds.map((orderId) => fetch('/api/pos/orders', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ orderId }),
       })))
       return results.every((result) => result.ok)

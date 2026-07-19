@@ -1,12 +1,14 @@
 'use client'
 
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { CalendarDays, ReceiptText, Search } from 'lucide-react'
+import { ReceiptText, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useLanguage } from '@/components/language-provider'
+import { type ShiftSession } from '@/lib/pos-day-session'
+import useShiftSession from '@/lib/use-shift-session'
 import { CURRENCY, CURRENCY_EN } from '@/lib/constants'
 import { queueOfflineAction, syncOfflineQueue } from '@/lib/offline-queue'
 
@@ -17,11 +19,6 @@ type Expense = {
   date: string
   note: string
   createdAt?: string
-}
-
-function expenseDayKey(expense: Expense) {
-  const date = new Date(expense.date || expense.createdAt || expense.id || '')
-  return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10)
 }
 
 function money(value: number, currency: string) {
@@ -39,12 +36,12 @@ export default function DashboardExpensesPage() {
   const [form, setForm] = useState({ name: '', amount: '', date: new Date().toISOString().slice(0, 10), note: '' })
   const [search, setSearch] = useState('')
   const [dashboardRole, setDashboardRole] = useState<string | null>(null)
-  const todayKey = new Date().toISOString().slice(0, 10)
+  const [daySession, setDaySession] = useShiftSession()
   const isCashier = dashboardRole === 'cashier'
 
   const loadExpenses = async () => {
     try {
-      const response = await fetch('/api/expenses', { cache: 'no-store' })
+      const response = await fetch(`/api/expenses`, { cache: 'no-store' })
       const data = await response.json().catch(() => ({}))
       setExpenses(Array.isArray(data.expenses) ? data.expenses : [])
     } catch {
@@ -56,12 +53,14 @@ export default function DashboardExpensesPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(loadExpenses, 0)
-    const interval = window.setInterval(loadExpenses, 15000)
+    const interval = window.setInterval(loadExpenses, 120000)
     return () => {
       window.clearTimeout(timer)
       window.clearInterval(interval)
     }
   }, [])
+
+  // `useShiftSession` keeps `daySession` in sync across tabs; no manual storage listeners needed
 
   useEffect(() => {
     void syncOfflineQueue()
@@ -89,16 +88,12 @@ export default function DashboardExpensesPage() {
   }, [])
 
   const total = useMemo(() => expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0), [expenses])
-  const dailyExpenses = useMemo(() => expenses.filter((expense) => expenseDayKey(expense) === todayKey), [expenses, todayKey])
-  const dailyTotal = useMemo(() => expenses
-    .filter((expense) => expenseDayKey(expense) === todayKey)
-    .reduce((sum, expense) => sum + Number(expense.amount || 0), 0), [expenses, todayKey])
   const filteredExpenses = useMemo(() => {
     const term = search.trim().toLowerCase()
-    const source = isCashier ? dailyExpenses : expenses
+    const source = expenses
     if (!term) return source
     return source.filter((expense) => `${expense.name} ${expense.note} ${expense.date} ${expense.amount}`.toLowerCase().includes(term))
-  }, [dailyExpenses, expenses, isCashier, search])
+  }, [expenses, search])
   const filteredTotal = useMemo(() => filteredExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0), [filteredExpenses])
 
   const closeForm = () => {
@@ -110,7 +105,7 @@ export default function DashboardExpensesPage() {
     event.preventDefault()
     const amount = Number(form.amount)
     if (!form.name.trim() || !Number.isFinite(amount) || amount <= 0) return
-    const payload = { name: form.name.trim(), amount, date: form.date, note: form.note.trim() }
+    const payload = { name: form.name.trim(), amount, date: form.date, note: form.note.trim(), shiftId: daySession.shiftId, shiftOpenedAt: daySession.openedAt }
     if (!window.navigator.onLine) {
       queueOfflineAction({ type: 'create-expense', payload })
       setMessage(isArabic ? 'تم حفظ المصروف في وضع غير متصل وسيتم رفعه عند عودة الاتصال.' : 'Expense queued while offline and will sync when the connection returns.')
@@ -157,23 +152,17 @@ export default function DashboardExpensesPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-3xl font-bold">{isArabic ? 'المصروفات' : 'Expenses'}</h2>
-          <p className="mt-2 text-slate-500 dark:text-slate-400">{isArabic ? 'سجل مصروفات المطعم اليومية.' : 'Track daily restaurant expenses.'}</p>
+          <p className="mt-2 text-slate-500 dark:text-slate-400">{isArabic ? 'سجل جميع مصروفات المطعم.' : 'Track all restaurant expenses.'}</p>
           {message && <p className="mt-2 text-sm text-green-600">{message}</p>}
         </div>
         {!isCashier && <Button onClick={() => setFormOpen(true)} className="bg-red-600 hover:bg-red-700">{isArabic ? 'إضافة مصروف' : 'Add Expense'}</Button>}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <ExpenseSummaryCard
-          title={isArabic ? 'إجمالي مصروفات اليوم' : 'Today Expenses'}
-          value={money(dailyTotal, currency)}
-          hint={isArabic ? 'مصروفات تاريخ اليوم فقط' : 'Only expenses dated today'}
-          icon={CalendarDays}
-        />
+      <div className="grid gap-4 md:grid-cols-2">
         <ExpenseSummaryCard
           title={isArabic ? 'إجمالي المصروفات' : 'All Expenses'}
           value={isCashier ? '-' : money(total, currency)}
-          hint={`${expenses.length} ${isArabic ? 'مصروف' : 'expenses'}`}
+          hint={`${expenses.length} ${isArabic ? 'مصاريف' : 'expenses'}`}
           icon={ReceiptText}
         />
         <ExpenseSummaryCard
@@ -216,7 +205,7 @@ export default function DashboardExpensesPage() {
           </div>
           {loading ? (
             <p className="py-8 text-center text-slate-500">{isArabic ? 'جاري التحميل...' : 'Loading...'}</p>
-          ) : (isCashier ? dailyExpenses.length === 0 : expenses.length === 0) ? (
+          ) : expenses.length === 0 ? (
             <p className="py-8 text-center text-slate-500">{isArabic ? 'لا توجد مصروفات بعد.' : 'No expenses yet.'}</p>
           ) : filteredExpenses.length === 0 ? (
             <p className="py-8 text-center text-slate-500">{isArabic ? 'لا توجد مصروفات مطابقة.' : 'No matching expenses.'}</p>

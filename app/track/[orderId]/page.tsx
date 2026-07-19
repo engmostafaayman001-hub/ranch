@@ -53,7 +53,7 @@ export default function TrackOrderPage() {
     }
 
     const timer = window.setTimeout(loadOrder, 0)
-    const interval = window.setInterval(loadOrder, 10000)
+    const interval = window.setInterval(loadOrder, 30000)
     return () => {
       active = false
       window.clearTimeout(timer)

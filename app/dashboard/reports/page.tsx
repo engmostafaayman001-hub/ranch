@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, BarChart3, CalendarDays, CheckCircle2, Printer, ReceiptText, Trash2, X, AlertTriangle } from 'lucide-react'
+import { Activity, BarChart3, CalendarDays, CheckCircle2, Printer, ReceiptText, Trash2, X, AlertTriangle, ShoppingCart, TrendingUp, Wallet } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -12,6 +12,8 @@ import { TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
 import { useAppStore } from '@/lib/app-store'
 import { createClosingReceiptPayload } from '@/lib/closing-print'
 import { printerManager, syncPrinterManagerSettings } from '@/lib/printer'
+import { type ShiftSession } from '@/lib/pos-day-session'
+import useShiftSession from '@/lib/use-shift-session'
 
 interface Customer {
   id?: string
@@ -25,6 +27,7 @@ type Expense = {
   amount: number
   date: string
   note: string
+  shiftId?: string
 }
 
 type PeriodSummary = {
@@ -127,6 +130,7 @@ export default function DashboardReportsPage() {
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
+  const [shiftSession] = useShiftSession()
   const [closingDate, setClosingDate] = useState(todayKey)
   const [closingOpen, setClosingOpen] = useState(false)
   const [printStatus, setPrintStatus] = useState('')
@@ -141,7 +145,7 @@ export default function DashboardReportsPage() {
       loadingReports.current = true
       try {
         const [ordersResponse, customersResponse, expensesResponse] = await Promise.all([
-          fetch('/api/pos/orders?limit=500', { cache: 'no-store' }),
+          fetch('/api/pos/orders?limit=300', { cache: 'no-store' }),
           fetch('/api/customers', { cache: 'no-store' }),
           fetch('/api/expenses', { cache: 'no-store' }),
         ])
@@ -164,12 +168,22 @@ export default function DashboardReportsPage() {
     }
 
     loadReports()
-    const interval = window.setInterval(loadReports, 15000)
+    const interval = window.setInterval(loadReports, 120000)
     return () => {
       mounted = false
       window.clearInterval(interval)
     }
   }, [])
+
+  const shiftOrders = useMemo(() => {
+    if (!shiftSession.shiftId) return []
+    return orders.filter((order) => order.shiftId === shiftSession.shiftId)
+  }, [orders, shiftSession.shiftId])
+
+  const shiftExpenses = useMemo(() => {
+    if (!shiftSession.shiftId) return []
+    return expenses.filter((expense) => expense.shiftId === shiftSession.shiftId)
+  }, [expenses, shiftSession.shiftId])
 
   const report = useMemo(() => {
     const now = new Date()
@@ -208,6 +222,18 @@ export default function DashboardReportsPage() {
     }, {})
   }, [closingSummary.orders])
 
+  const shiftSummary = useMemo(() => {
+    const revenue = shiftOrders.reduce((sum, order) => sum + Number(order.total || 0), 0)
+    const expenseTotal = shiftExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0)
+    return {
+      orders: shiftOrders,
+      expenses: shiftExpenses,
+      revenue,
+      expenseTotal,
+      net: revenue - expenseTotal,
+    }
+  }, [shiftExpenses, shiftOrders])
+
   const sourceBreakdown = useMemo(() => {
     return closingSummary.orders.reduce<Record<string, number>>((totals, order) => {
       const source = order.source === 'restaurant_pos' ? 'pos' : 'app'
@@ -232,7 +258,7 @@ export default function DashboardReportsPage() {
     if (!confirmed) return
 
     try {
-      const response = await fetch('/api/pos/orders?limit=500', { cache: 'no-store' })
+      const response = await fetch('/api/pos/orders?limit=300', { cache: 'no-store' })
       const ordersData = await response.json().catch(() => ({}))
       const ordersToDelete = Array.isArray(ordersData.orders) ? ordersData.orders : []
       if (ordersToDelete.length > 0) {
@@ -249,7 +275,7 @@ export default function DashboardReportsPage() {
     }
   }
 
-  const printDailyClosing = async () => {
+  const printShiftClosing = async () => {
     setPrintStatus('')
     const cashierPrinter = settings.printers.cashier
     if (!cashierPrinter?.isEnabled) {
@@ -260,7 +286,7 @@ export default function DashboardReportsPage() {
     syncPrinterManagerSettings(settings.printers)
     try {
       const result = await printerManager.printCashierReceipt(createClosingReceiptPayload({
-        title: isArabic ? 'تقفيل يومي' : 'Daily Closing',
+        title: isArabic ? 'تقفيل الوردية' : 'Shift Closing',
         dateLabel: closingDate,
         orders: closingSummary.orders,
         expenses: closingSummary.expenses,
@@ -297,7 +323,7 @@ export default function DashboardReportsPage() {
     setPrintStatus('')
     try {
       const [ordersResponse, expensesResponse] = await Promise.all([
-        fetch('/api/pos/orders?limit=500', { cache: 'no-store' }),
+        fetch('/api/pos/orders?limit=300', { cache: 'no-store' }),
         fetch('/api/expenses', { cache: 'no-store' }),
       ])
       const ordersData = await ordersResponse.json().catch(() => ({}))
@@ -360,8 +386,13 @@ export default function DashboardReportsPage() {
         <div>
           <h2 className="text-3xl font-bold">{isArabic ? 'التقارير والتحليلات' : 'Reports and Analytics'}</h2>
           <p className="mt-2 text-slate-500 dark:text-slate-400">
-            {isArabic ? 'إجماليات دقيقة للمبيعات والمصروفات، مع تقفيل يومي قابل للطباعة.' : 'Accurate sales and expense totals with printable daily closing.'}
+            {isArabic ? 'إجماليات دقيقة للمبيعات والمصروفات، مع تقفيل وردية قابل للطباعة.' : 'Accurate sales and expense totals with printable shift closing.'}
           </p>
+          {shiftSession.shiftId ? (
+            <p className="mt-2 text-sm text-slate-500">
+              {isArabic ? 'الوردية الحالية' : 'Current shift'}: {shiftSession.shiftId} • {shiftSession.isOpen ? (isArabic ? 'مفتوحة' : 'Open') : (isArabic ? 'مغلقة' : 'Closed')}
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-end gap-2 rounded-md border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950">
           <div>
@@ -374,7 +405,7 @@ export default function DashboardReportsPage() {
           </Button>
           <Button className="gap-2 bg-red-600 hover:bg-red-700" onClick={() => setClosingOpen(true)}>
             <CalendarDays className="h-4 w-4" />
-            {isArabic ? 'تقفيل يومي' : 'Daily Closing'}
+            {isArabic ? 'تقفيل الوردية' : 'Shift Closing'}
           </Button>
         </div>
       </div>
@@ -385,6 +416,14 @@ export default function DashboardReportsPage() {
         <SummaryCard title={isArabic ? 'إجمالي الشهر' : 'Monthly Total'} value={money(report.monthly.revenue, currency)} hint={`${report.monthly.orders.length} ${isArabic ? 'طلب' : 'orders'} | ${isArabic ? 'صافي' : 'net'} ${money(report.monthly.net, currency)}`} icon={Activity} />
         <SummaryCard title={isArabic ? 'إجمالي السيستم كامل' : 'Full System Total'} value={money(report.fullSystem.revenue, currency)} hint={`${orders.length} ${isArabic ? 'طلب' : 'orders'} | ${isArabic ? 'مصروفات' : 'expenses'} ${money(report.fullSystem.expenseTotal, currency)}`} icon={ReceiptText} />
       </div>
+      {shiftSession.shiftId ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <SummaryCard title={isArabic ? 'إجمالي الوردية الحالية' : 'Current Shift Total'} value={money(shiftSummary.revenue, currency)} hint={`${shiftSummary.orders.length} ${isArabic ? 'طلب' : 'orders'} | ${isArabic ? 'مصروفات' : 'expenses'} ${money(shiftSummary.expenseTotal, currency)}`} icon={Wallet} />
+          <SummaryCard title={isArabic ? 'طلبات الوردية الحالية' : 'Current Shift Orders'} value={String(shiftSummary.orders.length)} hint={isArabic ? 'كل الطلبات المرتبطة بالوردية الحالية' : 'All orders for the current shift'} icon={ShoppingCart} />
+          <SummaryCard title={isArabic ? 'مصروفات الوردية' : 'Shift Expenses'} value={money(shiftSummary.expenseTotal, currency)} hint={`${shiftSummary.expenses.length} ${isArabic ? 'مصروفات' : 'expenses'}`} icon={ReceiptText} />
+          <SummaryCard title={isArabic ? 'صافي الوردية' : 'Shift Net'} value={money(shiftSummary.net, currency)} hint={isArabic ? 'إجمالي المبيعات بعد المصروفات' : 'Total sales after expenses'} icon={TrendingUp} />
+        </div>
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MiniMetric title={isArabic ? 'متوسط الطلب' : 'Average Order'} value={money(report.average, currency)} />
@@ -463,11 +502,11 @@ export default function DashboardReportsPage() {
           <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-md bg-white shadow-xl dark:bg-slate-950">
             <div className="sticky top-0 flex items-start justify-between gap-3 border-b border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
               <div>
-                <h3 className="text-xl font-bold">{isArabic ? 'تقفيل يومي' : 'Daily Closing'}</h3>
+                <h3 className="text-xl font-bold">{isArabic ? 'تقفيل الوردية' : 'Shift Closing'}</h3>
                 <p className="text-sm text-slate-500">{closingDate}</p>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" className="gap-2" onClick={printDailyClosing}>
+                <Button variant="outline" className="gap-2" onClick={printShiftClosing}>
                   <Printer className="h-4 w-4" />
                   {isArabic ? 'طباعة' : 'Print'}
                 </Button>
@@ -490,7 +529,7 @@ export default function DashboardReportsPage() {
                   <CardHeader><CardTitle>{isArabic ? 'طرق الدفع' : 'Payment Methods'}</CardTitle></CardHeader>
                   <CardContent className="space-y-2">
                     {Object.entries(paymentBreakdown).length === 0 ? (
-                      <p className="text-sm text-slate-500">{isArabic ? 'لا توجد مدفوعات لهذا اليوم.' : 'No payments for this day.'}</p>
+                      <p className="text-sm text-slate-500">{isArabic ? 'لا توجد مدفوعات لهذا التقفيل.' : 'No payments for this closing.'}</p>
                     ) : Object.entries(paymentBreakdown).map(([method, total]) => (
                       <div key={method} className="flex justify-between rounded-md bg-slate-50 px-3 py-2 text-sm dark:bg-slate-900">
                         <span>{paymentLabel(method)}</span>
@@ -508,10 +547,10 @@ export default function DashboardReportsPage() {
                 </Card>
               </div>
               <Card>
-                <CardHeader><CardTitle>{isArabic ? 'طلبات اليوم' : 'Day Orders'}</CardTitle></CardHeader>
+                <CardHeader><CardTitle>{isArabic ? 'طلبات الوردية' : 'Shift Orders'}</CardTitle></CardHeader>
                 <CardContent>
                   {closingSummary.orders.length === 0 ? (
-                    <p className="py-6 text-center text-sm text-slate-500">{isArabic ? 'لا توجد طلبات لهذا اليوم.' : 'No orders for this day.'}</p>
+                    <p className="py-6 text-center text-sm text-slate-500">{isArabic ? 'لا توجد طلبات لهذا التقفيل.' : 'No orders for this closing.'}</p>
                   ) : (
                     <div className="space-y-2">
                       {closingSummary.orders.map((order) => (

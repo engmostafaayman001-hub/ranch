@@ -16,6 +16,7 @@ export type ServerOrderSourceFilter = 'app' | 'restaurant_pos'
 
 export type ReadServerOrdersOptions = {
   source?: ServerOrderSourceFilter
+  shiftId?: string
   limit?: number
   orderId?: string
   includeReceipts?: boolean
@@ -45,6 +46,7 @@ type CompactOrderRow = {
   payment_status?: OrderPayment['status'] | null
   receipt_name?: string | null
   receipt_uploaded_at?: string | null
+  shift_id?: string | null
 }
 
 function canUseSupabaseRuntimeTables() {
@@ -94,6 +96,7 @@ function normalizeCompactOrder(row: CompactOrderRow): TrackedOrder {
       phone: '-',
       rating: 0,
     },
+    shiftId: row.shift_id || undefined,
     payment: row.payment_method || row.payment_status || row.receipt_name || row.receipt_uploaded_at
       ? {
           method: row.payment_method || 'cash',
@@ -139,6 +142,7 @@ function applyReadOptions(orders: TrackedOrder[], options: ReadServerOrdersOptio
   return orders
     .filter((order) => !options.orderId || order.id.toLowerCase() === options.orderId.toLowerCase())
     .filter((order) => matchesSource(order, options.source))
+    .filter((order) => !options.shiftId || order.shiftId === options.shiftId)
     .slice(0, limit)
 }
 
@@ -192,12 +196,17 @@ async function readServerOrdersFresh(options: ReadServerOrdersOptions = {}): Pro
         'payment_status:data->payment->>status',
         'receipt_name:data->payment->>receiptName',
         'receipt_uploaded_at:data->payment->>receiptUploadedAt',
+        'shift_id:data->>shiftId',
       ].join(',')
 
       let query = supabase
         .from('app_orders')
         .select(shouldReadFullData ? 'data' : compactSelect)
         .order('created_at', { ascending: false })
+
+      if (options.shiftId) {
+        query = query.eq('data->>shiftId', options.shiftId)
+      }
 
       if (options.orderId) {
         query = query.eq('id', options.orderId).limit(1)

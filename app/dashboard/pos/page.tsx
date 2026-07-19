@@ -1,24 +1,25 @@
 'use client'
 
-import Link from 'next/link'
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Banknote, Bike, CreditCard, Printer, Minus, Plus, Search, ShoppingCart, Smartphone, Store, Trash2, Truck, Utensils, X, CalendarDays } from 'lucide-react'
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowLeft, Banknote, Bike, Printer, Minus, Plus, Search, ShoppingCart, Smartphone, Store, Trash2, Utensils, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useLanguage } from '@/components/language-provider'
-import { CURRENCY, CURRENCY_EN, PAYMENT_METHOD_OPTIONS, PAYMENT_METHODS, PAYMENT_METHOD_LABELS, PAYMENT_METHOD_LABELS_EN, ROUTES } from '@/lib/constants'
+import { CURRENCY, CURRENCY_EN, PAYMENT_METHOD_OPTIONS, PAYMENT_METHODS, PAYMENT_METHOD_LABELS, PAYMENT_METHOD_LABELS_EN } from '@/lib/constants'
 import { AppSettings, MenuProduct, useAppStore } from '@/lib/app-store'
 import { isDisplayableImage } from '@/lib/client-images'
 import { TrackedOrder } from '@/lib/order-tracking'
 import { printerManager, syncPrinterManagerSettings } from '@/lib/printer'
 import { createClosingReceiptPayload } from '@/lib/closing-print'
 import { createDriverClosingReceiptPayload, getDriverClosingGroups } from '@/lib/driver-closing-print'
-import { type ClosingRecord } from '@/lib/closings'
+import { readClosings, type ClosingRecord } from '@/lib/closings'
 import { queueOfflineAction, syncOfflineQueue } from '@/lib/offline-queue'
 import { onOnlineStatusChange, readOfflineStatus } from '@/lib/offline-storage'
 import { useSharedAppData } from '@/lib/use-shared-app-data'
+import { isItemInShiftWindow, isItemWithinDateRange, saveShiftSession, type ShiftSession } from '@/lib/pos-day-session'
+import useShiftSession from '@/lib/use-shift-session'
 
 type PosLine = {
   productId: string
@@ -34,6 +35,7 @@ type Expense = {
   amount: number
   date: string
   note: string
+  shiftId?: string
 }
 
 type PosCustomer = {
@@ -44,13 +46,6 @@ type PosCustomer = {
   address?: string
 }
 
-type PosDaySession = {
-  isOpen: boolean
-  openedAt: string
-  closedAt: string | null
-}
-
-const POS_DAY_SESSION_STORAGE_KEY = 'baseeta-pos-day-session-v1'
 
 const ORDER_TYPE_LABELS: Record<PosOrderType, { ar: string; en: string }> = {
   dine_in: { ar: 'داخل المطعم', en: 'Dine in' },
@@ -76,48 +71,6 @@ const NOTE_OPTIONS = [
   { ar: 'أخرى', en: 'Other' },
 ]
 
-function loadPosDaySession(): PosDaySession {
-  if (typeof window === 'undefined') {
-    return { isOpen: true, openedAt: new Date().toISOString(), closedAt: null }
-  }
-
-  try {
-    const raw = window.localStorage.getItem(POS_DAY_SESSION_STORAGE_KEY)
-    if (!raw) {
-      const initial = { isOpen: true, openedAt: new Date().toISOString(), closedAt: null } satisfies PosDaySession
-      window.localStorage.setItem(POS_DAY_SESSION_STORAGE_KEY, JSON.stringify(initial))
-      return initial
-    }
-
-    const parsed = JSON.parse(raw) as Partial<PosDaySession>
-    if (typeof parsed?.openedAt === 'string') {
-      return {
-        isOpen: parsed.isOpen !== false,
-        openedAt: parsed.openedAt,
-        closedAt: typeof parsed.closedAt === 'string' ? parsed.closedAt : null,
-      }
-    }
-  } catch {
-    // ignore storage issues and fall back to a fresh session
-  }
-
-  return { isOpen: true, openedAt: new Date().toISOString(), closedAt: null }
-}
-
-function savePosDaySession(session: PosDaySession) {
-  if (typeof window === 'undefined') return
-  window.localStorage.setItem(POS_DAY_SESSION_STORAGE_KEY, JSON.stringify(session))
-}
-
-function isOrderWithinRange(orderDate: string | undefined, start: string, end: string) {
-  const startDate = new Date(start)
-  const endDate = new Date(end)
-  const checkDate = new Date(orderDate || '')
-  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || Number.isNaN(checkDate.getTime())) {
-    return false
-  }
-  return checkDate.getTime() >= startDate.getTime() && checkDate.getTime() <= endDate.getTime()
-}
 
 function getDateInputValue(date: string | undefined) {
   const parsed = new Date(date || new Date().toISOString())
@@ -149,13 +102,13 @@ export default function DashboardPosPage() {
   const [lines, setLines] = useState<PosLine[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(false)
-  const [dailyClosingPrinting, setDailyClosingPrinting] = useState(false)
+  const [shiftClosingPrinting, setShiftClosingPrinting] = useState(false)
   const [message, setMessage] = useState('')
   const [discountCode, setDiscountCode] = useState('')
   const [discountAmount, setDiscountAmount] = useState(0)
-  const [dailyOrders, setDailyOrders] = useState<TrackedOrder[]>([])
-  const [dailyExpenses, setDailyExpenses] = useState<Expense[]>([])
-  const [daySession, setDaySession] = useState<PosDaySession>(() => loadPosDaySession())
+  const [shiftOrders, setShiftOrders] = useState<TrackedOrder[]>([])
+  const [shiftExpenses, setShiftExpenses] = useState<Expense[]>([])
+  const [daySession, setDaySession] = useShiftSession()
   const [inventoryOpen, setInventoryOpen] = useState(false)
   const [inventoryRangeStart, setInventoryRangeStart] = useState(() => getDateInputValue(daySession.openedAt))
   const [inventoryRangeEnd, setInventoryRangeEnd] = useState(() => getDateInputValue(daySession.isOpen ? new Date().toISOString() : daySession.closedAt || daySession.openedAt))
@@ -173,9 +126,9 @@ export default function DashboardPosPage() {
   const [driverClosingRangeStart, setDriverClosingRangeStart] = useState(() => getDateInputValue(daySession.openedAt))
   const [driverClosingRangeEnd, setDriverClosingRangeEnd] = useState(() => getDateInputValue(daySession.isOpen ? new Date().toISOString() : daySession.closedAt || daySession.openedAt))
   const [dashboardRole, setDashboardRole] = useState<string | null>(null)
-  const [isOnline, setIsOnline] = useState(true)
+  const [isOnline, setIsOnline] = useState(() => readOfflineStatus().isOnline)
   const [syncingOffline, setSyncingOffline] = useState(false)
-  const loadingDailyClosing = useRef(false)
+  const loadingShiftClosing = useRef(false)
   const [customer, setCustomer] = useState({
     name: isArabic ? 'عميل مطعم' : 'Restaurant Customer',
     phone: '',
@@ -197,9 +150,8 @@ export default function DashboardPosPage() {
   const selectedDriver = drivers.find((driver) => driver.id === selectedDriverId)
   const activeDrivers = drivers.filter((driver) => driver.status === 'active')
   const activeCategories = categories.filter((category) => category.active && products.some((product) => product.available && product.categoryId === category.id))
-  const sessionRangeEnd = daySession.isOpen ? new Date().toISOString() : daySession.closedAt || daySession.openedAt
-  const sessionOrders = useMemo(() => dailyOrders.filter((order) => order.status !== 'cancelled' && isOrderWithinRange(order.createdAt, daySession.openedAt, sessionRangeEnd)), [dailyOrders, daySession.openedAt, sessionRangeEnd])
-  const sessionExpenses = useMemo(() => dailyExpenses.filter((expense) => isOrderWithinRange(expense.date, daySession.openedAt, sessionRangeEnd)), [dailyExpenses, daySession.openedAt, sessionRangeEnd])
+  const sessionOrders = useMemo(() => shiftOrders.filter((order) => order.status !== 'cancelled'), [shiftOrders])
+  const sessionExpenses = useMemo(() => shiftExpenses, [shiftExpenses])
   const sessionRevenue = useMemo(() => sessionOrders.reduce((sum, order) => sum + Number(order.total || 0), 0), [sessionOrders])
   const sessionExpenseTotal = useMemo(() => sessionExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0), [sessionExpenses])
   // drawer net should only include collected amounts (cash paid or POS payments)
@@ -212,11 +164,11 @@ export default function DashboardPosPage() {
     return sum
   }, 0), [sessionOrders])
   const sessionDrawerNet = useMemo(() => sessionCollected - sessionExpenseTotal, [sessionCollected, sessionExpenseTotal])
-  const legacyAppOrders = useMemo(() => dailyOrders.filter((order) => order.status !== 'cancelled' && order.source === 'app'), [dailyOrders])
+  const legacyAppOrders = useMemo(() => shiftOrders.filter((order) => order.status !== 'cancelled' && order.source === 'app'), [shiftOrders])
   const restaurantDriverSummaries = useMemo(() => {
     const groups = new Map<string, { key: string; name: string; phone: string; count: number; total: number; orders: TrackedOrder[] }>()
 
-    for (const order of dailyOrders) {
+    for (const order of shiftOrders) {
       if (order.status === 'cancelled' || order.source !== 'restaurant_pos') continue
       const driverName = (order.driver?.name || '').trim()
       const driverPhone = (order.driver?.phone || '').trim()
@@ -235,16 +187,16 @@ export default function DashboardPosPage() {
     }
 
     return Array.from(groups.values()).sort((first, second) => second.total - first.total)
-  }, [dailyOrders])
+  }, [shiftOrders])
   const inventoryRange = useMemo(() => getDateRangeBounds(inventoryRangeStart, inventoryRangeEnd), [inventoryRangeStart, inventoryRangeEnd])
-  const inventoryOrders = useMemo(() => dailyOrders.filter((order) => order.status !== 'cancelled' && isOrderWithinRange(order.createdAt, inventoryRange.start, inventoryRange.end)), [dailyOrders, inventoryRange.end, inventoryRange.start])
-  const inventoryExpenses = useMemo(() => dailyExpenses.filter((expense) => isOrderWithinRange(expense.date, inventoryRange.start, inventoryRange.end)), [dailyExpenses, inventoryRange.end, inventoryRange.start])
+  const inventoryOrders = useMemo(() => shiftOrders.filter((order) => order.status !== 'cancelled' && isItemWithinDateRange(order.createdAt, inventoryRange.start, inventoryRange.end)), [shiftOrders, inventoryRange.end, inventoryRange.start])
+  const inventoryExpenses = useMemo(() => shiftExpenses.filter((expense) => isItemWithinDateRange(expense.date, inventoryRange.start, inventoryRange.end)), [shiftExpenses, inventoryRange.end, inventoryRange.start])
   const inventoryRevenue = useMemo(() => inventoryOrders.reduce((sum, order) => sum + Number(order.total || 0), 0), [inventoryOrders])
   const inventoryExpenseTotal = useMemo(() => inventoryExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0), [inventoryExpenses])
   const inventoryDrawerNet = useMemo(() => inventoryRevenue - inventoryExpenseTotal, [inventoryRevenue, inventoryExpenseTotal])
   const inventoryDriverTotal = useMemo(() => getDriverClosingGroups(inventoryOrders).reduce((sum, group) => sum + group.total, 0), [inventoryOrders])
   const driverClosingRange = useMemo(() => getDateRangeBounds(driverClosingRangeStart, driverClosingRangeEnd), [driverClosingRangeEnd, driverClosingRangeStart])
-  const driverClosingOrders = useMemo(() => dailyOrders.filter((order) => order.status !== 'cancelled' && isOrderWithinRange(order.createdAt, driverClosingRange.start, driverClosingRange.end)), [dailyOrders, driverClosingRange.end, driverClosingRange.start])
+  const driverClosingOrders = useMemo(() => shiftOrders.filter((order) => order.status !== 'cancelled' && isItemWithinDateRange(order.createdAt, driverClosingRange.start, driverClosingRange.end)), [shiftOrders, driverClosingRange.end, driverClosingRange.start])
   const driverClosingGroups = useMemo(() => getDriverClosingGroups(driverClosingOrders), [driverClosingOrders])
   const driverClosingTotal = useMemo(() => driverClosingGroups.reduce((sum, group) => sum + group.total, 0), [driverClosingGroups])
   const driverClosingOrderCount = useMemo(() => driverClosingGroups.reduce((sum, group) => sum + group.orders.length, 0), [driverClosingGroups])
@@ -280,47 +232,61 @@ export default function DashboardPosPage() {
   const appliedDeliveryFee = orderType === 'delivery' ? Math.max(0, Number(deliveryFee || 0)) : 0
   const total = Math.max(0, subtotal + tax + appliedDeliveryFee - discountAmount)
 
-  useEffect(() => {
-    let active = true
-    const loadDailyClosingData = async () => {
-      if (loadingDailyClosing.current) return
-      loadingDailyClosing.current = true
-      try {
-        const [restaurantOrdersResponse, appOrdersResponse, expensesResponse] = await Promise.all([
-          fetch('/api/pos/orders?source=restaurant_pos&limit=300', { cache: 'no-store' }),
-          fetch('/api/pos/orders?source=app&limit=300', { cache: 'no-store' }),
-          fetch('/api/expenses', { cache: 'no-store' }),
-        ])
-        const restaurantOrdersData = await restaurantOrdersResponse.json().catch(() => ({}))
-        const appOrdersData = await appOrdersResponse.json().catch(() => ({}))
-        const expensesData = await expensesResponse.json().catch(() => ({}))
-        if (!active) return
-        const restaurantOrders = Array.isArray(restaurantOrdersData.orders) ? restaurantOrdersData.orders : []
-        const appOrders = Array.isArray(appOrdersData.orders) ? appOrdersData.orders : []
-        setDailyOrders([...restaurantOrders, ...appOrders])
-        setDailyExpenses(Array.isArray(expensesData.expenses) ? expensesData.expenses : [])
-      } catch {
-        if (!active) return
-        setDailyOrders([])
-        setDailyExpenses([])
-      } finally {
-        loadingDailyClosing.current = false
-      }
-    }
+  const loadShiftData = useCallback(async () => {
+    if (loadingShiftClosing.current) return
+    loadingShiftClosing.current = true
+    try {
+      const activeShiftId = daySession.shiftId
+      const [ordersResponse, expensesResponse] = await Promise.all([
+        fetch('/api/pos/orders?limit=300', { cache: 'no-store' }),
+        fetch('/api/expenses', { cache: 'no-store' }),
+      ])
 
-    loadDailyClosingData()
-    const interval = window.setInterval(loadDailyClosingData, 15000)
+      const ordersData = await ordersResponse.json().catch(() => ({}))
+      const expensesData = await expensesResponse.json().catch(() => ({}))
+
+      const allOrders = Array.isArray(ordersData.orders) ? ordersData.orders : []
+      const allExpenses = Array.isArray(expensesData.expenses) ? expensesData.expenses : []
+      const previousClosings = readClosings()
+      const settledOrderIds = new Set(previousClosings.flatMap((closing) => closing.orders?.map((order) => order.id) || []))
+      const settledExpenseIds = new Set(previousClosings.flatMap((closing) => closing.expenses?.map((expense) => expense.id) || []))
+
+      const combinedOrders = allOrders.filter((order: TrackedOrder) => {
+        if (settledOrderIds.has(order.id) || order.status === 'cancelled') return false
+        const createdDuringSession = isItemInShiftWindow(order.createdAt, daySession, { includeSameDayBeforeStart: true })
+        if (!activeShiftId) return createdDuringSession || !order.shiftId
+        return order.shiftId === activeShiftId || !order.shiftId || createdDuringSession
+      })
+
+      const combinedExpenses = allExpenses.filter((expense: Expense) => {
+        if (settledExpenseIds.has(expense.id)) return false
+        const createdDuringSession = isItemInShiftWindow(expense.date, daySession, { includeSameDayBeforeStart: true })
+        if (!activeShiftId) return createdDuringSession || !expense.shiftId
+        return expense.shiftId === activeShiftId || !expense.shiftId || createdDuringSession
+      })
+
+      setShiftOrders(combinedOrders)
+      setShiftExpenses(combinedExpenses)
+    } catch (error) {
+      console.error('❌ POS - Error loading shift data:', error)
+      setShiftOrders([])
+      setShiftExpenses([])
+    } finally {
+      loadingShiftClosing.current = false
+    }
+  }, [daySession])
+
+  useEffect(() => {
+    const timer = window.setTimeout(loadShiftData, 0)
+    const interval = window.setInterval(loadShiftData, 60000)
     return () => {
-      active = false
+      window.clearTimeout(timer)
       window.clearInterval(interval)
     }
-  }, [])
+  }, [loadShiftData])
 
   useEffect(() => {
     let active = true
-    const initialStatus = readOfflineStatus()
-    setIsOnline(initialStatus.isOnline)
-
     const unsubscribe = onOnlineStatusChange((onlineStatus) => {
       if (active) {
         setIsOnline(onlineStatus)
@@ -344,7 +310,7 @@ export default function DashboardPosPage() {
       active = false
       unsubscribe()
     }
-  }, [])
+  }, [isArabic])
 
   useEffect(() => {
     let active = true
@@ -384,7 +350,7 @@ export default function DashboardPosPage() {
     }
 
     loadCustomers()
-    const interval = window.setInterval(loadCustomers, 30000)
+    const interval = window.setInterval(loadCustomers, 120000)
     return () => {
       active = false
       window.clearInterval(interval)
@@ -394,15 +360,83 @@ export default function DashboardPosPage() {
   const handleDaySessionToggle = async () => {
     if (daySession.isOpen) {
       const closedAt = new Date().toISOString()
-      const nextSession: PosDaySession = { ...daySession, isOpen: false, closedAt }
-      savePosDaySession(nextSession)
+      const nextSession: ShiftSession = { ...daySession, isOpen: false, closedAt }
+      saveShiftSession(nextSession)
       setDaySession(nextSession)
-      setMessage(isArabic ? 'تم إغلاق اليوم الحالي.' : 'The current day has been closed.')
-      setDailyClosingPrinting(true)
+      // Clear visible shift data immediately after closing so the UI resets
+      setShiftOrders([])
+      setShiftExpenses([])
+      setMessage(isArabic ? 'تم إغلاق الوردية الحالية.' : 'The current shift has been closed.')
+      setShiftClosingPrinting(true)
+      if (typeof window !== 'undefined' && daySession.shiftId) {
+        const payload = { shiftId: daySession.shiftId, action: 'close', closedAt }
+        if (window.navigator.onLine) {
+          try {
+            await fetch('/api/shifts', {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            })
+          } catch {
+            queueOfflineAction({ type: 'close-shift', payload })
+          }
+        } else {
+          queueOfflineAction({ type: 'close-shift', payload })
+        }
+      }
       try {
-        await printPosDailyClosing({
-          orders: dailyOrders,
-          expenses: dailyExpenses,
+        const { saveClosing, readClosings } = await import('@/lib/closings')
+        const previousClosings = readClosings()
+        const settledOrderIds = new Set(previousClosings.flatMap(c => c.orders?.map(o => o.id) || []));
+        const settledExpenseIds = new Set(previousClosings.flatMap(c => c.expenses?.map(e => e.id) || []));
+
+        const shiftId = daySession.shiftId
+        const closingRangeStart = daySession.openedAt
+        const closingRangeEnd = closedAt
+        console.log('🔍 Starting shift closing fetch...', { shiftId, previousClosingsCount: previousClosings.length, closingRangeStart, closingRangeEnd });
+        
+        const [ordersResponse, expensesResponse] = await Promise.all([
+          fetch(`/api/pos/orders?limit=9999`, { cache: 'no-store' }),
+          fetch(`/api/expenses`, { cache: 'no-store' }),
+        ]);
+
+        const ordersData = await ordersResponse.json().catch((err) => { console.error('❌ Error parsing orders:', err); return {}; });
+        const expensesData = await expensesResponse.json().catch((err) => { console.error('❌ Error parsing expenses:', err); return {}; });
+
+        const allOrders = Array.isArray(ordersData.orders) ? ordersData.orders : [];
+        const allExpenses = Array.isArray(expensesData.expenses) ? expensesData.expenses : [];
+        
+        console.log('📦 Closing shift - fetched data:', { allOrdersCount: allOrders.length, allExpensesCount: allExpenses.length, shiftId });
+        
+        const ordersForClosing = allOrders.filter((o: TrackedOrder) => {
+          if (settledOrderIds.has(o.id) || o.status === 'cancelled') return false;
+          const matchesCurrentShift = o.shiftId === shiftId;
+          const createdDuringSession = isItemWithinDateRange(o.createdAt, closingRangeStart, closingRangeEnd, { includeSameDayBeforeStart: true });
+          const isLegacyOutsideShift = !o.shiftId;
+          const include = matchesCurrentShift || isLegacyOutsideShift || createdDuringSession;
+          if (include) {
+            console.log(`  ✅ Order ${o.id}: currentShift=${matchesCurrentShift}, legacyOutsideShift=${isLegacyOutsideShift}, createdDuringSession=${createdDuringSession}, shiftId=${o.shiftId}`);
+          }
+          return include;
+        });
+
+        const expensesForClosing = allExpenses.filter((e: Expense) => {
+          if (settledExpenseIds.has(e.id)) return false;
+          const matchesCurrentShift = e.shiftId === shiftId;
+          const createdDuringSession = isItemWithinDateRange(e.date, closingRangeStart, closingRangeEnd, { includeSameDayBeforeStart: true });
+          const isLegacyOutsideShift = !e.shiftId;
+          const include = matchesCurrentShift || isLegacyOutsideShift || createdDuringSession;
+          if (include) {
+            console.log(`  ✅ Expense ${e.id}: currentShift=${matchesCurrentShift}, legacyOutsideShift=${isLegacyOutsideShift}, createdDuringSession=${createdDuringSession}, shiftId=${e.shiftId}`);
+          }
+          return include;
+        });
+
+        console.log('💾 Closing shift - filtered data:', { ordersForClosing: ordersForClosing.length, expensesForClosing: expensesForClosing.length });
+
+        await printPosShiftClosing({
+          orders: ordersForClosing,
+          expenses: expensesForClosing,
           isArabic,
           currency,
           paymentLabels: posPaymentLabels,
@@ -411,45 +445,92 @@ export default function DashboardPosPage() {
           rangeStart: daySession.openedAt,
           rangeEnd: closedAt,
         })
-        // persist closing summary
-        try {
-          const { saveClosing } = await import('@/lib/closings')
-          const salesWithoutDelivery = dailyOrders.filter(o => o.status !== 'cancelled' && isOrderWithinRange(o.createdAt, daySession.openedAt, closedAt)).reduce((s, o) => {
+        
+        const salesWithoutDelivery = ordersForClosing.reduce((s: number, o: TrackedOrder) => {
             return s + (typeof o.subtotal === 'number' && Number.isFinite(o.subtotal) ? Number(o.subtotal) : Math.max(0, Number(o.total || 0) - Number(o.deliveryFee || 0)))
-          }, 0)
-          const uncollectedTotal = dailyOrders.filter(o => o.payment?.status === 'cash_on_delivery' && isOrderWithinRange(o.createdAt, daySession.openedAt, closedAt)).reduce((s, o) => s + Number(o.total || 0), 0)
-          const otherPaymentsTotal = dailyOrders.filter(o => ['vodafone_cash', 'instapay'].includes(String(o.payment?.method || '')) && isOrderWithinRange(o.createdAt, daySession.openedAt, closedAt)).reduce((s, o) => s + Number(o.total || 0), 0)
-          const record: ClosingRecord = {
+        }, 0)
+        const uncollectedTotal = ordersForClosing.filter((o: TrackedOrder) => o.payment?.status === 'cash_on_delivery').reduce((s: number, o: TrackedOrder) => s + Number(o.total || 0), 0)
+        const otherPaymentsTotal = ordersForClosing.filter((o: TrackedOrder) => ['vodafone_cash', 'instapay'].includes(String(o.payment?.method || '').toLowerCase())).reduce((s: number, o: TrackedOrder) => s + Number(o.total || 0), 0)
+        const expensesTotal = expensesForClosing.reduce((s: number, e: Expense) => s + Number(e.amount || 0), 0)
+        const drawerNet = salesWithoutDelivery - expensesTotal
+
+        const record: ClosingRecord = {
             id: `CLOSE-${Date.now()}`,
-            type: 'daily',
+            type: 'shift',
             openedAt: daySession.openedAt,
             closedAt,
-            ordersCount: dailyOrders.length,
+            ordersCount: ordersForClosing.length,
             salesWithoutDelivery,
-            expensesTotal: dailyExpenses.reduce((s, e) => s + Number(e.amount || 0), 0),
+            expensesTotal,
             uncollectedTotal,
             otherPaymentsTotal,
-            drawerNet: sessionDrawerNet,
+            drawerNet,
+            shiftId: daySession.shiftId,
             currency,
-          }
-          saveClosing(record)
-        } catch (err) {
-          console.warn('Could not persist closing', err)
+            orders: ordersForClosing,
+            expenses: expensesForClosing,
         }
+        
+        console.log('📝 [POS] Closing record data:', {
+          id: record.id,
+          ordersCount: ordersForClosing.length,
+          expensesCount: expensesForClosing.length,
+          salesWithoutDelivery: record.salesWithoutDelivery,
+          expensesTotal: record.expensesTotal,
+          drawerNet: record.drawerNet,
+          shiftId: record.shiftId,
+        });
+        
+        // Verify orders and expenses have data
+        if (ordersForClosing.length > 0) {
+          console.log('✅ [POS] Sample orders:', ordersForClosing.slice(0, 2).map((o: TrackedOrder) => ({ id: o.id, total: o.total, shiftId: o.shiftId })));
+        } else {
+          console.warn('⚠️ [POS] No orders found for closing');
+        }
+        
+        if (expensesForClosing.length > 0) {
+          console.log('✅ [POS] Sample expenses:', expensesForClosing.slice(0, 2).map((e: Expense) => ({ id: e.id, amount: e.amount, shiftId: e.shiftId })));
+        } else {
+          console.warn('⚠️ [POS] No expenses found for closing');
+        }
+        
+        saveClosing(record)
+      } catch (err) {
+        console.warn('Could not persist closing', err)
       } finally {
-        setDailyClosingPrinting(false)
+        setShiftClosingPrinting(false)
       }
       return
     }
 
-    const nextSession: PosDaySession = { isOpen: true, openedAt: new Date().toISOString(), closedAt: null }
-    savePosDaySession(nextSession)
+    const nextSession: ShiftSession = { isOpen: true, openedAt: new Date().toISOString(), closedAt: null, shiftId: `SHIFT-${Date.now()}` }
+    saveShiftSession(nextSession)
     setDaySession(nextSession)
+    setLines([])
+    setShiftOrders([])
+    setShiftExpenses([])
     setInventoryRangeStart(getDateInputValue(new Date().toISOString()))
     setInventoryRangeEnd(getDateInputValue(new Date().toISOString()))
     setDriverClosingRangeStart(getDateInputValue(new Date().toISOString()))
     setDriverClosingRangeEnd(getDateInputValue(new Date().toISOString()))
-    setMessage(isArabic ? 'تم فتح يوم جديد.' : 'A new day has been opened.')
+    setMessage(isArabic ? 'تم فتح وردية جديدة.' : 'A new shift has been opened.')
+
+    if (typeof window !== 'undefined') {
+      const payload = { shiftId: nextSession.shiftId, title: `Shift ${nextSession.shiftId}`, startedAt: nextSession.openedAt, openedAt: nextSession.openedAt, opensAt: nextSession.openedAt }
+      if (window.navigator.onLine) {
+        try {
+          await fetch('/api/shifts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+        } catch {
+          queueOfflineAction({ type: 'create-shift', payload })
+        }
+      } else {
+        queueOfflineAction({ type: 'create-shift', payload })
+      }
+    }
   }
 
   const addProduct = (productId: string) => {
@@ -597,6 +678,9 @@ export default function DashboardPosPage() {
       }
       const requestPayload = {
         source: 'restaurant_pos',
+        shiftId: daySession.shiftId,
+        shiftOpenedAt: daySession.openedAt,
+        createdAt: new Date().toISOString(),
         customer: { name: customer.name, phone: customer.phone, address: orderAddress },
         driver: orderType === 'delivery' && selectedDriver
           ? { name: selectedDriver.name, email: selectedDriver.email || '', phone: selectedDriver.phone, rating: 0 }
@@ -630,7 +714,10 @@ export default function DashboardPosPage() {
         try {
           const response = await fetch('/api/pos/orders', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'x-shift-id': daySession.shiftId || '',
+            },
             body: JSON.stringify(requestPayload),
           })
           data = await response.json().catch(() => ({}))
@@ -647,13 +734,22 @@ export default function DashboardPosPage() {
           amount: total,
           note: isArabic ? `خصم قيمة طلب العميل ${customer.name}` : `Discount for customer order ${customer.name}`,
           date: new Date().toISOString(),
+          shiftId: daySession.shiftId,
+          shiftOpenedAt: daySession.openedAt,
         }
         const expenseRequest = { type: 'create-expense' as const, payload: expensePayload }
         if (!window.navigator.onLine) {
           queueOfflineAction(expenseRequest)
         } else {
           // Fire and forget
-          fetch('/api/expenses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(expensePayload) }).catch(() => queueOfflineAction(expenseRequest))
+          fetch('/api/expenses', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-shift-id': daySession.shiftId || '',
+            },
+            body: JSON.stringify(expensePayload),
+          }).catch(() => queueOfflineAction(expenseRequest))
         }
       }
       if (customer.name.trim() || customer.phone.trim()) {
@@ -669,6 +765,11 @@ export default function DashboardPosPage() {
       }
       setMessage(isArabic ? `تم البيع وإنشاء الطلب: ${data.order?.id || ''}` : `Sale completed and order created: ${data.order?.id || ''}`)
       syncPrinterManagerSettings(settings.printers)
+      
+      // Reload shift data to show newly created order immediately
+      setTimeout(() => {
+        loadShiftData()
+      }, 500)
       const receiptPayload = {
         orderId: data.order?.id || '',
         orderType: orderTypeLabel,
@@ -763,10 +864,33 @@ export default function DashboardPosPage() {
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950">
         <div>
           <h2 className="text-xl font-bold">{isArabic ? 'نقطة البيع' : 'Point of Sale'}</h2>
-            <p className="text-sm text-slate-500">{isArabic ? 'انتقل إلى صفحات التقفيل الحديثة لإدارة التسويات اليومية والسائقين.' : 'Move to the modern closing pages to manage daily and driver settlements.'}</p>
-          </div>
-          
+          <p className="text-sm text-slate-500">{isArabic ? 'انتقل إلى صفحات التقفيل الحديثة لإدارة التسويات الوردية والسائقين.' : 'Move to the modern closing pages to manage shift and driver settlements.'}</p>
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950">
+        <div className="rounded-md bg-slate-50 px-3 py-2 text-sm dark:bg-slate-900">
+          <span className="font-semibold">{daySession.isOpen ? (isArabic ? 'وردية مفتوحة' : 'Open shift') : (isArabic ? 'وردية مغلقة' : 'Closed shift')}</span>
+          <span className="mx-2 text-slate-400">|</span>
+          <span>{sessionOrders.length} {isArabic ? 'طلب' : 'orders'}</span>
+          <span className="mx-2 text-slate-400">|</span>
+          <span>{sessionExpenses.length} {isArabic ? 'مصروف' : 'expenses'}</span>
+          {showFinancialSummary && (
+            <>
+              <span className="mx-2 text-slate-400">|</span>
+              <span>{sessionRevenue.toFixed(2)} {currency}</span>
+            </>
+          )}
+        </div>
+        {showFinancialSummary && (
+          <div className="rounded-md bg-slate-50 px-3 py-2 text-sm font-semibold dark:bg-slate-900">
+            {isArabic ? 'صافي الوردية' : 'Shift net'}: {sessionDrawerNet.toFixed(2)} {currency}
+          </div>
+        )}
+        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+          {isArabic ? 'الإدارة من صفحة تقفيل الورديه' : 'Managed from the shift closing page'}
+        </div>
+      </div>
 
       <div className="grid gap-3 md:grid-cols-2">
       <Card>
@@ -1226,7 +1350,7 @@ export default function DashboardPosPage() {
                 <Button
                   type="button"
                   className="gap-2 bg-red-600 hover:bg-red-700"
-                  onClick={() => printPosDriverClosing({ orders: dailyOrders, isArabic, currency, settings, setMessage, rangeStart: driverClosingRange.start, rangeEnd: driverClosingRange.end })}
+                  onClick={() => printPosDriverClosing({ orders: shiftOrders, isArabic, currency, settings, setMessage, rangeStart: driverClosingRange.start, rangeEnd: driverClosingRange.end })}
                 >
                   <Printer className="h-4 w-4" />
                   {isArabic ? 'طباعة' : 'Print'}
@@ -1255,7 +1379,7 @@ export default function DashboardPosPage() {
 
               {driverClosingGroups.length === 0 ? (
                 <div className="rounded-md bg-slate-50 p-6 text-center text-sm text-slate-500 dark:bg-slate-900">
-                  {isArabic ? 'لا توجد طلبات دفع عند الاستلام معيّنة لسائقين اليوم.' : 'No assigned cash-on-delivery orders for drivers today.'}
+                  {isArabic ? 'لا توجد طلبات دفع عند الاستلام معيّنة لسائقين في هذه الوردية.' : 'No assigned cash-on-delivery orders for drivers in this shift.'}
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -1317,7 +1441,7 @@ async function printPosDriverClosing({
   rangeEnd: string
 }) {
   const today = new Date()
-  const dayOrders = orders.filter((order) => isOrderWithinRange(order.createdAt, rangeStart, rangeEnd))
+  const dayOrders = orders.filter((order) => isItemWithinDateRange(order.createdAt, rangeStart, rangeEnd, { includeSameDayBeforeStart: true }))
   const cashierPrinter = settings.printers.cashier
   if (!cashierPrinter?.isEnabled) {
     setMessage(isArabic ? 'فعّل طابعة الكاشير من الإعدادات قبل طباعة تقفيل السائقين.' : 'Enable the cashier printer in settings before printing the driver closing.')
@@ -1347,7 +1471,7 @@ async function printPosDriverClosing({
   }
 }
 
-async function printPosDailyClosing({
+async function printPosShiftClosing({
   orders,
   expenses,
   isArabic,
@@ -1369,8 +1493,12 @@ async function printPosDailyClosing({
   rangeEnd: string
 }) {
   const today = new Date()
-  const dayOrders = orders.filter((order) => order.status !== 'cancelled' && isOrderWithinRange(order.createdAt, rangeStart, rangeEnd))
-  const dayExpenses = expenses.filter((expense) => isOrderWithinRange(expense.date, rangeStart, rangeEnd))
+  const dayOrders = orders.filter((order) => {
+    if (order.status === 'cancelled') return false
+    if (!order.shiftId) return true
+    return isItemWithinDateRange(order.createdAt, rangeStart, rangeEnd, { includeSameDayBeforeStart: true })
+  })
+  const dayExpenses = expenses.filter((expense) => !expense.shiftId || isItemWithinDateRange(expense.date, rangeStart, rangeEnd, { includeSameDayBeforeStart: true }))
   const revenue = dayOrders.reduce((sum, order) => sum + Number(order.total || 0), 0)
   const expenseTotal = dayExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0)
   const net = revenue - expenseTotal
@@ -1381,14 +1509,14 @@ async function printPosDailyClosing({
   }, {})
   const cashierPrinter = settings.printers.cashier
   if (!cashierPrinter?.isEnabled) {
-    setMessage(isArabic ? 'فعّل طابعة الكاشير من الإعدادات قبل طباعة تقفيل اليوم.' : 'Enable the cashier printer in settings before printing the daily closing.')
+    setMessage(isArabic ? 'فعّل طابعة الكاشير من الإعدادات قبل طباعة تقفيل الوردية.' : 'Enable the cashier printer in settings before printing the shift closing.')
     return
   }
 
   syncPrinterManagerSettings(settings.printers)
   try {
     const result = await printerManager.printCashierReceipt(createClosingReceiptPayload({
-      title: isArabic ? 'تقفيل يومي - نقطة البيع' : 'Daily Closing - POS',
+      title: isArabic ? 'تقفيل الوردية - نقطة البيع' : 'Shift Closing - POS',
       dateLabel: today.toISOString().slice(0, 10),
       orders: dayOrders,
       expenses: dayExpenses,
@@ -1405,12 +1533,12 @@ async function printPosDailyClosing({
       logoUrl: settings.invoiceLogo,
     })) as { skipped?: boolean; reason?: string }
     if (result?.skipped) {
-      setMessage(result.reason || (isArabic ? 'لم يتم إرسال التقفيل لأن الطابعة غير مكتملة الإعداد.' : 'Closing report was not sent because the printer is not fully configured.'))
+      setMessage(result.reason || (isArabic ? 'لم يتم إرسال تقفيل الوردية لأن الطابعة غير مكتملة الإعداد.' : 'Shift closing report was not sent because the printer is not fully configured.'))
       return
     }
-    setMessage(isArabic ? 'تم إرسال تقفيل اليوم إلى طابعة الكاشير.' : 'Daily closing sent to the cashier printer.')
+    setMessage(isArabic ? 'تم إرسال تقفيل الوردية إلى طابعة الكاشير.' : 'Shift closing sent to the cashier printer.')
   } catch (error) {
-    setMessage(error instanceof Error ? error.message : (isArabic ? 'تعذر طباعة تقفيل اليوم.' : 'Could not print the daily closing.'))
+    setMessage(error instanceof Error ? error.message : (isArabic ? 'تعذر طباعة تقفيل الوردية.' : 'Could not print the shift closing.'))
   }
 }
 

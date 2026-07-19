@@ -140,3 +140,104 @@ export function hasPermission(
   // Check if the role has the specific permission.
   return userPermissions.includes(permission);
 }
+
+// ============ SPECIFIC PERMISSION CHECKS ============
+
+/**
+ * Check if a role can view the dashboard
+ */
+export function canViewDashboard(role: string | null | undefined): boolean {
+  return hasPermission(role as UserRole, Permission.DASHBOARD_VIEW) || role === 'admin' || role === 'super_admin';
+}
+
+/**
+ * Check if a role can manage orders (edit, update status)
+ */
+export function canManageOrders(role: string | null | undefined): boolean {
+  return role === 'super_admin' || role === 'admin' || role === 'cashier';
+}
+
+/**
+ * Check if a role can delete orders (only super_admin and admin)
+ * This is the only permission needed to delete ANY order regardless of status
+ */
+export function canDeleteOrders(role: string | null | undefined): boolean {
+  return role === 'super_admin' || role === 'admin';
+}
+
+/**
+ * Check if a role can use the POS system
+ */
+export function canUsePOS(role: string | null | undefined): boolean {
+  return hasPermission(role as UserRole, Permission.POS_USE) || role === 'cashier' || role === 'admin' || role === 'super_admin';
+}
+
+/**
+ * Check if a role can manage customers
+ */
+export function canManageCustomers(role: string | null | undefined): boolean {
+  return hasPermission(role as UserRole, Permission.CUSTOMERS_MANAGE) || role === 'admin' || role === 'super_admin';
+}
+
+/**
+ * Check if a role can view customers
+ */
+export function canViewCustomers(role: string | null | undefined): boolean {
+  return canManageCustomers(role) || hasPermission(role as UserRole, Permission.CUSTOMERS_VIEW) || role === 'support';
+}
+
+/**
+ * Check if a role can manage products
+ */
+export function canManageProducts(role: string | null | undefined): boolean {
+  return hasPermission(role as UserRole, Permission.PRODUCTS_MANAGE) || role === 'manager' || role === 'supervisor' || role === 'admin' || role === 'super_admin';
+}
+
+/**
+ * Check if a role can manage discounts
+ */
+export function canManageDiscounts(role: string | null | undefined): boolean {
+  return hasPermission(role as UserRole, Permission.DISCOUNTS_MANAGE) || role === 'manager' || role === 'supervisor' || role === 'admin' || role === 'super_admin';
+}
+
+/**
+ * Check if a role can manage expenses
+ */
+export function canManageExpenses(role: string | null | undefined): boolean {
+  return hasPermission(role as UserRole, Permission.EXPENSES_MANAGE) || role === 'cashier' || role === 'admin' || role === 'super_admin';
+}
+
+/**
+ * Check if a role can perform cashier closeout
+ */
+export function canPerformCashierCloseout(role: string | null | undefined): boolean {
+  return hasPermission(role as UserRole, Permission.CASHIER_CLOSEOUT) || role === 'cashier' || role === 'admin' || role === 'super_admin';
+}
+
+/**
+ * Check if a role can perform driver closeout
+ */
+export function canPerformDriverCloseout(role: string | null | undefined): boolean {
+  return hasPermission(role as UserRole, Permission.DRIVERS_CLOSEOUT) || role === 'cashier' || role === 'admin' || role === 'super_admin';
+}
+
+/**
+ * Check if a role can view financial reports
+ */
+export function canViewFinancialReports(role: string | null | undefined): boolean {
+  return hasPermission(role as UserRole, Permission.REPORTS_VIEW_FINANCIAL) || role === 'manager' || role === 'admin' || role === 'super_admin';
+}
+
+/**
+ * Check if a role can manage team members
+ */
+export function canManageTeam(role: string | null | undefined): boolean {
+  return hasPermission(role as UserRole, Permission.TEAM_MANAGE) || role === 'manager' || role === 'admin' || role === 'super_admin';
+}
+
+/**
+ * Check if a role can manage system settings
+ */
+export function canManageSettings(role: string | null | undefined): boolean {
+  return hasPermission(role as UserRole, Permission.SETTINGS_MANAGE) || role === 'manager' || role === 'admin' || role === 'super_admin';
+}
