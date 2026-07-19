@@ -54,10 +54,10 @@ export default function DriverClosingPage() {
   const [settlingOrderId, setSettlingOrderId] = useState<string | null>(null)
   const [collectedOrderIds, setCollectedOrderIds] = useState<Set<string>>(new Set())
   const [message, setMessage] = useState('')
-  const [rangeStart, setRangeStart] = useState(() => getDateInputValue(new Date()))
-  const [rangeEnd, setRangeEnd] = useState(() => getDateInputValue(new Date()))
-  const [modalRangeStart, setModalRangeStart] = useState(() => getDateInputValue(new Date()))
-  const [modalRangeEnd, setModalRangeEnd] = useState(() => getDateInputValue(new Date()))
+  const [rangeStart, setRangeStart] = useState('')
+  const [rangeEnd, setRangeEnd] = useState('')
+  const [modalRangeStart, setModalRangeStart] = useState('')
+  const [modalRangeEnd, setModalRangeEnd] = useState('')
   const [daySession, setDaySession] = useShiftSession()
   const loadingRef = useRef(false)
   const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set())
@@ -96,16 +96,24 @@ export default function DriverClosingPage() {
   // daySession is kept in sync via `useShiftSession` hook
 
   const sessionRange = useMemo(() => getShiftSessionDateRange(daySession), [daySession])
-  const selectedRange = useMemo(() => getDateRangeFromInputs(rangeStart, rangeEnd, sessionRange.start, sessionRange.end), [rangeEnd, rangeStart, sessionRange.end, sessionRange.start])
+  const visibleRangeStart = rangeStart || sessionRange.start.slice(0, 10)
+  const visibleRangeEnd = rangeEnd || sessionRange.end.slice(0, 10)
+  const selectedRange = useMemo(() => getDateRangeFromInputs(visibleRangeStart, visibleRangeEnd, sessionRange.start, sessionRange.end), [sessionRange.end, sessionRange.start, visibleRangeEnd, visibleRangeStart])
   const previousClosings = useMemo(() => readClosings(), [daySession])
   const settledOrderIds = useMemo(() => new Set(previousClosings.flatMap((closing) => closing.orders?.map((order) => order.id) || [])), [previousClosings])
 
   const visibleOrders = useMemo(() => {
     return orders.filter((order) => {
       if (settledOrderIds.has(order.id) || order.status === 'cancelled') return false
-      return isOrderWithinRange(order.createdAt, selectedRange.start, selectedRange.end)
+
+      const matchesShift = daySession.shiftId ? order.shiftId === daySession.shiftId : false
+      const legacyWithinShiftWindow = !order.shiftId && isOrderWithinRange(order.createdAt, sessionRange.start, sessionRange.end)
+      const inShiftScope = matchesShift || legacyWithinShiftWindow
+      const inSelectedRange = isOrderWithinRange(order.createdAt, selectedRange.start, selectedRange.end)
+
+      return inShiftScope && inSelectedRange
     })
-  }, [orders, selectedRange.end, selectedRange.start, settledOrderIds])
+  }, [daySession.shiftId, orders, selectedRange.end, selectedRange.start, sessionRange.end, sessionRange.start, settledOrderIds])
 
   const driverGroups = useMemo(() => {
     const groups = getDriverClosingGroups(visibleOrders)
@@ -117,8 +125,8 @@ export default function DriverClosingPage() {
   const openDriverModal = (group: DriverClosingGroup) => {
     setSelectedGroup(group)
     setModalSearch('')
-    setModalRangeStart(rangeStart)
-    setModalRangeEnd(rangeEnd)
+    setModalRangeStart(visibleRangeStart)
+    setModalRangeEnd(visibleRangeEnd)
     setExpandedOrders(new Set())
   }
 
@@ -170,11 +178,13 @@ export default function DriverClosingPage() {
   }
   
   const modalDateRange = useMemo(() => {
-    const start = new Date(`${modalRangeStart}T00:00:00`)
-    const end = new Date(`${modalRangeEnd}T23:59:59.999`)
+    const effectiveStart = modalRangeStart || sessionRange.start.slice(0, 10)
+    const effectiveEnd = modalRangeEnd || sessionRange.end.slice(0, 10)
+    const start = new Date(`${effectiveStart}T00:00:00`)
+    const end = new Date(`${effectiveEnd}T23:59:59.999`)
     if (start > end) return { start: end.toISOString(), end: start.toISOString() }
     return { start: start.toISOString(), end: end.toISOString() }
-  }, [modalRangeStart, modalRangeEnd])
+  }, [modalRangeEnd, modalRangeStart, sessionRange.end, sessionRange.start])
 
   const filteredModalOrders = useMemo(() => {
     if (!selectedGroup) return []
@@ -253,11 +263,11 @@ export default function DriverClosingPage() {
       <div className="grid gap-4 rounded-md border p-4 dark:border-slate-800 md:grid-cols-2">
         <label className="space-y-1">
           <span className="text-sm font-medium">{isArabic ? 'من تاريخ' : 'From Date'}</span>
-          <Input type="date" value={rangeStart} onChange={(e) => setRangeStart(e.target.value)} />
+          <Input type="date" value={visibleRangeStart} onChange={(e) => setRangeStart(e.target.value)} />
         </label>
         <label className="space-y-1">
           <span className="text-sm font-medium">{isArabic ? 'إلى تاريخ' : 'To Date'}</span>
-          <Input type="date" value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} />
+          <Input type="date" value={visibleRangeEnd} onChange={(e) => setRangeEnd(e.target.value)} />
         </label>
       </div>
       {/* Search */}
@@ -350,11 +360,11 @@ export default function DriverClosingPage() {
               <div className="grid gap-4 rounded-md border p-4 dark:border-slate-700 md:grid-cols-2">
                 <label className="space-y-1">
                   <span className="text-sm font-medium">{isArabic ? 'عرض الطلبات من' : 'Show orders from'}</span>
-                  <Input type="date" value={modalRangeStart} onChange={(e) => setModalRangeStart(e.target.value)} />
+                  <Input type="date" value={modalRangeStart || sessionRange.start.slice(0, 10)} onChange={(e) => setModalRangeStart(e.target.value)} />
                 </label>
                 <label className="space-y-1">
                   <span className="text-sm font-medium">{isArabic ? 'إلى' : 'To'}</span>
-                  <Input type="date" value={modalRangeEnd} onChange={(e) => setModalRangeEnd(e.target.value)} />
+                  <Input type="date" value={modalRangeEnd || sessionRange.end.slice(0, 10)} onChange={(e) => setModalRangeEnd(e.target.value)} />
                 </label>
               </div>
 
