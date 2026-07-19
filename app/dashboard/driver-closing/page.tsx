@@ -40,11 +40,13 @@ export default function DriverClosingPage() {
   const [settlingOrderId, setSettlingOrderId] = useState<string | null>(null)
   const [collectedOrderIds, setCollectedOrderIds] = useState<Set<string>>(new Set())
   const [message, setMessage] = useState('')
-  const [rangeStart, setRangeStart] = useState(() => getDateInputValue(new Date()))
-  const [rangeEnd, setRangeEnd] = useState(() => getDateInputValue(new Date()))
-  const [modalRangeStart, setModalRangeStart] = useState(() => getDateInputValue(new Date()))
-  const [modalRangeEnd, setModalRangeEnd] = useState(() => getDateInputValue(new Date()))
-  const [daySession, setDaySession] = useState<PosDaySession>(() => loadPosDaySession())
+  // Align date filters with the saved POS session so driver closing shows the same orders as saved closings
+  const initialSession = loadPosDaySession()
+  const [rangeStart, setRangeStart] = useState(() => getDateInputValue(new Date(initialSession.openedAt)))
+  const [rangeEnd, setRangeEnd] = useState(() => getDateInputValue(new Date(initialSession.isOpen ? new Date().toISOString() : initialSession.closedAt || initialSession.openedAt)))
+  const [modalRangeStart, setModalRangeStart] = useState(() => getDateInputValue(new Date(initialSession.openedAt)))
+  const [modalRangeEnd, setModalRangeEnd] = useState(() => getDateInputValue(new Date(initialSession.isOpen ? new Date().toISOString() : initialSession.closedAt || initialSession.openedAt)))
+  const [daySession, setDaySession] = useState<PosDaySession>(() => initialSession)
   const loadingRef = useRef(false)
   const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set())
 
@@ -325,7 +327,7 @@ export default function DriverClosingPage() {
                     <User className="h-6 w-6 text-slate-500" />
                   </div>
                   <div className="flex-1">
-                    <p className="font-semibold text-lg">{group.name}</p>
+                    <p className="font-semibold text-lg">{group.key === '__unassigned__' ? (isArabic ? 'غير معين' : 'Unassigned') : group.name}</p>
                     <p className="text-sm text-slate-500">{group.phone}</p>
                   </div>
                 </div>
@@ -360,7 +362,7 @@ export default function DriverClosingPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <Card className="w-full max-w-4xl max-h-[90vh] overflow-y-auto flex flex-col">
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>{selectedGroup.name}</CardTitle>
+              <CardTitle>{selectedGroup.key === '__unassigned__' ? (isArabic ? 'غير معين' : 'Unassigned') : selectedGroup.name}</CardTitle>
               <Button variant="ghost" size="sm" onClick={() => setSelectedGroup(null)}>
                 <X className="h-4 w-4" />
               </Button>

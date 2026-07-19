@@ -71,9 +71,11 @@ export default function DailyClosingPage() {
   const currency = isArabic ? CURRENCY : CURRENCY_EN
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [printStatus, setPrintStatus] = useState('')
-  const [rangeStart, setRangeStart] = useState(() => getDateInputValue(new Date()))
-  const [rangeEnd, setRangeEnd] = useState(() => getDateInputValue(new Date()))
-  const [daySession, setDaySession] = useState<PosDaySession>(() => loadPosDaySession())
+  // Default date inputs align with the persisted POS day session so the UI reflects the active shift by default
+  const initialSession = loadPosDaySession()
+  const [rangeStart, setRangeStart] = useState(() => getDateInputValue(new Date(initialSession.openedAt)))
+  const [rangeEnd, setRangeEnd] = useState(() => getDateInputValue(new Date(initialSession.isOpen ? new Date().toISOString() : initialSession.closedAt || initialSession.openedAt)))
+  const [daySession, setDaySession] = useState<PosDaySession>(() => initialSession)
 
   const sessionRange = useMemo(() => getSessionDateRange(daySession), [daySession])
 

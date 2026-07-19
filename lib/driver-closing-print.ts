@@ -54,12 +54,13 @@ export function getDriverClosingAmount(order: TrackedOrder) {
 export function getDriverClosingGroups(orders: TrackedOrder[]): DriverClosingGroup[] {
   const groups = new Map<string, DriverClosingGroup>()
   for (const order of orders) {
-    if (order.status === 'cancelled' || !driverAssigned(order)) continue
-    const key = driverKey(order)
+    if (order.status === 'cancelled') continue
+    const assigned = driverAssigned(order)
+    const key = assigned ? driverKey(order) : '__unassigned__'
     const current = groups.get(key) || {
       key,
-      name: order.driver.name,
-      phone: order.driver.phone || '-',
+      name: assigned ? (order.driver?.name || 'Driver') : 'Unassigned',
+      phone: assigned ? (order.driver?.phone || '-') : '-',
       orders: [],
       total: 0,
       appTotal: 0,

@@ -44,13 +44,7 @@ type PosCustomer = {
   address?: string
 }
 
-type PosDaySession = {
-  isOpen: boolean
-  openedAt: string
-  closedAt: string | null
-}
-
-const POS_DAY_SESSION_STORAGE_KEY = 'baseeta-pos-day-session-v1'
+import { getSessionDateRange, loadPosDaySession, savePosDaySession, type PosDaySession } from '@/lib/pos-day-session'
 
 const ORDER_TYPE_LABELS: Record<PosOrderType, { ar: string; en: string }> = {
   dine_in: { ar: 'داخل المطعم', en: 'Dine in' },
@@ -75,39 +69,6 @@ const NOTE_OPTIONS = [
   { ar: 'خيار زيادة', en: 'Extra pickles' },
   { ar: 'أخرى', en: 'Other' },
 ]
-
-function loadPosDaySession(): PosDaySession {
-  if (typeof window === 'undefined') {
-    return { isOpen: true, openedAt: new Date().toISOString(), closedAt: null }
-  }
-
-  try {
-    const raw = window.localStorage.getItem(POS_DAY_SESSION_STORAGE_KEY)
-    if (!raw) {
-      const initial = { isOpen: true, openedAt: new Date().toISOString(), closedAt: null } satisfies PosDaySession
-      window.localStorage.setItem(POS_DAY_SESSION_STORAGE_KEY, JSON.stringify(initial))
-      return initial
-    }
-
-    const parsed = JSON.parse(raw) as Partial<PosDaySession>
-    if (typeof parsed?.openedAt === 'string') {
-      return {
-        isOpen: parsed.isOpen !== false,
-        openedAt: parsed.openedAt,
-        closedAt: typeof parsed.closedAt === 'string' ? parsed.closedAt : null,
-      }
-    }
-  } catch {
-    // ignore storage issues and fall back to a fresh session
-  }
-
-  return { isOpen: true, openedAt: new Date().toISOString(), closedAt: null }
-}
-
-function savePosDaySession(session: PosDaySession) {
-  if (typeof window === 'undefined') return
-  window.localStorage.setItem(POS_DAY_SESSION_STORAGE_KEY, JSON.stringify(session))
-}
 
 function isOrderWithinRange(orderDate: string | undefined, start: string, end: string) {
   const startDate = new Date(start)
