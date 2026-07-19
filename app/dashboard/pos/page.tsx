@@ -15,6 +15,7 @@ import { TrackedOrder } from '@/lib/order-tracking'
 import { printerManager, syncPrinterManagerSettings } from '@/lib/printer'
 import { createClosingReceiptPayload } from '@/lib/closing-print'
 import { createDriverClosingReceiptPayload, getDriverClosingGroups } from '@/lib/driver-closing-print'
+import { type ClosingRecord } from '@/lib/closings'
 import { queueOfflineAction, syncOfflineQueue } from '@/lib/offline-queue'
 import { onOnlineStatusChange, readOfflineStatus } from '@/lib/offline-storage'
 import { useSharedAppData } from '@/lib/use-shared-app-data'
@@ -201,7 +202,16 @@ export default function DashboardPosPage() {
   const sessionExpenses = useMemo(() => dailyExpenses.filter((expense) => isOrderWithinRange(expense.date, daySession.openedAt, sessionRangeEnd)), [dailyExpenses, daySession.openedAt, sessionRangeEnd])
   const sessionRevenue = useMemo(() => sessionOrders.reduce((sum, order) => sum + Number(order.total || 0), 0), [sessionOrders])
   const sessionExpenseTotal = useMemo(() => sessionExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0), [sessionExpenses])
-  const sessionDrawerNet = useMemo(() => sessionRevenue - sessionExpenseTotal, [sessionRevenue, sessionExpenseTotal])
+  // drawer net should only include collected amounts (cash paid or POS payments)
+  const sessionCollected = useMemo(() => sessionOrders.reduce((sum, order) => {
+    const method = String(order.payment?.method || '').toLowerCase()
+    const status = String(order.payment?.status || '').toLowerCase()
+    if (order.source === 'restaurant_pos' || (method === 'cash' && status === 'paid')) {
+      return sum + Number(order.total || 0)
+    }
+    return sum
+  }, 0), [sessionOrders])
+  const sessionDrawerNet = useMemo(() => sessionCollected - sessionExpenseTotal, [sessionCollected, sessionExpenseTotal])
   const legacyAppOrders = useMemo(() => dailyOrders.filter((order) => order.status !== 'cancelled' && order.source === 'app'), [dailyOrders])
   const restaurantDriverSummaries = useMemo(() => {
     const groups = new Map<string, { key: string; name: string; phone: string; count: number; total: number; orders: TrackedOrder[] }>()
@@ -401,6 +411,31 @@ export default function DashboardPosPage() {
           rangeStart: daySession.openedAt,
           rangeEnd: closedAt,
         })
+        // persist closing summary
+        try {
+          const { saveClosing } = await import('@/lib/closings')
+          const salesWithoutDelivery = dailyOrders.filter(o => o.status !== 'cancelled' && isOrderWithinRange(o.createdAt, daySession.openedAt, closedAt)).reduce((s, o) => {
+            return s + (typeof o.subtotal === 'number' && Number.isFinite(o.subtotal) ? Number(o.subtotal) : Math.max(0, Number(o.total || 0) - Number(o.deliveryFee || 0)))
+          }, 0)
+          const uncollectedTotal = dailyOrders.filter(o => o.payment?.status === 'cash_on_delivery' && isOrderWithinRange(o.createdAt, daySession.openedAt, closedAt)).reduce((s, o) => s + Number(o.total || 0), 0)
+          const otherPaymentsTotal = dailyOrders.filter(o => ['vodafone_cash', 'instapay'].includes(String(o.payment?.method || '')) && isOrderWithinRange(o.createdAt, daySession.openedAt, closedAt)).reduce((s, o) => s + Number(o.total || 0), 0)
+          const record: ClosingRecord = {
+            id: `CLOSE-${Date.now()}`,
+            type: 'daily',
+            openedAt: daySession.openedAt,
+            closedAt,
+            ordersCount: dailyOrders.length,
+            salesWithoutDelivery,
+            expensesTotal: dailyExpenses.reduce((s, e) => s + Number(e.amount || 0), 0),
+            uncollectedTotal,
+            otherPaymentsTotal,
+            drawerNet: sessionDrawerNet,
+            currency,
+          }
+          saveClosing(record)
+        } catch (err) {
+          console.warn('Could not persist closing', err)
+        }
       } finally {
         setDailyClosingPrinting(false)
       }
@@ -526,6 +561,10 @@ export default function DashboardPosPage() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
+    if (!daySession.isOpen) {
+      setMessage(isArabic ? 'فتح الورديه ضروري لإنشاء طلب.' : 'Opening a shift is required to create an order.')
+      return
+    }
     if (cartItems.length === 0) {
       setMessage(isArabic ? 'أضف منتجات قبل إتمام البيع.' : 'Add products before completing the sale.')
       return

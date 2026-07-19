@@ -35,7 +35,7 @@ export function driverAssigned(order: TrackedOrder) {
 export function isDriverSettlementEligible(order: TrackedOrder) {
   const method = String(order.payment?.method || '').toLowerCase()
   const status = String(order.payment?.status || '').toLowerCase()
-  return method === 'cash' && status === 'cash_on_delivery'
+  return method === 'cash' && (status === 'cash_on_delivery' || status === 'paid')
 }
 
 function driverKey(order: TrackedOrder) {

@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, useRef } from 'react'
-import { Search, Printer, CheckCircle2, X, Truck, Wallet, User, Hash } from 'lucide-react'
+import { Search, Printer, CheckCircle2, X, Wallet, User, ChevronDown, ChevronUp, ShoppingBag } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -11,6 +11,8 @@ import { TrackedOrder, PaymentStatus } from '@/lib/order-tracking'
 import { useAppStore } from '@/lib/app-store'
 import { printerManager, syncPrinterManagerSettings } from '@/lib/printer'
 import { createDriverClosingReceiptPayload, getDriverClosingAmount, getDriverClosingGroups, DriverClosingGroup, isDriverSettlementEligible } from '@/lib/driver-closing-print'
+import { getSessionDateRange, loadPosDaySession, savePosDaySession, type PosDaySession } from '@/lib/pos-day-session'
+import { saveClosing } from '@/lib/closings'
 
 function getDateInputValue(date: Date) {
   return date.toISOString().slice(0, 10)
@@ -42,7 +44,9 @@ export default function DriverClosingPage() {
   const [rangeEnd, setRangeEnd] = useState(() => getDateInputValue(new Date()))
   const [modalRangeStart, setModalRangeStart] = useState(() => getDateInputValue(new Date()))
   const [modalRangeEnd, setModalRangeEnd] = useState(() => getDateInputValue(new Date()))
+  const [daySession, setDaySession] = useState<PosDaySession>(() => loadPosDaySession())
   const loadingRef = useRef(false)
+  const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set())
 
   const loadOrders = useCallback(async (active: boolean) => {
     try {
@@ -69,19 +73,51 @@ export default function DriverClosingPage() {
     }
   }, [loadOrders])
 
+  const sessionRange = useMemo(() => getSessionDateRange(daySession), [daySession])
+
   const driverGroups = useMemo(() => {
-    const groups = getDriverClosingGroups(orders.filter(o => isOrderWithinRange(o.createdAt, rangeStart, rangeEnd)))
+    const groups = getDriverClosingGroups(orders.filter(o => isOrderWithinRange(o.createdAt, sessionRange.start, sessionRange.end)))
     const term = search.trim().toLowerCase()
     if (!term) return groups
     return groups.filter((group) => group.name.toLowerCase().includes(term) || group.phone.toLowerCase().includes(term))
-  }, [orders, search, rangeStart, rangeEnd]);
+  }, [orders, search, sessionRange]);
 
   const openDriverModal = (group: DriverClosingGroup) => {
     setSelectedGroup(group)
     setModalSearch('')
-    // default modal date range to the current list filter so orders are visible
-    setModalRangeStart(rangeStart)
-    setModalRangeEnd(rangeEnd)
+    setModalRangeStart(getDateInputValue(new Date(sessionRange.start)))
+    setModalRangeEnd(getDateInputValue(new Date(sessionRange.end)))
+    setExpandedOrders(new Set())
+  }
+
+  const persistDriverClosing = async (session: PosDaySession, closedAt: string) => {
+    try {
+      const sessionOrders = orders.filter((order) => isOrderWithinRange(order.createdAt, session.openedAt, closedAt))
+      const groups = getDriverClosingGroups(sessionOrders)
+      const total = groups.reduce((sum, group) => sum + group.total, 0)
+      const uncollectedTotal = sessionOrders
+        .filter((order) => String(order.payment?.status || '').toLowerCase() === 'cash_on_delivery')
+        .reduce((sum, order) => sum + getDriverClosingAmount(order), 0)
+      const otherPaymentsTotal = sessionOrders
+        .filter((order) => ['vodafone_cash', 'instapay'].includes(String(order.payment?.method || '').toLowerCase()))
+        .reduce((sum, order) => sum + Number(order.total || 0), 0)
+
+      saveClosing({
+        id: `DRIVER_CLOSE-${Date.now()}`,
+        type: 'driver',
+        openedAt: session.openedAt,
+        closedAt,
+        ordersCount: sessionOrders.length,
+        salesWithoutDelivery: total,
+        expensesTotal: 0,
+        uncollectedTotal,
+        otherPaymentsTotal,
+        drawerNet: total,
+        currency,
+      })
+    } catch (error) {
+      console.warn('Could not persist driver closing', error)
+    }
   }
 
   function orderDriverKey(order: TrackedOrder) {
@@ -130,6 +166,18 @@ export default function DriverClosingPage() {
       setMessage(error instanceof Error ? error.message : (isArabic ? 'فشلت الطباعة' : 'Print failed'))
     }
   }
+  
+  const toggleOrderExpansion = (orderId: string) => {
+    setExpandedOrders(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(orderId)) {
+            newSet.delete(orderId);
+        } else {
+            newSet.add(orderId);
+        }
+        return newSet;
+    });
+  };
 
   const modalDateRange = useMemo(() => {
     const start = new Date(`${modalRangeStart}T00:00:00`)
@@ -185,6 +233,26 @@ export default function DriverClosingPage() {
     }
   }
 
+  const openShift = () => {
+    const next: PosDaySession = { isOpen: true, openedAt: new Date().toISOString(), closedAt: null }
+    savePosDaySession(next)
+    setDaySession(next)
+    setMessage(isArabic ? 'تم فتح وردية جديدة للسائقين.' : 'New shift opened for driver settlements.')
+  }
+
+  const endShift = () => {
+    const confirmMsg = isArabic ? 'هل أنت متأكد من إغلاق وردية السائقين؟ ستتوقف الحسابات عن جمع الطلبات الجديدة في هذه الورديه.' : 'Are you sure you want to close the driver shift? New orders will stop being counted in this shift.'
+    if (typeof window !== 'undefined' && !window.confirm(confirmMsg)) return
+    const closedAt = new Date().toISOString()
+    const next: PosDaySession = { ...daySession, isOpen: false, closedAt }
+    savePosDaySession(next)
+    setDaySession(next)
+    persistDriverClosing(daySession, closedAt)
+    setMessage(isArabic ? 'تم إغلاق وردية السائقين.' : 'Driver shift closed.')
+  }
+
+  const paymentStatuses: PaymentStatus[] = ['cash_on_delivery', 'paid', 'receipt_uploaded', 'pending', 'rejected'];
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -193,6 +261,20 @@ export default function DriverClosingPage() {
           <p className="mt-2 text-slate-500 dark:text-slate-400">
             {isArabic ? 'تسوية حسابات السائقين والتحصيل من الطلبات المسلمة' : 'Settle driver accounts and collect delivery payments'}
           </p>
+          <p className="mt-2 text-sm text-slate-500">
+            {daySession.isOpen ? (isArabic ? `الوردية الحالية مفتوحة منذ ${new Date(daySession.openedAt).toLocaleString()}` : `Current shift is open since ${new Date(daySession.openedAt).toLocaleString()}`) : (isArabic ? 'الوردية الحالية مغلقة' : 'Current shift is closed')}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          {daySession.isOpen ? (
+            <Button className="gap-2 bg-red-600 hover:bg-red-700" onClick={endShift}>
+              {isArabic ? 'إغلاق الورديه' : 'Close Shift'}
+            </Button>
+          ) : (
+            <Button className="gap-2 bg-green-600 hover:bg-green-700" onClick={openShift}>
+              {isArabic ? 'فتح وردية جديدة' : 'Open Shift'}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -247,16 +329,26 @@ export default function DriverClosingPage() {
                     <p className="text-sm text-slate-500">{group.phone}</p>
                   </div>
                 </div>
-                <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                  <div className="rounded-md bg-slate-50 p-2 dark:bg-slate-900">
-                    <p className="text-xs text-slate-500">{isArabic ? 'إجمالي التحصيل' : 'Total Collection'}</p>
-                    <p className="font-bold text-slate-800 dark:text-slate-200">{group.total.toFixed(2)} {currency}</p>
-                  </div>
-                  <div className="rounded-md bg-slate-50 p-2 dark:bg-slate-900">
-                    <p className="text-xs text-slate-500">{isArabic ? 'عدد الطلبات' : 'Orders Count'}</p>
-                    <p className="font-bold text-slate-800 dark:text-slate-200">{group.orders.length}</p>
-                  </div>
-                </div>
+                {(() => {
+                  // compute uncollected amount for this driver (cash_on_delivery orders)
+                  const uncollected = group.orders.reduce((sum, o) => (String(o.payment?.status || '').toLowerCase() === 'cash_on_delivery' ? sum + getDriverClosingAmount(o) : sum), 0)
+                  return (
+                    <div className="mt-4 grid grid-cols-3 gap-3 text-sm">
+                      <div className="rounded-md bg-slate-50 p-2 dark:bg-slate-900">
+                        <p className="text-xs text-slate-500">{isArabic ? 'إجمالي التحصيل' : 'Total Collection'}</p>
+                        <p className="font-bold text-slate-800 dark:text-slate-200">{group.total.toFixed(2)} {currency}</p>
+                      </div>
+                      <div className="rounded-md bg-slate-50 p-2 dark:bg-slate-900">
+                        <p className="text-xs text-slate-500">{isArabic ? 'المتبقي تحصيله' : 'Remaining to Collect'}</p>
+                        <p className="font-bold text-slate-800 dark:text-slate-200">{uncollected.toFixed(2)} {currency}</p>
+                      </div>
+                      <div className="rounded-md bg-slate-50 p-2 dark:bg-slate-900">
+                        <p className="text-xs text-slate-500">{isArabic ? 'عدد الطلبات' : 'Orders Count'}</p>
+                        <p className="font-bold text-slate-800 dark:text-slate-200">{group.orders.length}</p>
+                      </div>
+                    </div>
+                  )
+                })()}
               </CardContent>
             </Card>
           ))
@@ -275,10 +367,14 @@ export default function DriverClosingPage() {
             </CardHeader>
             <CardContent className="space-y-6 flex-1 overflow-y-auto">
               {/* Summary */}
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-3">
                 <div className="rounded-lg bg-slate-100 p-3 dark:bg-slate-900">
                   <p className="text-xs text-slate-600 dark:text-slate-400">{isArabic ? 'إجمالي التحصيل (صافي الطلبات)' : 'Total Collection (Net Orders)'}</p>
                   <p className="text-lg font-semibold">{filteredModalOrders.reduce((sum, o) => isDriverSettlementEligible(o) ? sum + getDriverClosingAmount(o) : sum, 0).toFixed(2)} {currency}</p>
+                </div>
+                <div className="rounded-lg bg-yellow-100 p-3 dark:bg-yellow-900">
+                  <p className="text-xs text-yellow-600 dark:text-yellow-400">{isArabic ? 'المتبقي لتحصيله' : 'Remaining to Collect'}</p>
+                  <p className="text-lg font-semibold">{filteredModalOrders.reduce((sum, o) => (String(o.payment?.status || '').toLowerCase() === 'cash_on_delivery' ? sum + getDriverClosingAmount(o) : sum), 0).toFixed(2)} {currency}</p>
                 </div>
                 <div className="rounded-lg bg-blue-100 p-3 dark:bg-blue-900">
                   <p className="text-xs text-blue-600 dark:text-blue-400">{isArabic ? 'إجمالي رسوم التوصيل' : 'Total Delivery Fees'}</p>
@@ -314,25 +410,48 @@ export default function DriverClosingPage() {
                   <p className="py-6 text-center text-slate-500">{isArabic ? 'لا توجد طلبات مطابقة للبحث' : 'No matching orders found'}</p>
                 ) : (
                   filteredModalOrders.map((order) => (
-                    <div key={order.id} className="rounded-md border p-3 dark:border-slate-800">
-                      <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-                        <div className="space-y-1">
-                          <p className="font-semibold">{order.customer || order.id}</p>
-                          <p className="text-sm text-slate-500">{order.phone || (isArabic ? 'لا يوجد رقم' : 'No phone')}</p>
-                          <p className="text-xs text-slate-500">{order.createdAt ? new Date(order.createdAt).toLocaleString(isArabic ? 'ar-EG' : 'en-US') : ''}</p>
-                          <p className="text-xs text-slate-500">{isArabic ? 'فاتورة' : 'Invoice'}: {order.externalReference || order.id.slice(0, 8)}</p>
-                        </div>
-                        <div className="space-y-2 text-sm md:text-right">
-                          <p><span className="font-semibold">{isArabic ? 'التحصيل' : 'Collect'}:</span> {getDriverClosingAmount(order).toFixed(2)} {currency}</p>
-                          <p><span className="font-semibold">{isArabic ? 'التوصيل' : 'Fee'}:</span> {Number(order.deliveryFee || 0).toFixed(2)} {currency}</p>
-                          <p><span className="font-semibold">{isArabic ? 'الإجمالي' : 'Total'}:</span> {Number(order.total || 0).toFixed(2)} {currency}</p>
+                    <div key={order.id} className="rounded-lg border bg-white dark:bg-slate-950 dark:border-slate-800">
+                      <div className="p-4">
+                        <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                          <div className="space-y-1">
+                            <p className="font-semibold text-base">{order.customer || order.id}</p>
+                            <p className="text-sm text-slate-500">{order.phone || (isArabic ? 'لا يوجد رقم' : 'No phone')}</p>
+                            <p className="text-xs text-slate-500">{order.createdAt ? new Date(order.createdAt).toLocaleString(isArabic ? 'ar-EG' : 'en-US') : ''}</p>
+                            <p className="text-xs text-slate-500">{isArabic ? 'فاتورة' : 'Invoice'}: {order.externalReference || order.id.slice(0, 8)}</p>
+                          </div>
+                          <div className="space-y-1.5 text-sm md:text-right">
+                            <p><span className="font-medium text-slate-600 dark:text-slate-400">{isArabic ? 'التحصيل' : 'Collect'}:</span> <span className="font-bold">{getDriverClosingAmount(order).toFixed(2)} {currency}</span></p>
+                            <p><span className="font-medium text-slate-600 dark:text-slate-400">{isArabic ? 'التوصيل' : 'Fee'}:</span> {Number(order.deliveryFee || 0).toFixed(2)} {currency}</p>
+                            <p><span className="font-bold text-slate-800 dark:text-slate-200">{isArabic ? 'الإجمالي' : 'Total'}:</span> <span className="font-extrabold text-base">{Number(order.total || 0).toFixed(2)} {currency}</span></p>
+                          </div>
                         </div>
                       </div>
-                      <div className="mt-3 flex flex-wrap gap-2 border-t pt-3 dark:border-slate-700">
+                      
+                      {expandedOrders.has(order.id) && (
+                        <div className="border-t border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/50">
+                          <h4 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+                            <ShoppingBag className="h-4 w-4" />
+                            {isArabic ? 'المنتجات' : 'Items'}
+                          </h4>
+                          <div className="space-y-2">
+                            {(order.lines && order.lines.length > 0) ? order.lines.map((item, index) => (
+                              <div key={index} className="flex justify-between text-sm">
+                                <div>
+                                  <span className="font-medium">{item.name}</span>
+                                  <span className="text-slate-500"> x {item.quantity}</span>
+                                </div>
+                                <div className="font-mono">{(item.price || 0).toFixed(2)} {currency}</div>
+                              </div>
+                            )) : <p className="text-sm text-slate-500">{isArabic ? 'لا توجد تفاصيل منتجات لهذا الطلب' : 'No item details for this order'}</p>}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap items-center gap-2 border-t p-3 dark:border-slate-800">
                         {isDriverSettlementEligible(order) && order.payment?.status !== 'paid' && !collectedOrderIds.has(order.id) ? (
                           <Button
                             size="sm"
-                            className="flex-1 gap-2 bg-green-600 hover:bg-green-700"
+                            className="flex-grow gap-2 bg-green-600 hover:bg-green-700"
                             onClick={() => handleSettle(order)}
                             disabled={settlingOrderId === order.id}
                           >
@@ -346,24 +465,24 @@ export default function DriverClosingPage() {
                             )}
                           </Button>
                         ) : (
-                          <div className="flex-1">
-                              <select
-                              value={order.payment?.status || ''}
-                              onChange={(e) => updatePaymentStatus(order.id, e.target.value as PaymentStatus)}
-                              className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950"
-                            >
-                              <option value="cash_on_delivery">{paymentStatusLabel('cash_on_delivery')}</option>
-                              <option value="paid">{paymentStatusLabel('paid')}</option>
-                              <option value="receipt_uploaded">{paymentStatusLabel('receipt_uploaded')}</option>
-                              <option value="pending">{paymentStatusLabel('pending')}</option>
-                              <option value="rejected">{paymentStatusLabel('rejected')}</option>
-                            </select>
+                          <div className="flex flex-wrap gap-2 flex-grow">
+                            {paymentStatuses.map(status => (
+                                <Button
+                                  key={status}
+                                  size="sm"
+                                  variant={order.payment?.status === status ? 'default' : 'outline'}
+                                  onClick={() => updatePaymentStatus(order.id, status)}
+                                  className="text-xs px-2 py-1 h-auto"
+                                >
+                                  {paymentStatusLabel(status)}
+                                </Button>
+                            ))}
                           </div>
                         )}
                         <Button
                           size="sm"
                           variant="outline"
-                          className="flex-1 gap-2"
+                          className="flex-grow gap-2"
                           onClick={() => handlePrint(order)}
                         >
                           <Printer className="h-4 w-4" />

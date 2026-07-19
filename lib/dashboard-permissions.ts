@@ -19,6 +19,7 @@ export const DASHBOARD_ROUTE_ROLES: Record<string, readonly string[]> = {
   [ROUTES.DASHBOARD_SETTINGS]: ['super_admin', 'admin'],
   [ROUTES.DASHBOARD_DRIVER_CLOSING]: ['super_admin', 'admin', 'cashier'],
   [ROUTES.DASHBOARD_DAILY_CLOSING]: ['super_admin', 'admin', 'cashier'],
+  [ROUTES.DASHBOARD_CLOSINGS]: ['super_admin', 'admin', 'cashier'],
 }
 
 export function getDefaultDashboardRouteForRole(role: string | null | undefined) {

@@ -354,6 +354,7 @@ export default function DashboardOrdersPage() {
               price: Number(product.price || 0),
               categoryName: category ? (isArabic ? category.nameAr : category.nameEn) : undefined,
               categoryId: product.categoryId,
+              productId: product.id,
             }
           : { name: isArabic ? 'منتج جديد' : 'New item', quantity: 1, price: 0 },
       ],
@@ -488,19 +489,23 @@ export default function DashboardOrdersPage() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="font-semibold">{isArabic ? 'أصناف الطلب' : 'Order Items'}</p>
                 <div className="flex flex-wrap gap-2">
-                  <select
-                    value=""
-                    onChange={(event) => {
-                      const product = products.find((item) => item.id === event.target.value)
-                      if (product) addEditLine(product)
-                    }}
-                    className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950"
-                  >
-                    <option value="">{isArabic ? 'إضافة منتج' : 'Add product'}</option>
-                    {products.map((product) => (
-                      <option key={product.id} value={product.id}>{isArabic ? product.nameAr : product.nameEn}</option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={typeof (editForm as any)._searchProduct === 'string' ? (editForm as any)._searchProduct : ''}
+                      onChange={(event) => setEditForm({ ...(editForm as any), _searchProduct: event.target.value })}
+                      placeholder={isArabic ? 'ابحث عن منتج لإضافته' : 'Search product to add'}
+                      className="h-9 w-64 rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950"
+                    />
+                    <div className="absolute z-20 mt-1 max-h-40 w-64 overflow-auto rounded-md bg-white shadow ring-1 ring-black/5 dark:bg-slate-900">
+                      {(products.filter(p => (isArabic ? p.nameAr : p.nameEn).toLowerCase().includes(((editForm as any)._searchProduct || '').toLowerCase())).slice(0,50)).map((product) => (
+                        <button key={product.id} type="button" onClick={() => { addEditLine(product); setEditForm({ ...(editForm as any), _searchProduct: '' }) }} className="w-full px-3 py-2 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800">
+                          {isArabic ? product.nameAr : product.nameEn}
+                        </button>
+                      ))}
+                      {products.length === 0 && <div className="p-2 text-sm text-slate-500">{isArabic ? 'لا توجد منتجات' : 'No products'}</div>}
+                    </div>
+                  </div>
                   <Button type="button" size="sm" variant="outline" onClick={() => addEditLine()}>
                     {isArabic ? 'سطر جديد' : 'New line'}
                   </Button>

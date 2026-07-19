@@ -29,6 +29,7 @@ type OrderEditForm = {
   paymentMethod: string
   paymentStatus: string
   lines: OrderLine[]
+  _searchProduct?: string
 }
 
 function canManageOrderRole(role: string | null) {
@@ -57,6 +58,7 @@ export default function DashboardRestaurantOrdersPage() {
   const [editingOrder, setEditingOrder] = useState<TrackedOrder | null>(null)
   const [editForm, setEditForm] = useState<OrderEditForm | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
+  const [loadingEdit, setLoadingEdit] = useState(false)
   const loadingOrders = useRef(false)
   const canEditOrders = canManageOrderRole(dashboardRole)
   const canDeleteOrders = canDeleteOrderRole(dashboardRole)
@@ -111,14 +113,43 @@ export default function DashboardRestaurantOrdersPage() {
 
   const label = (status: string) => (isArabic ? ORDER_STATUS_LABELS : ORDER_STATUS_LABELS_EN)[status as keyof typeof ORDER_STATUS_LABELS] || status
 
-  const getOrderLineName = (line: OrderLine) => {
-    const trimmedName = line.name?.toString().trim()
-    const product = products.find((item) => item.id === (line as any).productId)
-    const placeholderNames = new Set([isArabic ? 'منتج' : 'Item', isArabic ? 'منتج جديد' : 'New item'])
-    if (product && (!trimmedName || placeholderNames.has(trimmedName))) {
-      return isArabic ? product.nameAr : product.nameEn
+  const normalizeOrderLine = (line: any): OrderLine => {
+    const productSource = line.product && typeof line.product === 'object' ? line.product : null
+    const rawName = line.name || line.productName || line.nameEn || line.nameAr || productSource?.name || productSource?.nameEn || productSource?.nameAr || ''
+    const rawCategory = line.categoryName || line.category || productSource?.categoryName || productSource?.category?.name || ''
+    const productId = line.productId || productSource?.id || ''
+    return {
+      ...line,
+      productId: productId ? String(productId) : undefined,
+      name: typeof rawName === 'string' ? rawName.trim() : '',
+      categoryName: typeof rawCategory === 'string' ? rawCategory.trim() : undefined,
+      price: Number(line.price || 0),
+      quantity: Math.max(1, Number(line.quantity || 1)),
+      notes: line.notes ? String(line.notes) : undefined,
     }
-    if (trimmedName) return trimmedName
+  }
+
+  const getOrderLineProduct = (line: OrderLine) => {
+    const productId = String(line.productId || '')
+    const normalizedLineName = line.name?.toString().trim().toLowerCase() || ''
+    const searchName = normalizedLineName
+    let product = productId ? products.find((item) => String(item.id) === productId) : undefined
+    if (!product && searchName) {
+      product = products.find((item) => {
+        const nameAr = item.nameAr?.toString().trim().toLowerCase() || ''
+        const nameEn = item.nameEn?.toString().trim().toLowerCase() || ''
+        return nameAr === searchName || nameEn === searchName || nameAr.includes(searchName) || nameEn.includes(searchName)
+      })
+    }
+    return product
+  }
+
+  const getOrderLineDisplayName = (line: OrderLine) => {
+    const product = getOrderLineProduct(line)
+    const trimmedName = line.name?.toString().trim() || ''
+    const placeholderNames = new Set([isArabic ? 'منتج' : 'Item', isArabic ? 'منتج جديد' : 'New item'])
+    if (product) return isArabic ? product.nameAr || product.nameEn : product.nameEn || product.nameAr
+    if (trimmedName && !placeholderNames.has(trimmedName)) return trimmedName
     return isArabic ? 'منتج' : 'Item'
   }
 
@@ -149,23 +180,31 @@ export default function DashboardRestaurantOrdersPage() {
     if (response.ok) loadOrders()
   }
 
-  const openEditOrder = (order: TrackedOrder) => {
-    setEditingOrder(order)
-    setEditForm({
-      id: order.id,
-      status: order.status,
-      customer: order.customer || '',
-      phone: order.phone || '',
-      address: order.address || '',
-      notes: order.notes || '',
-      total: String(Number(order.total || 0)),
-      estimatedDelivery: order.estimatedDelivery || '',
-      paymentMethod: order.payment?.method || 'cash',
-      paymentStatus: order.payment?.status || 'pending',
-      lines: order.lines?.length
-        ? order.lines.map((line) => ({ ...line, name: getOrderLineName(line) }))
-        : [{ name: getOrderLineName({ name: '', quantity: 1, price: 0 }), quantity: Math.max(1, Number(order.items || 1)), price: Number(order.total || 0), notes: order.notes }],
-    })
+  const openEditOrder = async (order: TrackedOrder) => {
+    setLoadingEdit(true)
+    try {
+      const response = await fetch(`/api/pos/orders?orderId=${encodeURIComponent(order.id)}&includeReceipts=1`, { cache: 'no-store' })
+      const data = await response.json().catch(() => ({}))
+      const detailedOrder = response.ok && Array.isArray(data.orders) && data.orders[0] ? data.orders[0] as TrackedOrder : order
+      setEditingOrder(detailedOrder)
+      setEditForm({
+        id: detailedOrder.id,
+        status: detailedOrder.status,
+        customer: detailedOrder.customer || '',
+        phone: detailedOrder.phone || '',
+        address: detailedOrder.address || '',
+        notes: detailedOrder.notes || '',
+        total: String(Number(detailedOrder.total || 0)),
+        estimatedDelivery: detailedOrder.estimatedDelivery || '',
+        paymentMethod: detailedOrder.payment?.method || 'cash',
+        paymentStatus: detailedOrder.payment?.status || 'pending',
+        lines: detailedOrder.lines?.length
+          ? detailedOrder.lines.map((line) => normalizeOrderLine(line))
+          : [{ name: '', quantity: Math.max(1, Number(detailedOrder.items || 1)), price: Number(detailedOrder.total || 0), notes: detailedOrder.notes }],
+      })
+    } finally {
+      setLoadingEdit(false)
+    }
   }
 
   const closeEditOrder = () => {
@@ -173,15 +212,6 @@ export default function DashboardRestaurantOrdersPage() {
     setEditForm(null)
   }
 
-  useEffect(() => {
-    if (!editForm) return
-
-    const linesTotal = editForm.lines.reduce((sum, line) => sum + Number(line.price || 0) * Number(line.quantity || 0), 0)
-    const nextTotal = linesTotal.toFixed(2)
-    if (nextTotal !== editForm.total) {
-      setEditForm((current) => (current ? { ...current, total: nextTotal } : null))
-    }
-  }, [editForm?.lines, editForm])
 
   const saveEditedOrder = async () => {
     if (!editForm || savingEdit) return
@@ -271,6 +301,7 @@ export default function DashboardRestaurantOrdersPage() {
               price: Number(product.price || 0),
               categoryName: category ? (isArabic ? category.nameAr : category.nameEn) : undefined,
               categoryId: product.categoryId,
+              productId: product.id,
             }
           : { name: isArabic ? 'منتج جديد' : 'New item', quantity: 1, price: 0 },
       ],
@@ -348,7 +379,7 @@ export default function DashboardRestaurantOrdersPage() {
     <div className="min-w-0 max-w-full space-y-6 overflow-x-hidden">
       {editingOrder && editForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-2xl rounded-lg bg-white p-4 shadow-xl dark:bg-slate-950">
+          <div className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-lg bg-white p-4 shadow-xl dark:bg-slate-950">
             <div className="flex items-start justify-between gap-3 border-b pb-3 dark:border-slate-800">
               <div>
                 <h3 className="text-lg font-bold">{isArabic ? 'تعديل الطلب' : 'Edit Order'}</h3>
@@ -358,62 +389,134 @@ export default function DashboardRestaurantOrdersPage() {
                 <X className="h-4 w-4" />
               </Button>
             </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <Input value={editForm.customer} onChange={(event) => setEditForm({ ...editForm, customer: event.target.value })} placeholder={isArabic ? 'اسم العميل' : 'Customer name'} />
-              <Input value={editForm.phone} onChange={(event) => setEditForm({ ...editForm, phone: event.target.value })} placeholder={isArabic ? 'رقم الهاتف' : 'Phone'} />
-              <Input className="sm:col-span-2" value={editForm.address} onChange={(event) => setEditForm({ ...editForm, address: event.target.value })} placeholder={isArabic ? 'العنوان' : 'Address'} />
-              <Input type="number" min="0" step="0.01" value={editForm.total} onChange={(event) => setEditForm({ ...editForm, total: event.target.value })} placeholder={isArabic ? 'الإجمالي' : 'Total'} />
-              <Input value={editForm.estimatedDelivery} onChange={(event) => setEditForm({ ...editForm, estimatedDelivery: event.target.value })} placeholder={isArabic ? 'نوع/وقت الطلب' : 'Order type/time'} />
-              <select value={editForm.paymentMethod} onChange={(event) => setEditForm({ ...editForm, paymentMethod: event.target.value })} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950">
-                {PAYMENT_METHOD_OPTIONS.map(option => (
-                  <option key={option.value} value={option.value}>{isArabic ? option.ar : option.en}</option>
-                ))}
-              </select>
-              <select value={editForm.paymentStatus} onChange={(event) => setEditForm({ ...editForm, paymentStatus: event.target.value })} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950">
-                <option value="cash_on_delivery">{isArabic ? 'الدفع عند الاستلام' : 'Cash on delivery'}</option>
-                <option value="paid">{isArabic ? 'مدفوع' : 'Paid'}</option>
-                <option value="pending">{isArabic ? 'قيد المراجعة' : 'Pending'}</option>
-                <option value="receipt_uploaded">{isArabic ? 'إيصال مرفوع' : 'Receipt uploaded'}</option>
-                <option value="rejected">{isArabic ? 'مرفوض' : 'Rejected'}</option>
-              </select>
-              <Textarea className="sm:col-span-2" value={editForm.notes} onChange={(event) => setEditForm({ ...editForm, notes: event.target.value })} placeholder={isArabic ? 'ملاحظات' : 'Notes'} />
-            </div>
-            <div className="mt-4 space-y-3 rounded-md border p-3 dark:border-slate-800">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-semibold">{isArabic ? 'أصناف الطلب' : 'Order Items'}</p>
-                <div className="flex flex-wrap gap-2">
-                  <select
-                    value=""
-                    onChange={(event) => {
-                      const product = products.find((item) => item.id === event.target.value)
-                      if (product) addEditLine(product)
-                    }}
-                    className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950"
-                  >
-                    <option value="">{isArabic ? 'إضافة منتج' : 'Add product'}</option>
-                    {products.map((product) => (
-                      <option key={product.id} value={product.id}>{isArabic ? product.nameAr : product.nameEn}</option>
-                    ))}
-                  </select>
-                  <Button type="button" size="sm" variant="outline" onClick={() => addEditLine()}>
-                    {isArabic ? 'سطر جديد' : 'New line'}
-                  </Button>
+            <div className="flex-1 overflow-y-auto">
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <Input value={editForm.customer} onChange={(event) => setEditForm({ ...editForm, customer: event.target.value })} placeholder={isArabic ? 'اسم العميل' : 'Customer name'} />
+                <Input value={editForm.phone} onChange={(event) => setEditForm({ ...editForm, phone: event.target.value })} placeholder={isArabic ? 'رقم الهاتف' : 'Phone'} />
+                <Input className="sm:col-span-2" value={editForm.address} onChange={(event) => setEditForm({ ...editForm, address: event.target.value })} placeholder={isArabic ? 'العنوان' : 'Address'} />
+                <Input type="number" min="0" step="0.01" value={editForm.total} onChange={(event) => setEditForm({ ...editForm, total: event.target.value })} placeholder={isArabic ? 'الإجمالي' : 'Total'} />
+                <Input value={editForm.estimatedDelivery} onChange={(event) => setEditForm({ ...editForm, estimatedDelivery: event.target.value })} placeholder={isArabic ? 'نوع/وقت الطلب' : 'Order type/time'} />
+                <select value={editForm.paymentMethod} onChange={(event) => setEditForm({ ...editForm, paymentMethod: event.target.value })} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950">
+                  {PAYMENT_METHOD_OPTIONS.map(option => (
+                    <option key={option.value} value={option.value}>{isArabic ? option.ar : option.en}</option>
+                  ))}
+                </select>
+                <select value={editForm.paymentStatus} onChange={(event) => setEditForm({ ...editForm, paymentStatus: event.target.value })} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950">
+                  <option value="cash_on_delivery">{isArabic ? 'الدفع عند الاستلام' : 'Cash on delivery'}</option>
+                  <option value="paid">{isArabic ? 'مدفوع' : 'Paid'}</option>
+                  <option value="pending">{isArabic ? 'قيد المراجعة' : 'Pending'}</option>
+                  <option value="receipt_uploaded">{isArabic ? 'إيصال مرفوع' : 'Receipt uploaded'}</option>
+                  <option value="rejected">{isArabic ? 'مرفوض' : 'Rejected'}</option>
+                </select>
+                <Textarea className="sm:col-span-2" value={editForm.notes} onChange={(event) => setEditForm({ ...editForm, notes: event.target.value })} placeholder={isArabic ? 'ملاحظات' : 'Notes'} />
+              </div>
+              <div className="mt-4 space-y-4 rounded-3xl border border-slate-200 bg-slate-50 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{isArabic ? 'أصناف الطلب' : 'Order Items'}</p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">{isArabic ? 'اختر المنتج واضبط الكمية والسعر والملاحظات لكل سطر.' : 'Select products and adjust quantity, price, and notes for each line.'}</p>
+                  </div>
+                  <div className="w-full sm:w-[30rem]">
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <input
+                          type="text"
+                          value={editForm._searchProduct || ''}
+                          onChange={(event) => setEditForm({ ...editForm, _searchProduct: event.target.value })}
+                          placeholder={isArabic ? 'ابحث عن منتج' : 'Search product'}
+                          className="h-10 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-blue-400 dark:focus:ring-blue-500/30"
+                        />
+                        {editForm._searchProduct ? (
+                          <div className="absolute left-0 right-0 z-20 mt-2 max-h-52 overflow-auto rounded-2xl border border-slate-200 bg-white shadow-xl ring-1 ring-black/5 dark:border-slate-700 dark:bg-slate-950">
+                            {products.filter((product) => (isArabic ? product.nameAr : product.nameEn).toLowerCase().includes(editForm._searchProduct!.toLowerCase())).slice(0, 40).map((product) => (
+                              <button
+                                key={product.id}
+                                type="button"
+                                onClick={() => setEditForm({
+                                  ...editForm,
+                                  _searchProduct: '',
+                                  lines: [
+                                    ...editForm.lines,
+                                    {
+                                      name: isArabic ? product.nameAr : product.nameEn,
+                                      quantity: 1,
+                                      price: Number(product.price || 0),
+                                      categoryName: categories.find((category) => category.id === product.categoryId)?.[isArabic ? 'nameAr' : 'nameEn'],
+                                      categoryId: product.categoryId,
+                                      productId: product.id,
+                                    },
+                                  ],
+                                })}
+                                className="w-full px-4 py-3 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+                              >
+                                {isArabic ? product.nameAr : product.nameEn}
+                              </button>
+                            ))}
+                            {products.filter((product) => (isArabic ? product.nameAr : product.nameEn).toLowerCase().includes(editForm._searchProduct!.toLowerCase())).length === 0 && (
+                              <div className="p-4 text-sm text-slate-500 dark:text-slate-400">{isArabic ? 'لا يوجد منتج مطابق' : 'No matching product found'}</div>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
+                      <Button type="button" size="sm" variant="outline" className="whitespace-nowrap" onClick={() => addEditLine()}>
+                        {isArabic ? 'سطر جديد' : 'New line'}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <div className="grid min-w-full gap-2 border-b border-slate-200 px-2 pb-2 text-xs uppercase tracking-[0.15em] text-slate-500 dark:border-slate-800 dark:text-slate-400 sm:grid-cols-[1.6fr_70px_90px_90px_90px]">
+                    <span>{isArabic ? 'المنتج' : 'Product'}</span>
+                    <span>{isArabic ? 'الكمية' : 'Qty'}</span>
+                    <span>{isArabic ? 'السعر' : 'Price'}</span>
+                    <span>{isArabic ? 'الإجمالي' : 'Total'}</span>
+                    <span>{isArabic ? 'حذف' : 'Remove'}</span>
+                  </div>
+                  <div className="space-y-3 pt-3">
+                    {editForm.lines.map((line, index) => {
+                      const lineName = getOrderLineDisplayName(line)
+                      const lineCategory = line.categoryName || (isArabic ? 'بدون تصنيف' : 'Uncategorized')
+                      const lineTotal = (Number(line.price || 0) * Number(line.quantity || 0)).toFixed(2)
+                      return (
+                        <div key={index} className="grid min-w-full gap-2 rounded-3xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:grid-cols-[1.6fr_70px_90px_90px_90px]">
+                          <div className="space-y-1">
+                            <p className="font-semibold text-slate-900 dark:text-slate-100">{lineName}</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">{lineCategory}</p>
+                          </div>
+                          <Input
+                            type="number"
+                            min="1"
+                            value={String(line.quantity || 1)}
+                            onChange={(event) => updateEditLine(index, { quantity: Math.max(1, Number(event.target.value || 1)) })}
+                            className="h-10 text-center"
+                          />
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={String(line.price || 0)}
+                            onChange={(event) => updateEditLine(index, { price: Math.max(0, Number(event.target.value || 0)) })}
+                            disabled={!canModifyPrices}
+                            className="h-10 text-center"
+                          />
+                          <div className="flex items-center justify-center rounded-2xl bg-slate-50 text-sm font-semibold text-slate-900 dark:bg-slate-950 dark:text-slate-100">{lineTotal}</div>
+                          <Button type="button" variant="destructive" size="sm" onClick={() => removeEditLine(index)}>{isArabic ? 'حذف' : 'Delete'}</Button>
+                          <Textarea
+                            className="sm:col-span-full"
+                            value={line.notes || ''}
+                            onChange={(event) => updateEditLine(index, { notes: event.target.value })}
+                            placeholder={isArabic ? 'ملاحظات الصنف' : 'Item notes'}
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+                <div className="grid gap-2 rounded-3xl border border-slate-200 bg-slate-100 p-4 text-sm dark:border-slate-800 dark:bg-slate-950 sm:grid-cols-[1fr_auto]">
+                  <p className="text-slate-700 dark:text-slate-300">{isArabic ? 'إجمالي سطر الأوامر' : 'Order lines total'}</p>
+                  <p className="font-semibold text-slate-900 dark:text-slate-100">{editForm.lines.reduce((sum, line) => sum + Number(line.price || 0) * Number(line.quantity || 0), 0).toFixed(2)} {currency}</p>
                 </div>
               </div>
-              <div className="space-y-2">
-                {editForm.lines.map((line, index) => (
-                  <div key={index} className="grid gap-2 rounded-md bg-slate-50 p-2 dark:bg-slate-900 sm:grid-cols-[minmax(0,1fr)_90px_110px_auto]">
-                    <Input value={line.name} onChange={(event) => updateEditLine(index, { name: event.target.value })} placeholder={isArabic ? 'اسم المنتج' : 'Item name'} />
-                    <Input type="number" min="1" value={String(line.quantity || 1)} onChange={(event) => updateEditLine(index, { quantity: Math.max(1, Number(event.target.value || 1)) })} placeholder={isArabic ? 'العدد' : 'Qty'} />
-                    <Input type="number" min="0" step="0.01" value={String(line.price || 0)} onChange={(event) => updateEditLine(index, { price: Math.max(0, Number(event.target.value || 0)) })} placeholder={isArabic ? 'السعر' : 'Price'} disabled={!canModifyPrices} />
-                    <Button type="button" variant="destructive" size="sm" onClick={() => removeEditLine(index)}>{isArabic ? 'حذف' : 'Delete'}</Button>
-                    <Textarea className="sm:col-span-4" value={line.notes || ''} onChange={(event) => updateEditLine(index, { notes: event.target.value })} placeholder={isArabic ? 'ملاحظات الصنف' : 'Item notes'} />
-                  </div>
-                ))}
-              </div>
-              <p className="text-end text-sm font-bold">
-                {isArabic ? 'إجمالي الأصناف' : 'Items Total'}: {editForm.lines.reduce((sum, line) => sum + Number(line.price || 0) * Number(line.quantity || 0), 0).toFixed(2)} {currency}
-              </p>
             </div>
             <div className="mt-4 flex flex-wrap justify-end gap-2">
               <Button type="button" variant="outline" onClick={closeEditOrder}>{isArabic ? 'إلغاء' : 'Cancel'}</Button>

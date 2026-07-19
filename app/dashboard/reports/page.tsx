@@ -101,13 +101,18 @@ function money(value: number, currency: string) {
   return `${Number(value || 0).toFixed(2)} ${currency}`
 }
 
+function isCollectedDrawerOrder(order: TrackedOrder) {
+  return String(order.payment?.method || '').toLowerCase() === 'cash' && String(order.payment?.status || '').toLowerCase() === 'paid'
+}
+
 function closingFinancials(orders: TrackedOrder[], expenseTotal: number) {
-  const revenue = orders.reduce((sum, order) => sum + Number(order.total || 0), 0)
+  const revenue = orders.reduce((sum, order) => isCollectedDrawerOrder(order) ? sum + Number(order.total || 0) : sum, 0)
   const baseSales = orders.reduce((sum, order) => {
+    if (!isCollectedDrawerOrder(order)) return sum
     if (typeof order.subtotal === 'number' && Number.isFinite(order.subtotal)) return sum + Number(order.subtotal || 0)
     return sum + Math.max(0, Number(order.total || 0) - Number(order.deliveryFee || 0) - Number(order.tax || 0) + Number(order.discount?.amount || 0))
   }, 0)
-  const deliveryFees = orders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0)
+  const deliveryFees = orders.reduce((sum, order) => isCollectedDrawerOrder(order) ? sum + Number(order.deliveryFee || 0) : sum, 0)
   return { revenue, baseSales, deliveryFees, drawerNet: revenue - expenseTotal }
 }
 
@@ -196,6 +201,7 @@ export default function DashboardReportsPage() {
 
   const paymentBreakdown = useMemo(() => {
     return closingSummary.orders.reduce<Record<string, number>>((totals, order) => {
+      if (!isCollectedDrawerOrder(order)) return totals
       const method = order.payment?.method || 'cash'
       totals[method] = (totals[method] || 0) + Number(order.total || 0)
       return totals
@@ -290,22 +296,56 @@ export default function DashboardReportsPage() {
     setClearingMemory(true)
     setPrintStatus('')
     try {
-      // Delete all restaurant and app orders
-      const orderIds = orders.map((order) => order.id)
-      if (orderIds.length > 0) {
+      const [ordersResponse, expensesResponse] = await Promise.all([
+        fetch('/api/pos/orders?limit=500', { cache: 'no-store' }),
+        fetch('/api/expenses', { cache: 'no-store' }),
+      ])
+      const ordersData = await ordersResponse.json().catch(() => ({}))
+      const expensesData = await expensesResponse.json().catch(() => ({}))
+
+      const ordersToDelete = Array.isArray(ordersData.orders) ? ordersData.orders : []
+      const expensesToDelete = Array.isArray(expensesData.expenses) ? expensesData.expenses : []
+
+      if (ordersToDelete.length > 0) {
         await Promise.all(
-          orderIds.map((orderId) =>
+          ordersToDelete.map((order: TrackedOrder) =>
             fetch('/api/pos/orders', {
               method: 'DELETE',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ orderId }),
+              body: JSON.stringify({ orderId: order.id }),
             })
           )
         )
       }
 
+      if (expensesToDelete.length > 0) {
+        await Promise.all(
+          expensesToDelete.map((expense: Expense) =>
+            fetch('/api/expenses', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: expense.id }),
+            })
+          )
+        )
+      }
+
+      if (typeof window !== 'undefined') {
+        const cleanupKeys = [
+          'baseeta-closings-v1',
+          'trackedOrders',
+          'baseeta-pos-day-session-v1',
+          'ranch-offline-queue-v1',
+          'baseeta-offline-data-v1',
+          'baseeta-offline-status-v1',
+          'ranch-last-sync-v1',
+        ]
+        cleanupKeys.forEach((key) => window.localStorage.removeItem(key))
+      }
+
       setOrders([])
-      setPrintStatus(isArabic ? 'تم مسح جميع الطلبات بنجاح.' : 'All orders cleared successfully.')
+      setExpenses([])
+      setPrintStatus(isArabic ? 'تم حذف جميع الطلبات والمصروفات والتقفيلات بنجاح.' : 'All orders, expenses, and closings cleared successfully.')
       setClearMemoryOpen(false)
     } catch (error) {
       setPrintStatus(error instanceof Error ? error.message : (isArabic ? 'تعذر مسح الذاكرة.' : 'Could not clear memory.'))

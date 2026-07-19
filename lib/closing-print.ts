@@ -28,13 +28,14 @@ type ClosingPrintInput = {
 }
 
 export function createClosingReceiptPayload(input: ClosingPrintInput): ReceiptPayload {
-  const adjustedSales = input.orders.reduce((sum, order) => sum + Number(order.total || 0), 0)
-  const orderBaseSales = input.orders.reduce((sum, order) => {
+  const collectedOrders = input.orders.filter((order) => String(order.payment?.method || '').toLowerCase() === 'cash' && String(order.payment?.status || '').toLowerCase() === 'paid')
+  const adjustedSales = collectedOrders.reduce((sum, order) => sum + Number(order.total || 0), 0)
+  const orderBaseSales = collectedOrders.reduce((sum, order) => {
     if (typeof order.subtotal === 'number' && Number.isFinite(order.subtotal)) return sum + Number(order.subtotal || 0)
     return sum + Math.max(0, Number(order.total || 0) - Number(order.deliveryFee || 0) - Number(order.tax || 0) + Number(order.discount?.amount || 0))
   }, 0)
-  const deliveryFees = input.orders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0)
-  const paymentCounts = input.orders.reduce<Record<string, number>>((totals, order) => {
+  const deliveryFees = collectedOrders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0)
+  const paymentCounts = collectedOrders.reduce<Record<string, number>>((totals, order) => {
     const method = order.payment?.method || 'cash'
     totals[method] = (totals[method] || 0) + 1
     return totals
@@ -73,7 +74,7 @@ export function createClosingReceiptPayload(input: ClosingPrintInput): ReceiptPa
     },
     lines: [
       { kind: 'section', hidePrice: true, name: input.isArabic ? 'ملخص التقفيل' : 'Closing Summary', quantity: 0 },
-      { name: input.isArabic ? 'إجمالي المبيعات النهائي بعد الخصم والضريبة والتوصيل' : 'Final sales after discount, tax and delivery', quantity: 1, price: adjustedSales },
+      { name: input.isArabic ? 'إجمالي المحصل في الدرج' : 'Collected drawer revenue', quantity: 1, price: adjustedSales },
       { name: input.isArabic ? 'إجمالي المبيعات بدون توصيل وخصم وضريبة' : 'Sales before delivery, discount and tax', quantity: 1, price: orderBaseSales },
       { name: input.isArabic ? 'إجمالي خدمة التوصيل المحصلة' : 'Collected delivery service', quantity: 1, price: deliveryFees },
       { name: input.isArabic ? 'إجمالي المصروفات' : 'Expenses total', quantity: 1, price: input.expenseTotal },

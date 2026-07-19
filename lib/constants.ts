@@ -127,4 +127,5 @@ export const ROUTES = {
   DASHBOARD_EXPENSES: '/dashboard/expenses',
   DASHBOARD_DRIVER_CLOSING: '/dashboard/driver-closing',
   DASHBOARD_DAILY_CLOSING: '/dashboard/daily-closing',
+  DASHBOARD_CLOSINGS: '/dashboard/closings',
 }

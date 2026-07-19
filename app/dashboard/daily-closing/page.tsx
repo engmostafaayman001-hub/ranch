@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Printer, CalendarDays, TrendingUp, TrendingDown, Wallet } from 'lucide-react'
+import { Printer, CalendarDays, TrendingUp, TrendingDown, Wallet, Smartphone } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -11,7 +11,7 @@ import { TrackedOrder } from '@/lib/order-tracking'
 import { useAppStore } from '@/lib/app-store'
 import { printerManager, syncPrinterManagerSettings } from '@/lib/printer'
 import { createClosingReceiptPayload } from '@/lib/closing-print'
-import { getDriverClosingGroups } from '@/lib/driver-closing-print'
+import { getSessionDateRange, loadPosDaySession, savePosDaySession, type PosDaySession } from '@/lib/pos-day-session'
 
 type Expense = {
   id: string
@@ -25,52 +25,33 @@ function getDateInputValue(date: Date) {
   return date.toISOString().slice(0, 10)
 }
 
-type PosDaySession = {
-  isOpen: boolean
-  openedAt: string
-  closedAt: string | null
+function isWithinSessionRange(value: string | undefined, sessionRange: { start: string; end: string }) {
+  if (!value) return false
+  const compareDate = new Date(value)
+  if (Number.isNaN(compareDate.getTime())) return false
+  const startDate = new Date(sessionRange.start)
+  const endDate = new Date(sessionRange.end)
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return false
+  return compareDate.getTime() >= startDate.getTime() && compareDate.getTime() <= endDate.getTime()
 }
 
-const POS_DAY_SESSION_STORAGE_KEY = 'baseeta-pos-day-session-v1'
-
-function loadPosDaySession(): PosDaySession {
-  if (typeof window === 'undefined') {
-    return { isOpen: true, openedAt: new Date().toISOString(), closedAt: null }
-  }
-  try {
-    const raw = window.localStorage.getItem(POS_DAY_SESSION_STORAGE_KEY)
-    if (!raw) {
-      const initial = { isOpen: true, openedAt: new Date().toISOString(), closedAt: null } satisfies PosDaySession
-      window.localStorage.setItem(POS_DAY_SESSION_STORAGE_KEY, JSON.stringify(initial))
-      return initial
-    }
-    const parsed = JSON.parse(raw) as Partial<PosDaySession>
-    if (typeof parsed?.openedAt === 'string') {
-      // If the stored session started on a different calendar day, start a fresh session now
-      const opened = new Date(parsed.openedAt)
-      const now = new Date()
-      const sameDay = opened.getFullYear() === now.getFullYear() && opened.getMonth() === now.getMonth() && opened.getDate() === now.getDate()
-      if (!sameDay) {
-        const initial = { isOpen: true, openedAt: new Date().toISOString(), closedAt: null } satisfies PosDaySession
-        window.localStorage.setItem(POS_DAY_SESSION_STORAGE_KEY, JSON.stringify(initial))
-        return initial
-      }
-      return {
-        isOpen: parsed.isOpen !== false,
-        openedAt: parsed.openedAt,
-        closedAt: typeof parsed.closedAt === 'string' ? parsed.closedAt : null,
-      }
-    }
-  } catch {
-    // ignore storage issues and fall back to a fresh session
-  }
-  return { isOpen: true, openedAt: new Date().toISOString(), closedAt: null }
+function isExpenseInSessionRange(expense: Expense, sessionRange: { start: string; end: string }) {
+  const expenseDateValue = expense.date || expense.id || ''
+  const expenseDate = new Date(expenseDateValue)
+  if (Number.isNaN(expenseDate.getTime())) return false
+  const startDate = new Date(sessionRange.start)
+  const endDate = new Date(sessionRange.end)
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return false
+  const normalizedExpense = new Date(expenseDate.getFullYear(), expenseDate.getMonth(), expenseDate.getDate())
+  const normalizedStart = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate())
+  const normalizedEnd = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate())
+  return normalizedExpense >= normalizedStart && normalizedExpense <= normalizedEnd
 }
 
-function savePosDaySession(session: PosDaySession) {
-  if (typeof window === 'undefined') return
-  window.localStorage.setItem(POS_DAY_SESSION_STORAGE_KEY, JSON.stringify(session))
+function isCollectedDrawerOrder(order: TrackedOrder) {
+  return String(order.payment?.method || '').toLowerCase() === 'cash' && String(order.payment?.status || '').toLowerCase() === 'paid'
 }
+
 function formatDuration(ms: number, isArabic: boolean) {
   if (!Number.isFinite(ms) || ms <= 0) return isArabic ? '0s' : '0s'
   const totalSeconds = Math.floor(ms / 1000)
@@ -94,12 +75,23 @@ export default function DailyClosingPage() {
   const [rangeEnd, setRangeEnd] = useState(() => getDateInputValue(new Date()))
   const [daySession, setDaySession] = useState<PosDaySession>(() => loadPosDaySession())
 
-  const sessionRange = useMemo(() => {
-    const start = new Date(daySession.openedAt)
-    const end = daySession.isOpen ? new Date() : new Date(daySession.closedAt || daySession.openedAt)
-    if (start > end) return { start: end.toISOString(), end: start.toISOString() }
-    return { start: start.toISOString(), end: end.toISOString() }
-  }, [daySession])
+  const sessionRange = useMemo(() => getSessionDateRange(daySession), [daySession])
+
+  function getDateRangeFromInputs(startValue: string, endValue: string) {
+    try {
+      const startDate = new Date(`${startValue}T00:00:00`)
+      const endDate = new Date(`${endValue}T23:59:59.999`)
+      if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return sessionRange
+      if (startDate.getTime() <= endDate.getTime()) {
+        return { start: startDate.toISOString(), end: endDate.toISOString() }
+      }
+      return { start: endDate.toISOString(), end: startDate.toISOString() }
+    } catch {
+      return sessionRange
+    }
+  }
+
+  const effectiveRange = useMemo(() => getDateRangeFromInputs(rangeStart, rangeEnd), [rangeStart, rangeEnd, sessionRange])
 
   useEffect(() => {
     const loadExpenses = async () => {
@@ -133,25 +125,37 @@ export default function DailyClosingPage() {
   }, [])
 
   const sessionOrders = useMemo(() => {
-    return orders.filter((order) => order.status !== 'cancelled' && order.createdAt && new Date(order.createdAt) >= new Date(sessionRange.start) && new Date(order.createdAt) <= new Date(sessionRange.end))
-  }, [orders, sessionRange])
+    return orders.filter((order) => order.status !== 'cancelled' && order.createdAt && isWithinSessionRange(order.createdAt, effectiveRange))
+  }, [orders, effectiveRange])
 
   const sessionExpenses = useMemo(() => {
-    return expenses.filter((exp) => {
-      const expDate = new Date(exp.date || exp.id || '')
-      return expDate >= new Date(sessionRange.start) && expDate <= new Date(sessionRange.end)
-    })
-  }, [expenses, sessionRange])
+    return expenses.filter((exp) => isExpenseInSessionRange(exp, effectiveRange))
+  }, [expenses, effectiveRange])
 
   const driverSettlements = useMemo(() => {
     return sessionOrders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0)
   }, [sessionOrders])
 
-  const driverCollections = useMemo(() => {
-    // Only count cash on delivery orders that have not been marked as paid yet
-    const uncollectedOrders = sessionOrders.filter(o => o.payment?.status === 'cash_on_delivery' && o.payment?.method === 'cash')
-    const driverGroups = getDriverClosingGroups(uncollectedOrders)
-    return driverGroups.reduce((sum, group) => sum + group.total, 0)
+  const collectedDrawerRevenue = useMemo(() => {
+    return sessionOrders.reduce((sum, order) => isCollectedDrawerOrder(order) ? sum + Number(order.total || 0) : sum, 0)
+  }, [sessionOrders])
+
+  const sessionRevenueWithoutDelivery = useMemo(() => {
+    return sessionOrders.reduce((sum, order) => {
+      const amount = typeof (order as any).subtotal === 'number' && Number.isFinite((order as any).subtotal)
+        ? Number((order as any).subtotal)
+        : Math.max(0, Number(order.total || 0) - Number(order.deliveryFee || 0))
+      return sum + amount
+    }, 0)
+  }, [sessionOrders])
+
+  const drawerPaymentBreakdown = useMemo(() => {
+    return sessionOrders.reduce<Record<string, number>>((totals, order) => {
+      if (!isCollectedDrawerOrder(order)) return totals
+      const method = String(order.payment?.method || 'cash')
+      totals[method] = (totals[method] || 0) + Number(order.total || 0)
+      return totals
+    }, {})
   }, [sessionOrders])
 
   const totalRevenue = useMemo(() => {
@@ -162,7 +166,20 @@ export default function DailyClosingPage() {
     return sessionExpenses.reduce((sum, exp) => sum + Number(exp.amount || 0), 0)
   }, [sessionExpenses])
 
-  const netProfit = totalRevenue - totalExpenses - driverSettlements
+  const netProfit = collectedDrawerRevenue - totalExpenses
+
+  const totalRemainingToCollect = useMemo(() => {
+    return sessionOrders.reduce((sum, order) => {
+      return String(order.payment?.status || '').toLowerCase() === 'cash_on_delivery' ? sum + Number(order.total || 0) : sum
+    }, 0)
+  }, [sessionOrders])
+
+  const totalOtherPayments = useMemo(() => {
+    return sessionOrders.reduce((sum, order) => {
+      const method = String(order.payment?.method || '').toLowerCase()
+      return ['vodafone_cash', 'instapay'].includes(method) ? sum + Number(order.total || 0) : sum
+    }, 0)
+  }, [sessionOrders])
 
   const handlePrint = async () => {
     try {
@@ -173,10 +190,10 @@ export default function DailyClosingPage() {
         dateLabel: `${new Date(daySession.openedAt).toLocaleString()} - ${daySession.isOpen ? new Date().toLocaleString() : new Date(daySession.closedAt || daySession.openedAt).toLocaleString()}`,
         orders: includeOrders ? sessionOrders : [],
         expenses: sessionExpenses,
-        revenue: includeOrders ? totalRevenue : 0,
+        revenue: includeOrders ? collectedDrawerRevenue : 0,
         expenseTotal: totalExpenses,
         net: includeOrders ? netProfit : 0,
-        paymentBreakdown: {},
+        paymentBreakdown: drawerPaymentBreakdown,
         paymentLabel: (method: string) => method,
         currency,
         isArabic,
@@ -270,12 +287,12 @@ export default function DailyClosingPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">
-              {isArabic ? 'إجمالي الإيرادات' : 'Total Revenue'}
+              {isArabic ? 'إجمالي المبيعات (بدون رسوم التوصيل)' : 'Total Revenue (excl. delivery)'}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-center justify-between">
-              <p className="text-2xl font-bold">{totalRevenue.toFixed(2)}</p>
+              <p className="text-2xl font-bold">{sessionRevenueWithoutDelivery.toFixed(2)}</p>
               <TrendingUp className="h-5 w-5 text-green-600" />
             </div>
             <p className="text-xs text-slate-500 mt-1">{currency}</p>
@@ -300,13 +317,13 @@ export default function DailyClosingPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">
-              {isArabic ? 'تسويات السائقين' : 'Driver Settlements'}
+              {isArabic ? 'المتبقي للتحصيل' : 'Remaining to Collect'}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-center justify-between">
-              <p className="text-2xl font-bold">{driverSettlements.toFixed(2)}</p>
-              <TrendingDown className="h-5 w-5 text-red-600" />
+              <p className="text-2xl font-bold">{totalRemainingToCollect.toFixed(2)}</p>
+              <Wallet className="h-5 w-5 text-yellow-600" />
             </div>
             <p className="text-xs text-slate-500 mt-1">{currency}</p>
           </CardContent>
@@ -315,13 +332,13 @@ export default function DailyClosingPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">
-              {isArabic ? 'تحصيل السائقين' : 'Driver Collections'}
+              {isArabic ? 'طرق الدفع الأخرى' : 'Other Payments'}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-center justify-between">
-              <p className="text-2xl font-bold">{driverCollections.toFixed(2)}</p>
-              <Wallet className="h-5 w-5 text-green-600" />
+              <p className="text-2xl font-bold">{totalOtherPayments.toFixed(2)}</p>
+              <Smartphone className="h-5 w-5 text-blue-600" />
             </div>
             <p className="text-xs text-slate-500 mt-1">{currency}</p>
           </CardContent>
@@ -330,7 +347,7 @@ export default function DailyClosingPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">
-              {isArabic ? 'الصافي' : 'Net'}
+              {isArabic ? 'صافي الدرج' : 'Drawer Net'}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -404,7 +421,7 @@ export default function DailyClosingPage() {
             </div>
             <div>
               <p className="text-sm text-slate-600 dark:text-slate-400">{isArabic ? 'إجمالي التكاليف' : 'Total Costs'}</p>
-              <p className="text-2xl font-bold text-red-600">{(totalExpenses + driverSettlements).toFixed(2)} {currency}</p>
+              <p className="text-2xl font-bold text-red-600">{totalExpenses.toFixed(2)} {currency}</p>
             </div>
             <div>
               <p className="text-sm text-slate-600 dark:text-slate-400">{isArabic ? 'الصافي النهائي' : 'Final Net'}</p>
