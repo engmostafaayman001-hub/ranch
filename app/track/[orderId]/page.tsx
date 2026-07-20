@@ -78,7 +78,7 @@ export default function TrackOrderPage() {
       }
       setReceiptPreview({
         url: data.receipt.receiptDataUrl,
-        title: `${isArabic ? 'إيصال الطلب' : 'Order receipt'} ${order.id}`,
+        title: `${isArabic ? 'إيصال الطلب' : 'Order receipt'} ${order.displayNumber ? `#${order.displayNumber}` : order.id}`,
         name: data.receipt.receiptName || order.payment?.receiptName,
       })
     } catch {
@@ -112,7 +112,7 @@ export default function TrackOrderPage() {
         ) : (
           <>
             <Card className="mb-8">
-              <CardHeader><CardTitle>{isArabic ? 'الطلب' : 'Order'} {order.id}</CardTitle></CardHeader>
+              <CardHeader><CardTitle>{isArabic ? 'الطلب' : 'Order'} #{order.displayNumber || order.id}</CardTitle></CardHeader>
               <CardContent>
                 <div className="grid gap-4 sm:grid-cols-3">
                   <Info label={isArabic ? 'الحالة' : 'Status'} value={statusLabels[order.status][language]} />

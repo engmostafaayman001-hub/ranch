@@ -287,21 +287,10 @@ export async function POST(request: NextRequest) {
     const finalTotal = Math.max(0, Number(calculatedTotal.toFixed(2)))
     const lines = normalizeOrderLines(body)
 
-    // Calculate sequential display number for this shift
-    let displayNumber: number | undefined = undefined
-    if (resolvedShiftId) {
-      const shiftOrders = await readServerOrders({ shiftId: resolvedShiftId })
-      const maxDisplayNumber = shiftOrders.reduce((max, order) => {
-        const num = Number(order.displayNumber || 0)
-        return num > max ? num : max
-      }, 0)
-      displayNumber = maxDisplayNumber + 1
-    }
-
     const order: TrackedOrder = {
       // associate with shiftId provided by header or body when available
       shiftId: resolvedShiftId,
-      displayNumber,
+      displayNumber: undefined,
       id,
       source: orderSource,
       externalReference: body.externalReference || body.posOrderId ? String(body.externalReference || body.posOrderId) : undefined,
@@ -342,6 +331,26 @@ export async function POST(request: NextRequest) {
     const orderShiftId = order.shiftId
     if (!orderShiftId && !hasValidPosKey && !isAdmin) {
       return json({ error: 'shift_id_required', message: 'A shift id must be provided in x-shift-id header or body.shiftId' }, { status: 412 })
+    }
+
+    if (orderShiftId) {
+      const shiftOrders = await readServerOrders({ shiftId: orderShiftId })
+      const allOrdersForShift = [...shiftOrders.filter((entry) => entry.id !== order.id), order]
+      const getOrderTime = (entry: TrackedOrder) => {
+        const time = new Date(entry.createdAt).getTime()
+        return Number.isFinite(time) ? time : 0
+      }
+      const sortedOrders = allOrdersForShift.sort((a, b) => getOrderTime(a) - getOrderTime(b))
+      const totalOrders = sortedOrders.length
+      for (let index = 0; index < sortedOrders.length; index += 1) {
+        const current = sortedOrders[index]
+        const nextDisplayNumber = totalOrders - index
+        const updatedOrder = { ...current, displayNumber: nextDisplayNumber }
+        if (updatedOrder.id === order.id) {
+          order.displayNumber = nextDisplayNumber
+        }
+        await upsertServerOrder(updatedOrder)
+      }
     }
 
     if (orderShiftId) {

@@ -482,7 +482,7 @@ export default function DashboardReportsPage() {
                 {report.recentOrders.map((order) => (
                   <div key={order.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 dark:border-slate-800">
                     <div>
-                      <p className="font-semibold">{order.id}</p>
+                      <p className="font-semibold">#{order.displayNumber || order.id}</p>
                       <p className="text-sm text-slate-500">{order.customer || '-'} - {order.createdAt ? new Date(order.createdAt).toLocaleString(locale) : '-'}</p>
                     </div>
                     <div className="text-end">
@@ -556,7 +556,7 @@ export default function DashboardReportsPage() {
                       {closingSummary.orders.map((order) => (
                         <div key={order.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-sm dark:border-slate-800">
                           <div>
-                            <p className="font-semibold">{order.id}</p>
+                            <p className="font-semibold">#{order.displayNumber || order.id}</p>
                             <p className="text-slate-500">{order.customer || '-'} - {paymentLabel(order.payment?.method || 'cash')}</p>
                           </div>
                           <strong>{money(Number(order.total || 0), currency)}</strong>

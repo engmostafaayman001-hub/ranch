@@ -902,7 +902,7 @@ export function trackedOrderToReceiptPayload(order: TrackedOrder, options: Parti
     orderWithPossibleLines.itemsList,
   ].find((lines) => Array.isArray(lines) && lines.length)
   return {
-    orderId: order.id,
+    orderId: order.displayNumber ? `#${order.displayNumber}` : order.id,
     createdAt: order.createdAt,
     orderType: order.estimatedDelivery,
     customer: {

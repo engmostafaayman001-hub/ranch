@@ -90,7 +90,7 @@ export default function TrackPage() {
                   <Card className="transition-shadow hover:shadow-md">
                     <CardContent className="flex items-center justify-between gap-4 py-4">
                       <div>
-                        <p className="font-bold">{order.id}</p>
+                        <p className="font-bold">#{order.displayNumber || order.id}</p>
                         <p className="text-sm text-slate-500">{order.customer}</p>
                       </div>
                       <div className="text-right">

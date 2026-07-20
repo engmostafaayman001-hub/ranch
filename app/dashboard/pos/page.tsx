@@ -1405,7 +1405,7 @@ export default function DashboardPosPage() {
                         {group.orders.map((order) => (
                           <div key={order.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm">
                             <span className="font-medium">
-                              {order.source === 'restaurant_pos' ? (isArabic ? 'مطعم' : 'POS') : (isArabic ? 'تطبيق' : 'App')} - {order.id} - {order.customer || '-'}
+                              {order.source === 'restaurant_pos' ? (isArabic ? 'مطعم' : 'POS') : (isArabic ? 'تطبيق' : 'App')} - #{order.displayNumber || order.id} - {order.customer || '-'}
                             </span>
                             <span className="font-bold">{Number(order.total || 0).toFixed(2)} {currency}</span>
                           </div>

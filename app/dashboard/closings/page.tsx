@@ -289,7 +289,7 @@ export default function ClosingsPage() {
                       <div key={order.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <p className="font-semibold">{order.id}</p>
+                            <p className="font-semibold">#{order.displayNumber || order.id}</p>
                             <p className="text-sm text-slate-500">{order.customer || order.phone || '-'}</p>
                             <p className="mt-2 text-xs text-slate-500">{order.createdAt ? new Date(order.createdAt).toLocaleString(isArabic ? 'ar-EG' : 'en-US') : ''}</p>
                           </div>

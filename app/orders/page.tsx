@@ -96,7 +96,7 @@ export default function OrdersPage() {
                 <CardContent className="pt-6">
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div className="space-y-2">
-                      <h3 className="text-lg font-bold">{order.id}</h3>
+                      <h3 className="text-lg font-bold">#{order.displayNumber || order.id}</h3>
                       <p className="text-sm text-slate-600 dark:text-slate-400">{new Date(order.createdAt).toLocaleDateString(isArabic ? 'ar-EG' : 'en-US')}</p>
                       <p className="text-sm text-slate-600 dark:text-slate-400">{order.items} {isArabic ? 'منتج' : `item${order.items !== 1 ? 's' : ''}`}</p>
                     </div>

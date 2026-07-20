@@ -140,7 +140,6 @@ function matchesSource(order: TrackedOrder, source?: ServerOrderSourceFilter) {
 }
 
 function ensureDisplayNumbers(orders: TrackedOrder[]): TrackedOrder[] {
-  // Group orders by shiftId to calculate display numbers
   const byShift = new Map<string | undefined, TrackedOrder[]>()
   for (const order of orders) {
     const shiftId = order.shiftId
@@ -148,25 +147,21 @@ function ensureDisplayNumbers(orders: TrackedOrder[]): TrackedOrder[] {
     byShift.get(shiftId)!.push(order)
   }
 
-  // For each shift, assign sequential display numbers to orders without one
   const result: TrackedOrder[] = []
   for (const [, shiftOrders] of byShift) {
-    const sorted = shiftOrders.sort((a, b) => {
+    const sorted = [...shiftOrders].sort((a, b) => {
       const aTime = new Date(a.createdAt).getTime()
       const bTime = new Date(b.createdAt).getTime()
       return aTime - bTime
     })
+    const total = sorted.length
 
-    let nextNum = 1
-    for (const order of sorted) {
-      if (order.displayNumber) {
-        nextNum = Math.max(nextNum, order.displayNumber + 1)
-        result.push(order)
-      } else {
-        result.push({ ...order, displayNumber: nextNum })
-        nextNum++
-      }
-    }
+    sorted.forEach((order, index) => {
+      result.push({
+        ...order,
+        displayNumber: total - index,
+      })
+    })
   }
 
   return result
