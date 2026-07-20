@@ -308,12 +308,13 @@ export default function DashboardOrdersPage() {
 
   const getOrderLineName = (line: OrderLine) => {
     const trimmedName = line.name?.toString().trim()
-    const product = products.find((item) => item.id === (line as any).productId)
+    const productId = String((line as any).productId || '')
+    const product = products.find((item) => item.id === productId) || products.find((item) => item.id === (line as any).product?.id)
     const placeholderNames = new Set([isArabic ? 'منتج' : 'Item', isArabic ? 'منتج جديد' : 'New item'])
-    if (product && (!trimmedName || placeholderNames.has(trimmedName))) {
+    if (product) {
       return isArabic ? product.nameAr : product.nameEn
     }
-    if (trimmedName) return trimmedName
+    if (trimmedName && !placeholderNames.has(trimmedName)) return trimmedName
     return isArabic ? 'منتج' : 'Item'
   }
 
@@ -391,6 +392,7 @@ export default function DashboardOrdersPage() {
   const createPrintPayload = useCallback((order: TrackedOrder) => trackedOrderToReceiptPayload(order, {
     isArabic,
     currency,
+    productCatalog: products,
     invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
     invoiceAddress: isArabic ? settings.addressAr : settings.addressEn,
     invoicePhone: settings.phone,

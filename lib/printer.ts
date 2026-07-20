@@ -886,7 +886,40 @@ function bluetoothPrintError(error: unknown) {
   return new Error(`تعذر إرسال أمر الطباعة عبر Bluetooth. أعد ربط الطابعة من الزر، وتأكد أنها ليست متصلة بتطبيق آخر. ${detail}`)
 }
 
-export function trackedOrderToReceiptPayload(order: TrackedOrder, options: Partial<ReceiptPayload> = {}): ReceiptPayload {
+type ReceiptProductSource = {
+  id?: string
+  name?: string
+  nameAr?: string
+  nameEn?: string
+}
+
+type ReceiptPayloadOptions = Partial<ReceiptPayload> & {
+  productCatalog?: ReceiptProductSource[]
+}
+
+function resolveReceiptLineName(line: Record<string, unknown>, isArabic: boolean, productCatalog?: ReceiptProductSource[]) {
+  const placeholderNames = new Set(['item', 'new item', 'منتج', 'منتج جديد'])
+  const productId = typeof line.productId === 'string' && line.productId.trim() ? line.productId : ''
+  const matchingProduct = productCatalog?.find((product) => String(product.id || '') === productId)
+  const productName = matchingProduct
+    ? (isArabic ? matchingProduct.nameAr || matchingProduct.nameEn || matchingProduct.name : matchingProduct.nameEn || matchingProduct.nameAr || matchingProduct.name)
+    : ''
+
+  if (productName) return String(productName)
+
+  const rawName = [line.name, line.productName, line.nameEn, line.nameAr, (line.product as Record<string, unknown> | undefined)?.name, (line.product as Record<string, unknown> | undefined)?.nameEn, (line.product as Record<string, unknown> | undefined)?.nameAr]
+    .map((value) => (typeof value === 'string' ? value : value && typeof value === 'object' ? String(value) : ''))
+    .find((value) => Boolean(value?.trim())) || ''
+
+  const trimmedName = rawName.trim()
+  if (trimmedName && !placeholderNames.has(trimmedName.toLowerCase())) return trimmedName
+
+  return isArabic
+    ? 'تفاصيل الأصناف غير محفوظة'
+    : 'Order details unavailable'
+}
+
+export function trackedOrderToReceiptPayload(order: TrackedOrder, options: ReceiptPayloadOptions = {}): ReceiptPayload {
   const orderWithPossibleLines = order as TrackedOrder & {
     lines?: ReceiptLine[]
     orderLines?: ReceiptLine[]
@@ -901,6 +934,27 @@ export function trackedOrderToReceiptPayload(order: TrackedOrder, options: Parti
     orderWithPossibleLines.products,
     orderWithPossibleLines.itemsList,
   ].find((lines) => Array.isArray(lines) && lines.length)
+
+  const isArabic = options.isArabic === true
+  const normalizedLines = Array.isArray(maybeLines) && maybeLines.length
+    ? maybeLines.map((line) => {
+        if (!line || typeof line !== 'object') return line
+        const source = line as Record<string, unknown>
+        return {
+          ...line,
+          name: resolveReceiptLineName(source, isArabic, options.productCatalog),
+          quantity: Number(source.quantity || source.qty || 1),
+          price: typeof source.price === 'number' ? source.price : Number(source.price || 0),
+        }
+      })
+    : [{
+        name: options.isArabic === false
+          ? `Order details unavailable (${Number(order.items || 0)} items)`
+          : `تفاصيل الأصناف غير محفوظة (${Number(order.items || 0)} عنصر)`,
+        quantity: 1,
+        price: Number(order.total || 0),
+      }]
+
   return {
     orderId: order.displayNumber ? `#${order.displayNumber}` : order.id,
     createdAt: order.createdAt,
@@ -912,15 +966,7 @@ export function trackedOrderToReceiptPayload(order: TrackedOrder, options: Parti
       notes: order.notes,
     },
     driver: order.driver,
-    lines: Array.isArray(maybeLines) && maybeLines.length
-      ? maybeLines
-      : [{
-          name: options.isArabic === false
-            ? `Order details unavailable (${Number(order.items || 0)} items)`
-            : `تفاصيل الأصناف غير محفوظة (${Number(order.items || 0)} عنصر)`,
-          quantity: 1,
-          price: Number(order.total || 0),
-        }],
+    lines: normalizedLines,
     subtotal: typeof order.subtotal === 'number' ? Number(order.subtotal || 0) : options.subtotal,
     tax: typeof order.tax === 'number' ? Number(order.tax || 0) : options.tax,
     deliveryFee: typeof order.deliveryFee === 'number' ? Number(order.deliveryFee || 0) : options.deliveryFee,

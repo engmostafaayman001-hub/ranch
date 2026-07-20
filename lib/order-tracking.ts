@@ -89,13 +89,15 @@ export const trackingSteps: { status: TrackingStatus; ar: string; en: string }[]
   { status: 'ready_for_delivery', ar: 'جاهز للتوصيل', en: 'Ready for Delivery' },
   { status: 'out_for_delivery', ar: 'في الطريق', en: 'Out for Delivery' },
   { status: 'delivered', ar: 'تم التسليم واكتمال الطلب', en: 'Delivered and Completed' },
-  { status: 'received', ar: 'مكتمل', en: 'Completed' },
   { status: 'cancelled', ar: 'تم إلغاء الطلب', en: 'Cancelled' },
 ]
 
-export const statusLabels = Object.fromEntries(
-  trackingSteps.map((step) => [step.status, { ar: step.ar, en: step.en }])
-) as Record<TrackingStatus, { ar: string; en: string }>
+export const statusLabels = {
+  ...Object.fromEntries(
+    trackingSteps.map((step) => [step.status, { ar: step.ar, en: step.en }])
+  ),
+  received: { ar: 'تم استلام الطلب', en: 'Order Received' },
+} as Record<TrackingStatus, { ar: string; en: string }>
 
 export const initialTrackedOrders: TrackedOrder[] = []
 
@@ -123,8 +125,8 @@ function compactTrackedOrders(orders: TrackedOrder[], limit = MAX_LOCAL_TRACKED_
 }
 
 export function getStatusIndex(status: TrackingStatus) {
-  const normalizedStatus = status === 'received' ? 'delivered' : status
-  return trackingSteps.findIndex((step) => step.status === normalizedStatus)
+  const index = trackingSteps.findIndex((step) => step.status === status)
+  return index === -1 ? trackingSteps.length : index
 }
 
 export function getTrackedOrders(): TrackedOrder[] {

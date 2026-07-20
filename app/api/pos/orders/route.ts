@@ -142,7 +142,7 @@ function getOrderSubtotal(body: Record<string, unknown>) {
   return Number(body.subtotal || body.itemsTotal || body.amount || body.total || 0)
 }
 
-function normalizeOrderLines(body: Record<string, unknown>) {
+async function normalizeOrderLines(body: Record<string, unknown>): Promise<TrackedOrder['lines'] | undefined> {
   const source = Array.isArray(body.lines)
     ? body.lines
     : Array.isArray(body.orderLines)
@@ -153,23 +153,38 @@ function normalizeOrderLines(body: Record<string, unknown>) {
           ? body.items
           : undefined
   if (!source) return undefined
+
+  const { products, categories } = await readSharedAppData()
+  const productMap = new Map(products.map((p) => [p.id, p]))
+  const categoryMap = new Map(categories.map((c) => [c.id, c]))
+
   return source
     .map((line) => {
       if (!line || typeof line !== 'object') return null
       const item = line as Record<string, unknown>
-      const product = item.product && typeof item.product === 'object' ? item.product as Record<string, unknown> : {}
+      const productInfo = item.product && typeof item.product === 'object' ? item.product as Record<string, unknown> : {}
+      const productId = String(item.productId || productInfo.id || '')
+      const product = productId ? productMap.get(productId) : undefined
+      const categoryId = product?.categoryId || (item.categoryId || productInfo.categoryId ? String(item.categoryId || productInfo.categoryId) : undefined)
+      const category = categoryId ? categoryMap.get(categoryId) : undefined
+
       const additions = Array.isArray(item.additions)
         ? item.additions.map((addition) => String(addition)).filter(Boolean)
         : undefined
+      const fallbackName = String(item.name || item.nameAr || item.nameEn || item.productName || productInfo.name || productInfo.nameAr || productInfo.nameEn || '').trim()
+      const placeholderNames = new Set(['item', 'new item', 'منتج', 'منتج جديد'])
+      const resolvedName = product
+        ? (product.nameAr || product.nameEn || 'Item')
+        : fallbackName || 'Item'
       return {
-        productId: item.productId || (product.id ? String(product.id) : undefined),
-        name: String(item.name || item.nameAr || item.nameEn || item.productName || product.name || product.nameAr || product.nameEn || 'Item'),
+        productId: productId || undefined,
+        name: product && (!fallbackName || placeholderNames.has(fallbackName.toLowerCase())) ? resolvedName : (fallbackName || resolvedName),
         quantity: Number(item.quantity || item.qty || 1),
-        price: Number(item.price || product.price || 0),
+        price: Number(item.price || productInfo.price || product?.price || 0),
         notes: item.notes || item.note ? String(item.notes || item.note) : undefined,
         additions,
-        categoryName: item.categoryName || item.category || product.categoryName ? String(item.categoryName || item.category || product.categoryName) : undefined,
-        categoryId: item.categoryId || product.categoryId ? String(item.categoryId || product.categoryId) : undefined,
+        categoryName: category?.nameAr || (item.categoryName || item.category || productInfo.categoryName ? String(item.categoryName || item.category || productInfo.categoryName) : undefined),
+        categoryId,
       }
     })
     .filter(Boolean) as TrackedOrder['lines']
@@ -233,6 +248,7 @@ export async function POST(request: NextRequest) {
     const payment = body.payment && typeof body.payment === 'object' ? body.payment : {}
     const paymentMethod = String(payment.method || body.paymentMethod || body.payMethod || 'cash')
     const customerEmail = String(customer.email || body.customerEmail || body.email || '').toLowerCase()
+    const driverFromBody = body.driver && typeof body.driver === 'object' ? body.driver as Record<string, unknown> : null
     const requestEmail = await getRequestAuthenticatedUserEmail(request)
     const hasValidPosKey = getRequestApiKey(request) ? validateOptionalApiKey(request) : false
     const isAdmin = (await getRequestDashboardAccess(request)).allowed
@@ -285,7 +301,7 @@ export async function POST(request: NextRequest) {
 
     const calculatedTotal = subtotal + tax + deliveryFee - (discount?.amount || 0)
     const finalTotal = Math.max(0, Number(calculatedTotal.toFixed(2)))
-    const lines = normalizeOrderLines(body)
+    const lines = await normalizeOrderLines(body)
 
     const order: TrackedOrder = {
       // associate with shiftId provided by header or body when available
@@ -309,10 +325,10 @@ export async function POST(request: NextRequest) {
       createdAt: String(body.createdAt || now),
       estimatedDelivery: String(body.estimatedDelivery || '30 min'),
       driver: {
-        name: String(body.driver?.name || 'Pending assignment'),
-        email: String(body.driver?.email || ''),
-        phone: String(body.driver?.phone || '-'),
-        rating: Number(body.driver?.rating || 0),
+        name: String(driverFromBody?.name || body.driver?.name || 'Pending assignment'),
+        email: String(driverFromBody?.email || body.driver?.email || ''),
+        phone: String(driverFromBody?.phone || body.driver?.phone || '-'),
+        rating: Number(driverFromBody?.rating || body.driver?.rating || 0),
       },
       payment: {
         method: paymentMethod,
@@ -432,6 +448,28 @@ export async function PATCH(request: NextRequest) {
     const auditUser = typeof body.auditUser === 'string' && body.auditUser.trim() ? body.auditUser.trim() : access.email || 'dashboard'
     const auditNote = typeof body.auditNote === 'string' && body.auditNote.trim() ? body.auditNote.trim() : undefined
     const driverInput = body.driver && typeof body.driver === 'object' ? body.driver as Record<string, unknown> : null
+    const discountInput = hasOwn(body, 'discount') ? body.discount : undefined
+    let discount: TrackedOrder['discount'] | undefined
+    if (discountInput !== undefined) {
+      if (typeof discountInput === 'number') {
+        const amount = Math.max(0, Number(discountInput || 0))
+        discount = amount > 0 ? { code: '', type: 'fixed', value: amount, amount: Number(amount.toFixed(2)) } : undefined
+      } else if (typeof discountInput === 'object') {
+        const discountPayload = discountInput as Record<string, unknown>
+        const amount = Number(discountPayload.amount || discountPayload.value || 0)
+        if (Number.isFinite(amount) && amount > 0) {
+          const type = String(discountPayload.type || 'fixed') === 'percent' ? 'percent' as const : 'fixed' as const
+          discount = {
+            code: String(discountPayload.code || ''),
+            type,
+            value: Number(discountPayload.value || amount),
+            amount: Number(amount.toFixed(2)),
+          }
+        } else {
+          discount = undefined
+        }
+      }
+    }
     const driver = driverInput
       ? {
           name: String(driverInput.name || 'Pending assignment'),
@@ -441,7 +479,7 @@ export async function PATCH(request: NextRequest) {
         }
       : undefined
     const paymentStatus = body.paymentStatus || payment.status
-    const lines = normalizeOrderLines(body)
+    const lines = await normalizeOrderLines(body)
     const subtotal = hasOwn(body, 'subtotal')
       ? Math.max(0, Number(body.subtotal || 0))
       : lines
@@ -480,6 +518,7 @@ export async function PATCH(request: NextRequest) {
           ...(lines ? { lines } : {}),
           ...(hasOwn(body, 'estimatedDelivery') ? { estimatedDelivery: String(body.estimatedDelivery || '') } : {}),
           ...(driver ? { driver } : {}),
+          ...(discountInput !== undefined ? { discount } : {}),
           ...(paymentUpdates ? { payment: paymentUpdates } : {}),
           audit: {
             user: auditUser,

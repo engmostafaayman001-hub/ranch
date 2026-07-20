@@ -14,7 +14,6 @@ import { statusLabels, syncTrackedOrdersForEmail, TrackedOrder, TrackingStatus }
 
 const getStatusColor = (status: TrackingStatus) => {
   switch (status) {
-    case 'received':
     case 'delivered':
       return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
     case 'out_for_delivery':

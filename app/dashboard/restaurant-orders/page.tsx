@@ -70,9 +70,14 @@ export default function DashboardRestaurantOrdersPage() {
     if (loadingOrders.current) return
     loadingOrders.current = true
     try {
-      const nextOrders = await fetchDashboardOrdersBySource('restaurant_pos', 120)
-      setOrders(nextOrders)
-      const inferredDrivers = nextOrders.flatMap((order) => {
+      const [appOrders, restaurantOrders] = await Promise.all([
+        fetchDashboardOrdersBySource('app', 180),
+        fetchDashboardOrdersBySource('restaurant_pos', 180),
+      ])
+      const mergedOrders = [...appOrders, ...restaurantOrders]
+      const uniqueOrders = mergedOrders.filter((order, index, array) => array.findIndex((entry) => entry.id === order.id) === index)
+      setOrders(uniqueOrders)
+      const inferredDrivers = uniqueOrders.flatMap((order) => {
         if (!order.driver?.name || order.driver.name === 'Pending assignment') return []
         return [{ id: order.driver.email || order.driver.phone || order.driver.name, name: order.driver.name, email: order.driver.email || '', phone: order.driver.phone || '', area: '', status: 'active' as const }]
       })
@@ -86,7 +91,7 @@ export default function DashboardRestaurantOrdersPage() {
       loadingOrders.current = false
       setLoading(false)
     }
-  }, [])
+  }, [drivers, setDrivers])
   useEffect(() => {
     const timer = window.setTimeout(loadOrders, 0)
     const interval = window.setInterval(loadOrders, 30000)
@@ -326,6 +331,7 @@ export default function DashboardRestaurantOrdersPage() {
   const createPrintPayload = (order: TrackedOrder) => trackedOrderToReceiptPayload(order, {
     isArabic,
     currency,
+    productCatalog: products,
     invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
     invoiceAddress: isArabic ? settings.addressAr : settings.addressEn,
     invoicePhone: settings.phone,

@@ -10,6 +10,7 @@ import { CURRENCY, CURRENCY_EN } from '@/lib/constants'
 import { TrackedOrder } from '@/lib/order-tracking'
 import { useAppStore } from '@/lib/app-store'
 import { printerManager, syncPrinterManagerSettings } from '@/lib/printer'
+import { summarizeClosingData } from '@/lib/financial-calculations'
 import { createClosingReceiptPayload } from '@/lib/closing-print'
 import { getShiftSessionDateRange, isItemInShiftWindow, isItemWithinDateRange, type ShiftSession } from '@/lib/pos-day-session'
 import useShiftSession from '@/lib/use-shift-session'
@@ -29,10 +30,6 @@ function getDateInputValue(date: Date) {
   return date.toISOString().slice(0, 10)
 }
 
-function isCollectedDrawerOrder(order: TrackedOrder) {
-  return String(order.payment?.method || '').toLowerCase() === 'cash' && String(order.payment?.status || '').toLowerCase() === 'paid'
-}
-
 function formatDuration(ms: number, isArabic: boolean) {
   if (!Number.isFinite(ms) || ms <= 0) return isArabic ? '0s' : '0s'
   const totalSeconds = Math.floor(ms / 1000)
@@ -49,6 +46,7 @@ export default function DailyClosingPage() {
   const isArabic = language === 'ar'
   const settings = useAppStore((state) => state.settings)
   const [orders, setOrders] = useState<TrackedOrder[]>([])
+  const [allShiftOrders, setAllShiftOrders] = useState<TrackedOrder[]>([])
   const currency = isArabic ? CURRENCY : CURRENCY_EN
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [printStatus, setPrintStatus] = useState('')
@@ -106,20 +104,22 @@ export default function DailyClosingPage() {
           // or legacy expenses that fall within the shift window
           return expense.shiftId === daySession.shiftId || (!expense.shiftId && isItemInShiftWindow(expense.date, daySession, { includeSameDayBeforeStart: true }))
         }))
-
-        setOrders(allOrders.filter((order: TrackedOrder) => {
-          if (settledOrderIds.has(order.id) || order.status === 'cancelled') return false
+        
+        const shiftOrdersUnfiltered = allOrders.filter((order: TrackedOrder) => {
+          if (settledOrderIds.has(order.id)) return false
           if (!daySession.shiftId) {
             return !order.shiftId || isItemInShiftWindow(order.createdAt, daySession, { includeSameDayBeforeStart: true })
           }
-          // when a shiftId exists, include only orders explicitly for the shift
-          // or legacy orders that fall within the shift window
           return order.shiftId === daySession.shiftId || (!order.shiftId && isItemInShiftWindow(order.createdAt, daySession, { includeSameDayBeforeStart: true }))
-        }))
+        });
+        setAllShiftOrders(shiftOrdersUnfiltered);
+
+        setOrders(shiftOrdersUnfiltered.filter((order: TrackedOrder) => order.status !== 'cancelled'))
       } catch {
         if (active) {
           setExpenses([])
           setOrders([])
+          setAllShiftOrders([])
         }
       }
     }
@@ -174,50 +174,26 @@ export default function DailyClosingPage() {
     return sessionOrders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0)
   }, [sessionOrders])
 
-  const collectedDrawerRevenue = useMemo(() => {
-    return sessionOrders.reduce((sum, order) => isCollectedDrawerOrder(order) ? sum + Number(order.total || 0) : sum, 0)
-  }, [sessionOrders])
+  const financialSummary = useMemo(() => summarizeClosingData(sessionOrders, sessionExpenses), [sessionOrders, sessionExpenses])
 
-  const sessionRevenueWithoutDelivery = useMemo(() => {
-    return sessionOrders.reduce((sum, order) => {
-      // Prefer explicit subtotal minus discount (net sales after discounts, before tax/delivery)
-      if (typeof order.subtotal === 'number' && Number.isFinite(order.subtotal)) {
-        const discountAmount = Number(order.discount?.amount || 0)
-        return sum + Math.max(0, Number(order.subtotal) - discountAmount)
-      }
-      // Fallback for legacy orders: derive base sales from total by removing delivery and tax, then add back discount amount
-      // (keeps compatibility with existing stored shapes)
-      const fallbackBase = Math.max(0, Number(order.total || 0) - Number(order.deliveryFee || 0) - Number(order.tax || 0) + Number(order.discount?.amount || 0))
-      return sum + fallbackBase
-    }, 0)
-  }, [sessionOrders])
-
+  const collectedDrawerRevenue = financialSummary.collectedDrawerRevenue
+  const sessionRevenueWithoutDelivery = financialSummary.salesExcludingDelivery
   const drawerPaymentBreakdown = useMemo(() => {
     return sessionOrders.reduce<Record<string, number>>((totals, order) => {
-      if (!isCollectedDrawerOrder(order)) return totals
+      if (!order.status || order.status === 'cancelled') return totals
+      if (!financialSummary.collectedDrawerRevenue) return totals
       const method = String(order.payment?.method || 'cash')
-      totals[method] = (totals[method] || 0) + Number(order.total || 0)
+      if (order.source === 'restaurant_pos' || String(order.payment?.status || '').toLowerCase() === 'paid') {
+        totals[method] = (totals[method] || 0) + Number(order.total || 0)
+      }
       return totals
     }, {})
-  }, [sessionOrders])
+  }, [financialSummary.collectedDrawerRevenue, sessionOrders])
 
-  const totalRevenue = useMemo(() => {
-    return sessionOrders.reduce((sum, order) => sum + Number(order.total || 0), 0)
-  }, [sessionOrders])
-
-  const totalExpenses = useMemo(() => {
-    return sessionExpenses.reduce((sum, exp) => sum + Number(exp.amount || 0), 0)
-  }, [sessionExpenses])
-
-  const drawerNetAfterExpenses = useMemo(() => {
-    return collectedDrawerRevenue - totalExpenses
-  }, [collectedDrawerRevenue, totalExpenses])
-
-  const totalRemainingToCollect = useMemo(() => {
-    return sessionOrders.reduce((sum, order) => {
-      return String(order.payment?.status || '').toLowerCase() === 'cash_on_delivery' ? sum + Number(order.total || 0) : sum
-    }, 0)
-  }, [sessionOrders])
+  const totalRevenue = financialSummary.grossSales
+  const totalExpenses = financialSummary.expenses
+  const drawerNetAfterExpenses = financialSummary.actualDrawer
+  const totalRemainingToCollect = financialSummary.remainingToCollect
 
   const totalOtherPayments = useMemo(() => {
     return sessionOrders.reduce((sum, order) => {
@@ -233,6 +209,84 @@ export default function DailyClosingPage() {
       return ['vodafone_cash', 'instapay'].includes(method) ? sum + Number(order.total || 0) : sum
     }, 0)
   }, [sessionOrders])
+
+  const shiftRestaurantSales = useMemo(() => {
+    return sessionOrders.reduce((sum, order) => {
+      if (order.source !== 'restaurant_pos') return sum
+      return sum + Number(order.total || 0)
+    }, 0)
+  }, [sessionOrders])
+
+  const shiftAppSales = useMemo(() => {
+    return sessionOrders.reduce((sum, order) => {
+      if (order.source === 'restaurant_pos') return sum
+      return sum + Number(order.total || 0)
+    }, 0)
+  }, [sessionOrders])
+
+  const customStatusCounts = useMemo(() => {
+    const counts = {
+      delivered: 0,
+      on_the_way: 0,
+      cancelled: 0,
+      active: 0,
+    }
+    const activeStatuses = new Set(['placed', 'confirmed', 'preparing', 'ready_for_delivery'])
+
+    for (const order of allShiftOrders) {
+      if (order.status === 'cancelled') {
+        counts.cancelled += 1
+      } else if (order.status === 'out_for_delivery') {
+        counts.on_the_way += 1
+      } else if (order.status === 'delivered' || order.status === 'received') {
+        counts.delivered += 1
+      } else if (activeStatuses.has(order.status)) {
+        counts.active += 1
+      }
+    }
+    return counts
+  }, [allShiftOrders])
+
+  const statusLabels: Record<string, string> = isArabic
+    ? {
+        delivered: 'تم تسليمه',
+        on_the_way: 'في الطريق',
+        cancelled: 'تم الغاءه',
+        active: 'قيد العمل',
+      }
+    : {
+        delivered: 'Delivered',
+        on_the_way: 'On the Way',
+        cancelled: 'Cancelled',
+        active: 'In Progress',
+      }
+
+  const statusCards = useMemo(() => [
+    {
+      key: 'active',
+      label: statusLabels.active,
+      count: customStatusCounts.active,
+      accent: 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200',
+    },
+    {
+      key: 'on_the_way',
+      label: statusLabels.on_the_way,
+      count: customStatusCounts.on_the_way,
+      accent: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200',
+    },
+    {
+      key: 'delivered',
+      label: statusLabels.delivered,
+      count: customStatusCounts.delivered,
+      accent: 'border-green-200 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-200',
+    },
+    {
+      key: 'cancelled',
+      label: statusLabels.cancelled,
+      count: customStatusCounts.cancelled,
+      accent: 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200',
+    },
+  ], [customStatusCounts, statusLabels])
 
   const otherPaymentsOrdersApp = useMemo(() => {
     return sessionOrders.filter((order) => {
@@ -274,7 +328,7 @@ export default function DailyClosingPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 max-w-full space-y-6 overflow-x-hidden">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-3xl font-bold">{isArabic ? 'تقفيل الوردية' : 'Shift Closing'}</h2>
@@ -349,6 +403,91 @@ export default function DailyClosingPage() {
         </div>
       )}
 
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Card className="border-blue-200 bg-blue-50/70 dark:border-blue-900 dark:bg-blue-950/40">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">{isArabic ? 'إجمالي المبيعات' : 'Gross Sales'}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{financialSummary.grossSales.toFixed(2)}</p>
+              <TrendingUp className="h-5 w-5 text-blue-600" />
+            </div>
+            <p className="mt-1 text-xs text-slate-500">{currency}</p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-green-200 bg-green-50/70 dark:border-green-900 dark:bg-green-950/40">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">{isArabic ? 'صافي المبيعات' : 'Net Sales'}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <p className="text-2xl font-bold text-green-700 dark:text-green-300">{financialSummary.netSales.toFixed(2)}</p>
+              <Wallet className="h-5 w-5 text-green-600" />
+            </div>
+            <p className="mt-1 text-xs text-slate-500">{currency}</p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-amber-200 bg-amber-50/70 dark:border-amber-900 dark:bg-amber-950/40">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">{isArabic ? 'إجمالي الخصومات' : 'Discounts'}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <p className="text-2xl font-bold text-amber-700 dark:text-amber-300">{financialSummary.totalDiscounts.toFixed(2)}</p>
+              <TrendingDown className="h-5 w-5 text-amber-600" />
+            </div>
+            <p className="mt-1 text-xs text-slate-500">{currency}</p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-red-200 bg-red-50/70 dark:border-red-900 dark:bg-red-950/40">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">{isArabic ? 'إجمالي المصروفات' : 'Expenses'}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <p className="text-2xl font-bold text-red-700 dark:text-red-300">{financialSummary.expenses.toFixed(2)}</p>
+              <TrendingDown className="h-5 w-5 text-red-600" />
+            </div>
+            <p className="mt-1 text-xs text-slate-500">{currency}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">
+              {isArabic ? 'خصومات فواتير التطبيق' : 'App Bills Discounts'}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <p className="text-2xl font-bold text-amber-700 dark:text-amber-300">{financialSummary.appDiscounts.toFixed(2)}</p>
+              <TrendingDown className="h-5 w-5 text-amber-600" />
+            </div>
+            <p className="mt-1 text-xs text-slate-500">{currency}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">
+              {isArabic ? 'خصومات فواتير المطعم' : 'Restaurant Bills Discounts'}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <p className="text-2xl font-bold text-amber-700 dark:text-amber-300">{financialSummary.restaurantDiscounts.toFixed(2)}</p>
+              <TrendingDown className="h-5 w-5 text-amber-600" />
+            </div>
+            <p className="mt-1 text-xs text-slate-500">{currency}</p>
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Key Metrics */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <Card>
@@ -384,7 +523,7 @@ export default function DailyClosingPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">
-              {isArabic ? 'إجمالي المبيعات (بدون رسوم التوصيل)' : 'Total Revenue (excl. delivery)'}
+              {isArabic ? 'المبيعات بدون توصيل' : 'Sales excl. delivery'}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -399,7 +538,7 @@ export default function DailyClosingPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">
-              {isArabic ? 'إجمالي المصروفات' : 'Total Expenses'}
+              {isArabic ? 'المصروفات' : 'Expenses'}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -421,6 +560,35 @@ export default function DailyClosingPage() {
             <div className="flex items-center justify-between">
               <p className="text-2xl font-bold">{totalRemainingToCollect.toFixed(2)}</p>
               <Wallet className="h-5 w-5 text-yellow-600" />
+            </div>
+            <p className="text-xs text-slate-500 mt-1">{currency}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 mt-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">
+              {isArabic ? 'مبيعات المطعم بالوردية' : 'Restaurant Shift Sales'}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <p className="text-2xl font-bold text-green-700">{shiftRestaurantSales.toFixed(2)}</p>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">{currency}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">
+              {isArabic ? 'مبيعات التطبيق بالوردية' : 'App Shift Sales'}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <p className="text-2xl font-bold text-blue-700">{shiftAppSales.toFixed(2)}</p>
             </div>
             <p className="text-xs text-slate-500 mt-1">{currency}</p>
           </CardContent>
@@ -466,7 +634,7 @@ export default function DailyClosingPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">
-              {isArabic ? 'صافي الدرج بعد المصروفات' : 'Drawer Net After Expenses'}
+              {isArabic ? 'صافي الدرج' : 'Drawer Net'}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -480,6 +648,40 @@ export default function DailyClosingPage() {
         </Card>
       </div>
 
+     <Card className="mt-4">
+        <CardHeader>
+          <CardTitle>{isArabic ? 'حالة الطلبات في الوردية' : 'Shift Order Status'}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {allShiftOrders.length === 0 ? (
+            <p className="py-6 text-center text-sm text-slate-500">{isArabic ? 'لا توجد طلبات في الوردية.' : 'No orders in this shift.'}</p>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {statusCards.map((card) => {
+                const totalOrdersForPercent = allShiftOrders.length
+                const percent = totalOrdersForPercent ? Math.round((card.count / totalOrdersForPercent) * 100) : 0
+                return (
+                  <div key={card.key} className={`rounded-2xl border p-4 shadow-sm ${card.accent}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold">{card.label}</p>
+                        <p className="mt-2 text-3xl font-bold">{card.count}</p>
+                      </div>
+                      <div className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-semibold dark:bg-slate-950/40">
+                        {percent}%
+                      </div>
+                    </div>
+                    <div className="mt-3 h-2 rounded-full bg-white/70 dark:bg-slate-950/40">
+                      <div className="h-2 rounded-full bg-current" style={{ width: `${percent}%` }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      
       {/* Detailed Cards */}
       <div className="grid gap-4 md:grid-cols-2">
         {/* Sales Summary */}
@@ -494,7 +696,7 @@ export default function DailyClosingPage() {
             </div>
             <div className="flex justify-between">
               <span>{isArabic ? 'إجمالي المبيعات' : 'Total'}</span>
-              <span className="font-semibold">{totalRevenue.toFixed(2)} {currency}</span>
+              <span className="font-semibold">{financialSummary.grossSales.toFixed(2)} {currency}</span>
             </div>
             <div className="border-t pt-3 dark:border-slate-800">
               <div className="flex justify-between font-semibold text-green-600">
@@ -516,12 +718,12 @@ export default function DailyClosingPage() {
               <span className="font-semibold">{sessionExpenses.length}</span>
             </div>
             <div className="flex justify-between">
-              <span>{isArabic ? 'إجمالي المصروفات' : 'Total'}</span>
-              <span className="font-semibold">{totalExpenses.toFixed(2)} {currency}</span>
+              <span>{isArabic ? 'إجمالي المصروفات' : 'Total Expenses'}</span>
+              <span className="font-semibold">{financialSummary.expenses.toFixed(2)} {currency}</span>
             </div>
             <div className="flex justify-between">
-              <span>{isArabic ? 'تسوية السائقين' : 'Driver Settlements'}</span>
-              <span className="font-semibold">{driverSettlements.toFixed(2)} {currency}</span>
+              <span>{isArabic ? 'رسوم التوصيل' : 'Delivery Fees'}</span>
+              <span className="font-semibold">{financialSummary.deliveryRevenue.toFixed(2)} {currency}</span>
             </div>
           </CardContent>
         </Card>
@@ -536,11 +738,11 @@ export default function DailyClosingPage() {
           <div className="grid gap-4 md:grid-cols-3">
             <div>
               <p className="text-sm text-slate-600 dark:text-slate-400">{isArabic ? 'المبيعات' : 'Sales'}</p>
-              <p className="text-2xl font-bold text-green-600">{totalRevenue.toFixed(2)} {currency}</p>
+              <p className="text-2xl font-bold text-green-600">{financialSummary.grossSales.toFixed(2)} {currency}</p>
             </div>
             <div>
               <p className="text-sm text-slate-600 dark:text-slate-400">{isArabic ? 'إجمالي التكاليف' : 'Total Costs'}</p>
-              <p className="text-2xl font-bold text-red-600">{totalExpenses.toFixed(2)} {currency}</p>
+              <p className="text-2xl font-bold text-red-600">{financialSummary.expenses.toFixed(2)} {currency}</p>
             </div>
             <div>
               <p className="text-sm text-slate-600 dark:text-slate-400">{isArabic ? 'الصافي النهائي' : 'Final Net'}</p>

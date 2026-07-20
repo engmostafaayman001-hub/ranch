@@ -17,12 +17,12 @@ export type ClosingRecord = {
   shiftId?: string
   openedAt: string
   closedAt: string
-  ordersCount: number
-  salesWithoutDelivery: number
-  expensesTotal: number
-  uncollectedTotal: number
-  otherPaymentsTotal: number
-  drawerNet: number
+  ordersCount?: number
+  salesWithoutDelivery?: number
+  expensesTotal?: number
+  uncollectedTotal?: number
+  otherPaymentsTotal?: number
+  drawerNet?: number
   currency?: string
   orders?: TrackedOrder[]
   expenses?: SavedClosingExpense[]
@@ -46,53 +46,16 @@ export function readClosings(): ClosingRecord[] {
 export function saveClosing(record: ClosingRecord) {
   if (typeof window === 'undefined') return
   try {
-    console.log('💾 [closings.ts] Attempting to save closing:', {
-      id: record.id,
-      ordersCount: record.orders?.length || 0,
-      expensesCount: record.expenses?.length || 0,
-      shiftId: record.shiftId,
-    });
-    
     const current = readClosings()
     const next = [record, ...current]
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
     
-    console.log('💾 [closings.ts] Closing saved successfully to localStorage:', {
-      id: record.id,
-      totalClosings: next.length,
-      storageSize: new Blob([JSON.stringify(next)]).size,
-    });
-    
-    // Trigger storage event for other tabs/windows (use StorageEvent for compatibility)
-    try {
-      const newValue = JSON.stringify(next)
-      const storageEvent = new StorageEvent('storage', {
-        key: STORAGE_KEY,
-        oldValue: null,
-        newValue,
-        url: typeof location !== 'undefined' ? location.href : '',
-        storageArea: window.localStorage,
-      })
-      window.dispatchEvent(storageEvent)
-    } catch (err) {
-      // Fallback to a generic event if StorageEvent construction fails in some environments
-      try {
-        window.dispatchEvent(new Event('storage'))
-      } catch {
-        // ignore
-      }
-    }
-
     // Also emit a custom event specific to closings for reliable in-app listeners
     try {
       window.dispatchEvent(new CustomEvent('closings:updated', { detail: { latest: record.id } }))
     } catch {
       // ignore
     }
-    
-    // Additional verification
-    const verified = readClosings()
-    console.log('✅ [closings.ts] Verified - Closings in localStorage:', verified.length, 'Latest:', verified[0]?.id)
   } catch (error) {
     console.error('❌ [closings.ts] Failed to save closing:', error)
   }

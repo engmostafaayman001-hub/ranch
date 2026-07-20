@@ -63,8 +63,10 @@ export const PAYMENT_METHOD_OPTIONS = [
   { value: PAYMENT_METHODS.CASH, ar: 'الدفع عند الاستلام', en: 'Cash on Delivery', arHint: 'ادفع نقدا عند استلام الطلب.', enHint: 'Pay in cash when the order arrives.', requiresReceipt: false },
   { value: PAYMENT_METHODS.VODAFONE_CASH, ar: 'Vodafone Cash', en: 'Vodafone Cash', arHint: 'حوّل المبلغ وارفع صورة الإيصال.', enHint: 'Transfer the amount and upload the receipt.', requiresReceipt: true },
   { value: PAYMENT_METHODS.INSTAPAY, ar: 'InstaPay', en: 'InstaPay', arHint: 'حوّل المبلغ وارفع صورة الإيصال.', enHint: 'Transfer the amount and upload the receipt.', requiresReceipt: true },
-  { value: PAYMENT_METHODS.OFFERS, ar: 'عروض', en: 'Offers', arHint: 'خصم من العروض المتاحة.', enHint: 'Discount from available offers.', requiresReceipt: false },
 ] as const
+
+// Payment methods available in the customer checkout (without Offers)
+export const CHECKOUT_PAYMENT_METHOD_OPTIONS = PAYMENT_METHOD_OPTIONS
 
 export const VODAFONE_CASH_NUMBER = process.env.NEXT_PUBLIC_VODAFONE_CASH_NUMBER || '01090886364'
 export const INSTAPAY_NUMBER = process.env.NEXT_PUBLIC_INSTAPAY_NUMBER || '01090886364'

@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Logo } from '@/components/logo'
 import { RestaurantStatusBanner } from '@/components/restaurant-status-banner'
 import { useLanguage } from '@/components/language-provider'
-import { CURRENCY, CURRENCY_EN, PAYMENT_METHOD_OPTIONS, PAYMENT_METHODS, ROUTES } from '@/lib/constants'
+import { CURRENCY, CURRENCY_EN, CHECKOUT_PAYMENT_METHOD_OPTIONS, PAYMENT_METHODS, ROUTES } from '@/lib/constants'
 import { useAppStore } from '@/lib/app-store'
 import { PaymentStatus, TrackingStatus } from '@/lib/order-tracking'
 import { useAuthStore } from '@/lib/store'
@@ -70,7 +70,7 @@ export default function CheckoutPage() {
   const deliveryFee = subtotal > 0 ? settings.deliveryFee : 0
   const discountAmount = Math.min(subtotal, appliedDiscount?.discountAmount || 0)
   const total = Math.max(0, subtotal + tax + deliveryFee - discountAmount)
-  const selectedPaymentOption = PAYMENT_METHOD_OPTIONS.find((option) => option.value === formData.paymentMethod) || PAYMENT_METHOD_OPTIONS[0]
+  const selectedPaymentOption = CHECKOUT_PAYMENT_METHOD_OPTIONS.find((option) => option.value === formData.paymentMethod) || CHECKOUT_PAYMENT_METHOD_OPTIONS[0]
   const requiresReceipt = selectedPaymentOption.requiresReceipt
   const paymentTransferNumber =
     formData.paymentMethod === PAYMENT_METHODS.VODAFONE_CASH
@@ -83,12 +83,15 @@ export default function CheckoutPage() {
   const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = event.target
     setFormData({ ...formData, [name]: value })
-    if (name === 'paymentMethod' && !PAYMENT_METHOD_OPTIONS.find((option) => option.value === value)?.requiresReceipt) setReceipt(null)
+    if (name === 'paymentMethod') {
+      const option = CHECKOUT_PAYMENT_METHOD_OPTIONS.find((opt) => opt.value === value)
+      if (!option?.requiresReceipt) setReceipt(null)
+    }
   }
 
   const selectPaymentMethod = (value: string) => {
     setFormData((current) => ({ ...current, paymentMethod: value }))
-    if (!PAYMENT_METHOD_OPTIONS.find((option) => option.value === value)?.requiresReceipt) setReceipt(null)
+    if (!CHECKOUT_PAYMENT_METHOD_OPTIONS.find((option) => option.value === value)?.requiresReceipt) setReceipt(null)
   }
 
   const handleReceiptUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -214,6 +217,20 @@ export default function CheckoutPage() {
       const address = `${formData.address}, ${formData.city}`
       const paymentStatus: PaymentStatus = requiresReceipt ? 'receipt_uploaded' : formData.paymentMethod === PAYMENT_METHODS.CASH ? 'cash_on_delivery' : 'pending'
 
+      // Get current open shift
+      let shiftId: string | undefined
+      try {
+        const shiftResponse = await fetch('/api/shifts/current')
+        if (shiftResponse.ok) {
+          const shiftData = await shiftResponse.json().catch(() => null)
+          if (shiftData?.shift?.id) {
+            shiftId = shiftData.shift.id
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch current shift:', err)
+      }
+
       const customerResponse = await fetch('/api/customers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -229,6 +246,7 @@ export default function CheckoutPage() {
       const payload = {
         id: orderId,
         source: 'app',
+        shiftId,
         customer: formData.fullName,
         customerEmail: user.email,
         phone: formData.phone,
@@ -373,7 +391,7 @@ export default function CheckoutPage() {
                   <div>
                     <Label>{isArabic ? 'طريقة الدفع' : 'Payment Method'}</Label>
                     <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                      {PAYMENT_METHOD_OPTIONS.map((option) => {
+                      {CHECKOUT_PAYMENT_METHOD_OPTIONS.map((option) => {
                         const selected = formData.paymentMethod === option.value
                         const Icon = option.value === PAYMENT_METHODS.CASH ? Banknote : Smartphone
                         return (
@@ -438,9 +456,7 @@ export default function CheckoutPage() {
                       <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-200">
                         {formData.paymentMethod === PAYMENT_METHODS.CASH
                           ? (isArabic ? 'سيتم تحصيل الدفع نقدا عند الاستلام.' : 'Cash will be collected on delivery.')
-                          : formData.paymentMethod === PAYMENT_METHODS.OFFERS
-                            ? (isArabic ? 'سيتم تطبيق العرض المختار على الطلب.' : 'The selected offer will be applied to this order.')
-                            : (isArabic ? 'سيتم تحصيل الدفع بعد تحويل المبلغ ورفع الإيصال.' : 'The payment will be collected after the transfer and receipt upload.')}
+                          : (isArabic ? 'سيتم تحصيل الدفع بعد تحويل المبلغ ورفع الإيصال.' : 'The payment will be collected after the transfer and receipt upload.')}
                       </p>
                       <Label htmlFor="discountCode">{isArabic ? 'كود الخصم' : 'Discount Code'}</Label>
                       <div className="mt-2 flex gap-2">

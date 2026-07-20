@@ -13,6 +13,7 @@ import { isDisplayableImage } from '@/lib/client-images'
 import { TrackedOrder } from '@/lib/order-tracking'
 import { printerManager, syncPrinterManagerSettings } from '@/lib/printer'
 import { createClosingReceiptPayload } from '@/lib/closing-print'
+import { calculateOrderFinancials } from '@/lib/financial-calculations'
 import { createDriverClosingReceiptPayload, getDriverClosingGroups } from '@/lib/driver-closing-print'
 import { readClosings, type ClosingRecord } from '@/lib/closings'
 import { queueOfflineAction, syncOfflineQueue } from '@/lib/offline-queue'
@@ -104,8 +105,8 @@ export default function DashboardPosPage() {
   const [loading, setLoading] = useState(false)
   const [shiftClosingPrinting, setShiftClosingPrinting] = useState(false)
   const [message, setMessage] = useState('')
-  const [discountCode, setDiscountCode] = useState('')
-  const [discountAmount, setDiscountAmount] = useState(0)
+  const [discountType, setDiscountType] = useState<'percent' | 'fixed'>('percent')
+  const [discountValue, setDiscountValue] = useState('0')
   const [shiftOrders, setShiftOrders] = useState<TrackedOrder[]>([])
   const [shiftExpenses, setShiftExpenses] = useState<Expense[]>([])
   const [daySession, setDaySession] = useShiftSession()
@@ -230,7 +231,15 @@ export default function DashboardPosPage() {
   const subtotal = cartItems.reduce((sum, item) => sum + item.product.price * item.quantity, 0)
   const tax = subtotal * settings.taxRate
   const appliedDeliveryFee = orderType === 'delivery' ? Math.max(0, Number(deliveryFee || 0)) : 0
-  const total = Math.max(0, subtotal + tax + appliedDeliveryFee - discountAmount)
+  const discountCalculation = useMemo(() => calculateOrderFinancials({
+    subtotal,
+    tax,
+    deliveryFee: appliedDeliveryFee,
+    discountType,
+    discountValue: Number(discountValue || 0),
+  }), [subtotal, tax, appliedDeliveryFee, discountType, discountValue])
+  const discountAmount = discountCalculation.discountAmount
+  const total = discountCalculation.total
 
   const loadShiftData = useCallback(async () => {
     if (loadingShiftClosing.current) return
@@ -613,33 +622,6 @@ export default function DashboardPosPage() {
     setShowCustomerResults(false)
   }
 
-  const applyDiscount = async () => {
-    setMessage('')
-    setDiscountAmount(0)
-    const code = discountCode.trim()
-    if (!code) {
-      setMessage(isArabic ? 'اكتب كود الخصم أولا.' : 'Enter a discount code first.')
-      return
-    }
-    if (subtotal <= 0) {
-      setMessage(isArabic ? 'أضف منتجات قبل تطبيق الخصم.' : 'Add products before applying a discount.')
-      return
-    }
-
-    const response = await fetch('/api/discounts/validate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, subtotal }),
-    })
-    const data = await response.json().catch(() => ({}))
-    if (!response.ok || !data.valid) {
-      setMessage(data.reason || data.error || (isArabic ? 'كود الخصم غير صالح.' : 'Invalid discount code.'))
-      return
-    }
-    setDiscountAmount(Number(data.discountAmount || 0))
-    setMessage(isArabic ? `تم تطبيق الخصم: ${Number(data.discountAmount || 0).toFixed(2)} ${currency}` : `Discount applied: ${Number(data.discountAmount || 0).toFixed(2)} ${currency}`)
-  }
-
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!daySession.isOpen) {
@@ -700,7 +682,11 @@ export default function DashboardPosPage() {
         subtotal,
         tax,
         deliveryFee: appliedDeliveryFee,
-        discountCode: discountAmount > 0 ? discountCode : undefined,
+        discount: discountAmount > 0 ? {
+          type: discountType,
+          value: Number(discountValue || 0),
+          amount: discountAmount,
+        } : undefined,
         paymentMethod,
         paymentStatus: (orderType === 'delivery' && paymentMethod === 'cash') ? 'cash_on_delivery' : 'paid',
         status: 'confirmed',
@@ -728,11 +714,11 @@ export default function DashboardPosPage() {
           setMessage(error instanceof Error ? error.message : (isArabic ? 'تم حفظ الطلب في وضع غير متصل وسيتم رفعه عند عودة الاتصال.' : 'Order queued while offline and will sync when the connection returns.'))
         }
       }
-      if (paymentMethod === PAYMENT_METHODS.OFFERS && total > 0) {
+      if (discountAmount > 0) {
         const expensePayload = {
-          name: isArabic ? `خصم عرض - طلب ${data.order?.id?.slice(0, 8)}` : `Offer Discount - Order ${data.order?.id?.slice(0, 8)}`,
-          amount: total,
-          note: isArabic ? `خصم قيمة طلب العميل ${customer.name}` : `Discount for customer order ${customer.name}`,
+          name: isArabic ? `خصم يدوي - طلب ${data.order?.id?.slice(0, 8)}` : `Manual Discount - Order ${data.order?.id?.slice(0, 8)}`,
+          amount: discountAmount,
+          note: isArabic ? `خصم يدوي ${discountType === 'percent' ? `${discountValue}%` : `${discountValue} ${currency}`}` : `Manual discount ${discountType === 'percent' ? `${discountValue}%` : `${discountValue} ${currency}`}`,
           date: new Date().toISOString(),
           shiftId: daySession.shiftId,
           shiftOpenedAt: daySession.openedAt,
@@ -741,7 +727,6 @@ export default function DashboardPosPage() {
         if (!window.navigator.onLine) {
           queueOfflineAction(expenseRequest)
         } else {
-          // Fire and forget
           fetch('/api/expenses', {
             method: 'POST',
             headers: {
@@ -829,8 +814,8 @@ export default function DashboardPosPage() {
       }
       // Reset form completely after sale
       setLines([])
-      setDiscountCode('')
-      setDiscountAmount(0)
+      setDiscountType('percent')
+      setDiscountValue('0')
       setPaymentMethod(PAYMENT_METHODS.CASH)
       setSelectedDriverId('')
       setDeliveryFee(0)
@@ -849,7 +834,7 @@ export default function DashboardPosPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 max-w-full space-y-4 overflow-x-hidden">
       {!isOnline && (
         <div className="rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
           <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">{isArabic ? '⚠️ بدون إنترنت - يعمل بدون اتصال' : '⚠️ Offline Mode - Working without internet'}</p>
@@ -1118,9 +1103,37 @@ export default function DashboardPosPage() {
               ))}
             </div>
 
-            <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-              <Input value={discountCode} onChange={(event) => setDiscountCode(event.target.value)} placeholder={isArabic ? 'كود الخصم' : 'Discount code'} />
-              <Button type="button" variant="outline" onClick={applyDiscount}>{isArabic ? 'تطبيق' : 'Apply'}</Button>
+            <div className="space-y-2">
+              <Label>{isArabic ? 'الخصم اليدوي' : 'Manual discount'}</Label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDiscountType('percent')}
+                  className={`flex-1 rounded-md border px-3 py-2 text-sm font-semibold ${discountType === 'percent' ? 'border-red-500 bg-red-50 text-red-700 dark:bg-red-950/30' : 'border-slate-200 bg-white text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200'}`}
+                >
+                  {isArabic ? 'نسبة %' : 'Percentage'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDiscountType('fixed')}
+                  className={`flex-1 rounded-md border px-3 py-2 text-sm font-semibold ${discountType === 'fixed' ? 'border-red-500 bg-red-50 text-red-700 dark:bg-red-950/30' : 'border-slate-200 bg-white text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200'}`}
+                >
+                  {isArabic ? 'مبلغ ثابت' : 'Fixed amount'}
+                </button>
+              </div>
+              <Input
+                type="number"
+                min="0"
+                step={discountType === 'percent' ? '1' : '0.01'}
+                value={discountValue}
+                onChange={(event) => setDiscountValue(event.target.value)}
+                placeholder={discountType === 'percent' ? (isArabic ? '10' : '10') : (isArabic ? '5' : '5')}
+              />
+              <p className="text-xs text-slate-500">
+                {discountType === 'percent'
+                  ? (isArabic ? 'سيتم تطبيق نسبة خصم على المجموع قبل الضريبة.' : 'A percentage discount will be applied to the subtotal before tax.')
+                  : (isArabic ? 'سيتم تطبيق مبلغ ثابت لا يتجاوز إجمالي الطلب.' : 'A fixed amount discount will be applied up to the order subtotal.')}
+              </p>
             </div>
 
             <div>

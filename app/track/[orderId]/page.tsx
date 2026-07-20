@@ -15,7 +15,7 @@ import { useLanguage } from '@/components/language-provider'
 import { useAuthStore } from '@/lib/store'
 import { getStatusIndex, statusLabels, syncTrackedOrdersForEmail, TrackedOrder, trackingSteps } from '@/lib/order-tracking'
 
-const customerTrackingSteps = trackingSteps.filter((step) => step.status !== 'received')
+const customerTrackingSteps = trackingSteps
 
 export default function TrackOrderPage() {
   const params = useParams()

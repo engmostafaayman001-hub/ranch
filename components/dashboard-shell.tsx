@@ -61,7 +61,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </div>
-          <div className="min-w-0 max-w-full overflow-x-hidden p-4 sm:p-6">{children}</div>
+          <div className="min-w-0 max-w-full overflow-x-hidden break-words p-4 sm:p-6">{children}</div>
         </main>
       </div>
     </DashboardRouteGuard>

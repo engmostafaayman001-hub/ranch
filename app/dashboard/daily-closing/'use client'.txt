@@ -15,12 +15,12 @@ function isValidDate(date: Date) {
   return !Number.isNaN(date.getTime())
 }
 
-function StatCard({ title, value, currency, accent = false }: { title: string; value: string | number; currency?: string; accent?: boolean }) {
+function StatCard({ title, value, currency }: { title: string; value: string | number; currency?: string }) {
   return (
-    <div className={`rounded-2xl border p-4 shadow-sm transition ${accent ? 'border-red-200 bg-gradient-to-br from-red-600 to-red-700 text-white shadow-red-100 dark:border-red-900 dark:shadow-red-950/30' : 'border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100'}`}>
-      <p className={`text-sm ${accent ? 'text-red-100' : 'text-slate-500 dark:text-slate-400'}`}>{title}</p>
+    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900">
+      <p className="text-sm text-slate-500">{title}</p>
       <p className="mt-2 text-2xl font-bold">
-        {value}{currency ? ` ${currency}` : ''}
+        {value} {currency}
       </p>
     </div>
   )
@@ -32,24 +32,6 @@ function ClosingReportDetails({ report, currency = 'EGP', isArabic }: { report: 
 
   return (
     <div className="space-y-6">
-      <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-900 via-slate-800 to-red-700 p-5 text-white shadow-sm dark:border-slate-800">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-2xl">
-            <p className="text-sm text-red-100">{isArabic ? 'ملخص أداء الوردية' : 'Shift performance overview'}</p>
-            <h3 className="mt-2 text-2xl font-semibold">{isArabic ? 'نظرة شاملة على الإيرادات والطلبات' : 'A complete view of sales, orders, and delivery performance'}</h3>
-            <p className="mt-2 text-sm text-slate-200">{isArabic ? 'تتضمن المؤشرات الأساسية التي تساعدك على تقييم الوردية بسرعة.' : 'Includes the key indicators you need to review the shift at a glance.'}</p>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            <StatCard title={isArabic ? 'إجمالي المبيعات' : 'Gross Sales'} value={report.grossSales.toFixed(2)} currency={currency} accent />
-            <StatCard title={isArabic ? 'إجمالي الخصومات' : 'Total Discounts'} value={report.totalDiscounts.toFixed(2)} currency={currency} accent />
-            <StatCard title={isArabic ? 'إيرادات التوصيل' : 'Delivery Revenue'} value={report.deliveryRevenue.toFixed(2)} currency={currency} accent />
-            <StatCard title={isArabic ? 'الطلبات الملغاة' : 'Cancelled Orders'} value={report.cancelledOrders} accent />
-            <StatCard title={isArabic ? 'الطلبات المكتملة' : 'Completed Orders'} value={report.completedOrders} accent />
-            <StatCard title={isArabic ? 'صافي المبيعات' : 'Net Sales'} value={report.netSales.toFixed(2)} currency={currency} accent />
-          </div>
-        </div>
-      </div>
-
       <Card>
         <CardHeader>
           <CardTitle>{isArabic ? 'ملخص المبيعات' : 'Sales Summary'}</CardTitle>
@@ -298,7 +280,7 @@ export default function ClosingsPage() {
                     </td>
                     <td className="px-4 py-3">{closing.ordersCount}</td>
                     <td className="px-4 py-3">{closing.type === 'driver' ? (isArabic ? 'تقفيل السائقين' : 'Driver') : (isArabic ? 'الوردية' : 'Shift')}</td>
-                    <td className="px-4 py-3">{(closing.drawerNet ?? 0).toFixed(2)} {closing.currency || 'EGP'}</td>
+                    <td className="px-4 py-3">{closing.drawerNet.toFixed(2)} {closing.currency || 'EGP'}</td>
                     <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{new Date(closing.closedAt).toLocaleTimeString(isArabic ? 'ar-EG' : 'en-US')}</td>
                     <td className="px-4 py-3">
                       <Button size="sm" variant={selectedClosingId === closing.id ? 'secondary' : 'outline'} onClick={() => setSelectedClosingId(selectedClosingId === closing.id ? null : closing.id)}>

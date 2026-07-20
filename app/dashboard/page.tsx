@@ -174,7 +174,7 @@ export default function DashboardPage() {
   const recentOrders = orders.slice(0, 5)
 
   return (
-    <div>
+    <div className="min-w-0 max-w-full space-y-6 overflow-x-hidden">
       <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-3xl font-bold">{isArabic ? 'نظرة عامة' : 'Overview'}</h2>
@@ -194,7 +194,7 @@ export default function DashboardPage() {
               <CardTitle className="text-sm text-slate-500">{label}</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-3xl font-bold">{loading ? '-' : value}</p>
+              <p className="break-words text-3xl font-bold">{loading ? '-' : value}</p>
             </CardContent>
           </Card>
         ))}

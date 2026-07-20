@@ -12,8 +12,6 @@ import { TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
 import { useAppStore } from '@/lib/app-store'
 import { createClosingReceiptPayload } from '@/lib/closing-print'
 import { printerManager, syncPrinterManagerSettings } from '@/lib/printer'
-import { type ShiftSession } from '@/lib/pos-day-session'
-import useShiftSession from '@/lib/use-shift-session'
 
 interface Customer {
   id?: string
@@ -130,12 +128,13 @@ export default function DashboardReportsPage() {
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
-  const [shiftSession] = useShiftSession()
   const [closingDate, setClosingDate] = useState(todayKey)
   const [closingOpen, setClosingOpen] = useState(false)
   const [printStatus, setPrintStatus] = useState('')
-  const [clearMemoryOpen, setClearMemoryOpen] = useState(false)
-  const [clearingMemory, setClearingMemory] = useState(false)
+  const [clearOrdersOpen, setClearOrdersOpen] = useState(false)
+  const [clearExpensesOpen, setClearExpensesOpen] = useState(false)
+  const [clearingOrders, setClearingOrders] = useState(false)
+  const [clearingExpenses, setClearingExpenses] = useState(false)
   const loadingReports = useRef(false)
 
   useEffect(() => {
@@ -175,15 +174,6 @@ export default function DashboardReportsPage() {
     }
   }, [])
 
-  const shiftOrders = useMemo(() => {
-    if (!shiftSession.shiftId) return []
-    return orders.filter((order) => order.shiftId === shiftSession.shiftId)
-  }, [orders, shiftSession.shiftId])
-
-  const shiftExpenses = useMemo(() => {
-    if (!shiftSession.shiftId) return []
-    return expenses.filter((expense) => expense.shiftId === shiftSession.shiftId)
-  }, [expenses, shiftSession.shiftId])
 
   const report = useMemo(() => {
     const now = new Date()
@@ -222,17 +212,17 @@ export default function DashboardReportsPage() {
     }, {})
   }, [closingSummary.orders])
 
-  const shiftSummary = useMemo(() => {
-    const revenue = shiftOrders.reduce((sum, order) => sum + Number(order.total || 0), 0)
-    const expenseTotal = shiftExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0)
-    return {
-      orders: shiftOrders,
-      expenses: shiftExpenses,
-      revenue,
-      expenseTotal,
-      net: revenue - expenseTotal,
-    }
-  }, [shiftExpenses, shiftOrders])
+  const appSalesTotal = useMemo(() => {
+    return closingSummary.orders
+      .filter((order) => order.source !== 'restaurant_pos')
+      .reduce((sum, order) => sum + Number(order.total || 0), 0)
+  }, [closingSummary.orders])
+
+  const restaurantSalesTotal = useMemo(() => {
+    return closingSummary.orders
+      .filter((order) => order.source === 'restaurant_pos')
+      .reduce((sum, order) => sum + Number(order.total || 0), 0)
+  }, [closingSummary.orders])
 
   const sourceBreakdown = useMemo(() => {
     return closingSummary.orders.reduce<Record<string, number>>((totals, order) => {
@@ -253,85 +243,18 @@ export default function DashboardReportsPage() {
     return labels[method as keyof typeof PAYMENT_METHOD_LABELS] || method
   }
 
-  const resetMemory = async () => {
-    const confirmed = window.confirm(isArabic ? 'هل تريد حذف جميع الطلبات المؤقتة؟' : 'Delete all temporary orders?')
-    if (!confirmed) return
+  const clearOrders = async () => {
+    if (!clearOrdersOpen) {
+      setClearOrdersOpen(true)
+      return
+    }
 
+    setClearingOrders(true)
+    setPrintStatus('')
     try {
-      const response = await fetch('/api/pos/orders?limit=300', { cache: 'no-store' })
+      const response = await fetch('/api/pos/orders?limit=9999', { cache: 'no-store' })
       const ordersData = await response.json().catch(() => ({}))
       const ordersToDelete = Array.isArray(ordersData.orders) ? ordersData.orders : []
-      if (ordersToDelete.length > 0) {
-        await Promise.all(ordersToDelete.map((order: TrackedOrder) => fetch('/api/pos/orders', {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ orderId: order.id }),
-        })))
-      }
-      setOrders([])
-      setPrintStatus(isArabic ? 'تم حذف الطلبات المؤقتة.' : 'Temporary orders cleared.')
-    } catch {
-      setPrintStatus(isArabic ? 'تعذر حذف الطلبات المؤقتة.' : 'Could not clear temporary orders.')
-    }
-  }
-
-  const printShiftClosing = async () => {
-    setPrintStatus('')
-    const cashierPrinter = settings.printers.cashier
-    if (!cashierPrinter?.isEnabled) {
-      setPrintStatus(isArabic ? 'فعّل طابعة الكاشير من الإعدادات قبل طباعة التقفيل.' : 'Enable the cashier printer in settings before printing the closing report.')
-      return
-    }
-
-    syncPrinterManagerSettings(settings.printers)
-    try {
-      const result = await printerManager.printCashierReceipt(createClosingReceiptPayload({
-        title: isArabic ? 'تقفيل الوردية' : 'Shift Closing',
-        dateLabel: closingDate,
-        orders: closingSummary.orders,
-        expenses: closingSummary.expenses,
-        revenue: closingSummary.revenue,
-        expenseTotal: closingSummary.expenseTotal,
-        net: closingSummary.net,
-        paymentBreakdown,
-        paymentLabel,
-        currency,
-        isArabic,
-        invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
-        invoiceAddress: isArabic ? settings.addressAr : settings.addressEn,
-        invoicePhone: settings.phone,
-        logoUrl: settings.invoiceLogo,
-      })) as { skipped?: boolean; reason?: string }
-
-      if (result?.skipped) {
-        setPrintStatus(result.reason || (isArabic ? 'لم يتم إرسال التقفيل لأن الطابعة غير مكتملة الإعداد.' : 'Closing report was not sent because the printer is not fully configured.'))
-        return
-      }
-      setPrintStatus(isArabic ? 'تم إرسال التقفيل إلى طابعة الكاشير.' : 'Closing report sent to the cashier printer.')
-    } catch (error) {
-      setPrintStatus(error instanceof Error ? error.message : (isArabic ? 'تعذر طباعة التقفيل.' : 'Could not print the closing report.'))
-    }
-  }
-
-  const clearMemory = async () => {
-    if (!clearMemoryOpen) {
-      setClearMemoryOpen(true)
-      return
-    }
-
-    setClearingMemory(true)
-    setPrintStatus('')
-    try {
-      const [ordersResponse, expensesResponse] = await Promise.all([
-        fetch('/api/pos/orders?limit=300', { cache: 'no-store' }),
-        fetch('/api/expenses', { cache: 'no-store' }),
-      ])
-      const ordersData = await ordersResponse.json().catch(() => ({}))
-      const expensesData = await expensesResponse.json().catch(() => ({}))
-
-      const ordersToDelete = Array.isArray(ordersData.orders) ? ordersData.orders : []
-      const expensesToDelete = Array.isArray(expensesData.expenses) ? expensesData.expenses : []
-
       if (ordersToDelete.length > 0) {
         await Promise.all(
           ordersToDelete.map((order: TrackedOrder) =>
@@ -339,18 +262,6 @@ export default function DashboardReportsPage() {
               method: 'DELETE',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ orderId: order.id }),
-            })
-          )
-        )
-      }
-
-      if (expensesToDelete.length > 0) {
-        await Promise.all(
-          expensesToDelete.map((expense: Expense) =>
-            fetch('/api/expenses', {
-              method: 'DELETE',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ id: expense.id }),
             })
           )
         )
@@ -370,61 +281,171 @@ export default function DashboardReportsPage() {
       }
 
       setOrders([])
-      setExpenses([])
-      setPrintStatus(isArabic ? 'تم حذف جميع الطلبات والمصروفات والتقفيلات بنجاح.' : 'All orders, expenses, and closings cleared successfully.')
-      setClearMemoryOpen(false)
+      setPrintStatus(isArabic ? 'تم حذف جميع الطلبات من صفحة طلبات المطعم والتطبيق والمدفوعات والتقفيلات.' : 'All orders cleared from restaurant, app, payments, and closing pages.')
+      setClearOrdersOpen(false)
     } catch (error) {
-      setPrintStatus(error instanceof Error ? error.message : (isArabic ? 'تعذر مسح الذاكرة.' : 'Could not clear memory.'))
+      setPrintStatus(error instanceof Error ? error.message : (isArabic ? 'تعذر مسح الطلبات.' : 'Could not clear orders.'))
     } finally {
-      setClearingMemory(false)
+      setClearingOrders(false)
     }
   }
 
+  const clearExpenses = async () => {
+    if (!clearExpensesOpen) {
+      setClearExpensesOpen(true)
+      return
+    }
+
+    setClearingExpenses(true)
+    setPrintStatus('')
+    try {
+      const response = await fetch('/api/expenses', { cache: 'no-store' })
+      const expensesData = await response.json().catch(() => ({}))
+      const expensesToDelete = Array.isArray(expensesData.expenses) ? expensesData.expenses : []
+
+      if (expensesToDelete.length > 0) {
+        await Promise.all(
+          expensesToDelete.map((expense: Expense) =>
+            fetch('/api/expenses', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: expense.id }),
+            })
+          )
+        )
+      }
+
+      setExpenses([])
+      setPrintStatus(isArabic ? 'تم حذف جميع المصروفات بنجاح.' : 'All expenses cleared successfully.')
+      setClearExpensesOpen(false)
+    } catch (error) {
+      setPrintStatus(error instanceof Error ? error.message : (isArabic ? 'تعذر مسح المصروفات.' : 'Could not clear expenses.'))
+    } finally {
+      setClearingExpenses(false)
+    }
+  }
+
+  const printReport = async () => {
+    setPrintStatus('')
+    const cashierPrinter = settings.printers.cashier
+    if (!cashierPrinter?.isEnabled) {
+      setPrintStatus(isArabic ? 'فعّل طابعة الكاشير من الإعدادات قبل طباعة التقرير.' : 'Enable the cashier printer in settings before printing the report.')
+      return
+    }
+
+    syncPrinterManagerSettings(settings.printers)
+    try {
+      const result = await printerManager.printCashierReceipt(createClosingReceiptPayload({
+        title: isArabic ? 'تقرير التطبيق' : 'App Report',
+        dateLabel: closingDate,
+        orders: closingSummary.orders,
+        expenses: closingSummary.expenses,
+        revenue: closingSummary.revenue,
+        expenseTotal: closingSummary.expenseTotal,
+        net: closingSummary.net,
+        paymentBreakdown,
+        paymentLabel,
+        currency,
+        isArabic,
+        invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
+        invoiceAddress: isArabic ? settings.addressAr : settings.addressEn,
+        invoicePhone: settings.phone,
+        logoUrl: settings.invoiceLogo,
+      })) as { skipped?: boolean; reason?: string }
+
+      if (result?.skipped) {
+        setPrintStatus(result.reason || (isArabic ? 'لم يتم إرسال التقرير لأن الطابعة غير مكتملة الإعداد.' : 'Report was not sent because the printer is not fully configured.'))
+        return
+      }
+      setPrintStatus(isArabic ? 'تم إرسال التقرير إلى طابعة الكاشير.' : 'Report sent to the cashier printer.')
+    } catch (error) {
+      setPrintStatus(error instanceof Error ? error.message : (isArabic ? 'تعذر طباعة التقرير.' : 'Could not print the report.'))
+    }
+  }
+
+
+
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 max-w-full space-y-6 overflow-x-hidden">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h2 className="text-3xl font-bold">{isArabic ? 'التقارير والتحليلات' : 'Reports and Analytics'}</h2>
           <p className="mt-2 text-slate-500 dark:text-slate-400">
-            {isArabic ? 'إجماليات دقيقة للمبيعات والمصروفات، مع تقفيل وردية قابل للطباعة.' : 'Accurate sales and expense totals with printable shift closing.'}
+            {isArabic ? 'تقرير شامل عن مبيعات التطبيق والمصروفات مع خيار طباعة احترافية.' : 'Comprehensive app-wide sales and expense reporting with polished print output.'}
           </p>
-          {shiftSession.shiftId ? (
-            <p className="mt-2 text-sm text-slate-500">
-              {isArabic ? 'الوردية الحالية' : 'Current shift'}: {shiftSession.shiftId} • {shiftSession.isOpen ? (isArabic ? 'مفتوحة' : 'Open') : (isArabic ? 'مغلقة' : 'Closed')}
-            </p>
-          ) : null}
         </div>
         <div className="flex flex-wrap items-end gap-2 rounded-md border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950">
           <div>
-            <Label htmlFor="closing-date">{isArabic ? 'تاريخ التقفيل' : 'Closing date'}</Label>
+            <Label htmlFor="closing-date">{isArabic ? 'تاريخ التقرير' : 'Report date'}</Label>
             <Input id="closing-date" type="date" value={closingDate} onChange={(event) => setClosingDate(event.target.value)} />
           </div>
-          <Button variant="outline" className="gap-2 border-red-600 text-red-600 hover:bg-red-50" onClick={() => clearMemory()} disabled={clearingMemory}>
+          <Button variant="outline" className="gap-2 border-red-600 text-red-600 hover:bg-red-50" onClick={() => clearOrders()} disabled={clearingOrders}>
             <Trash2 className="h-4 w-4" />
-            {isArabic ? 'مسح الذاكرة' : 'Clear memory'}
+            {isArabic ? 'مسح الطلبات' : 'Clear Orders'}
+          </Button>
+          <Button variant="outline" className="gap-2 border-red-600 text-red-600 hover:bg-red-50" onClick={() => clearExpenses()} disabled={clearingExpenses}>
+            <Trash2 className="h-4 w-4" />
+            {isArabic ? 'مسح المصروفات' : 'Clear Expenses'}
           </Button>
           <Button className="gap-2 bg-red-600 hover:bg-red-700" onClick={() => setClosingOpen(true)}>
             <CalendarDays className="h-4 w-4" />
-            {isArabic ? 'تقفيل الوردية' : 'Shift Closing'}
+            {isArabic ? 'عرض التقرير' : 'View Report'}
           </Button>
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard title={isArabic ? 'إجمالي اليوم' : 'Today Total'} value={money(report.daily.revenue, currency)} hint={`${report.daily.orders.length} ${isArabic ? 'طلب' : 'orders'} | ${isArabic ? 'صافي' : 'net'} ${money(report.daily.net, currency)}`} icon={CalendarDays} />
-        <SummaryCard title={isArabic ? 'إجمالي الأسبوع' : 'Weekly Total'} value={money(report.weekly.revenue, currency)} hint={`${report.weekly.orders.length} ${isArabic ? 'طلب' : 'orders'} | ${isArabic ? 'صافي' : 'net'} ${money(report.weekly.net, currency)}`} icon={BarChart3} />
-        <SummaryCard title={isArabic ? 'إجمالي الشهر' : 'Monthly Total'} value={money(report.monthly.revenue, currency)} hint={`${report.monthly.orders.length} ${isArabic ? 'طلب' : 'orders'} | ${isArabic ? 'صافي' : 'net'} ${money(report.monthly.net, currency)}`} icon={Activity} />
-        <SummaryCard title={isArabic ? 'إجمالي السيستم كامل' : 'Full System Total'} value={money(report.fullSystem.revenue, currency)} hint={`${orders.length} ${isArabic ? 'طلب' : 'orders'} | ${isArabic ? 'مصروفات' : 'expenses'} ${money(report.fullSystem.expenseTotal, currency)}`} icon={ReceiptText} />
-      </div>
-      {shiftSession.shiftId ? (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <SummaryCard title={isArabic ? 'إجمالي الوردية الحالية' : 'Current Shift Total'} value={money(shiftSummary.revenue, currency)} hint={`${shiftSummary.orders.length} ${isArabic ? 'طلب' : 'orders'} | ${isArabic ? 'مصروفات' : 'expenses'} ${money(shiftSummary.expenseTotal, currency)}`} icon={Wallet} />
-          <SummaryCard title={isArabic ? 'طلبات الوردية الحالية' : 'Current Shift Orders'} value={String(shiftSummary.orders.length)} hint={isArabic ? 'كل الطلبات المرتبطة بالوردية الحالية' : 'All orders for the current shift'} icon={ShoppingCart} />
-          <SummaryCard title={isArabic ? 'مصروفات الوردية' : 'Shift Expenses'} value={money(shiftSummary.expenseTotal, currency)} hint={`${shiftSummary.expenses.length} ${isArabic ? 'مصروفات' : 'expenses'}`} icon={ReceiptText} />
-          <SummaryCard title={isArabic ? 'صافي الوردية' : 'Shift Net'} value={money(shiftSummary.net, currency)} hint={isArabic ? 'إجمالي المبيعات بعد المصروفات' : 'Total sales after expenses'} icon={TrendingUp} />
-        </div>
-      ) : null}
 
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">
+              {isArabic ? 'إجمالي مبيعات التطبيق' : 'App Sales Total'}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{money(appSalesTotal, currency)}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">
+              {isArabic ? 'إجمالي مبيعات المطعم' : 'Restaurant Sales Total'}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <p className="text-2xl font-bold text-green-700 dark:text-green-300">{money(restaurantSalesTotal, currency)}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">
+              {isArabic ? 'إجمالي المبيعات' : 'Total Sales'}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{money(closingSummary.revenue, currency)}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">
+              {isArabic ? 'إجمالي المصروفات' : 'Total Expenses'}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <p className="text-2xl font-bold text-red-700 dark:text-red-300">{money(closingSummary.expenseTotal, currency)}</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MiniMetric title={isArabic ? 'متوسط الطلب' : 'Average Order'} value={money(report.average, currency)} />
         <MiniMetric title={isArabic ? 'الطلبات النشطة' : 'Active Orders'} value={String(report.active)} />
@@ -502,11 +523,11 @@ export default function DashboardReportsPage() {
           <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-md bg-white shadow-xl dark:bg-slate-950">
             <div className="sticky top-0 flex items-start justify-between gap-3 border-b border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
               <div>
-                <h3 className="text-xl font-bold">{isArabic ? 'تقفيل الوردية' : 'Shift Closing'}</h3>
+                <h3 className="text-xl font-bold">{isArabic ? 'تقرير التطبيق' : 'App Report'}</h3>
                 <p className="text-sm text-slate-500">{closingDate}</p>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" className="gap-2" onClick={printShiftClosing}>
+                <Button variant="outline" className="gap-2" onClick={printReport}>
                   <Printer className="h-4 w-4" />
                   {isArabic ? 'طباعة' : 'Print'}
                 </Button>
@@ -518,18 +539,18 @@ export default function DashboardReportsPage() {
             <div className="space-y-4 p-4">
               {printStatus && <p className="rounded-md bg-slate-100 p-3 text-sm dark:bg-slate-900">{printStatus}</p>}
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-                <SummaryPanel label={isArabic ? 'إجمالي المبيعات النهائي بعد الخصم والضريبة والتوصيل' : 'Final sales after discount, tax and delivery'} value={money(closingMoney.revenue, currency)} compact />
-                <SummaryPanel label={isArabic ? 'مبيعات بدون توصيل وخصم وضريبة' : 'Sales before delivery, discount and tax'} value={money(closingMoney.baseSales, currency)} compact />
-                <SummaryPanel label={isArabic ? 'خدمة التوصيل المحصلة' : 'Collected delivery service'} value={money(closingMoney.deliveryFees, currency)} compact />
-                <SummaryPanel label={isArabic ? 'إجمالي المصروفات' : 'Expenses'} value={money(closingSummary.expenseTotal, currency)} compact />
-                <SummaryPanel label={isArabic ? 'صافي الدرج بعد كل شيء' : 'Final Drawer Net'} value={money(closingMoney.drawerNet, currency)} compact />
+                <SummaryPanel label={isArabic ? 'إجمالي المبيعات بعد الخصم والضريبة والتوصيل' : 'Total sales after discount, tax and delivery'} value={money(closingMoney.revenue, currency)} compact />
+                <SummaryPanel label={isArabic ? 'مبيعات قبل الخصم والضريبة والتوصيل' : 'Sales before discount, tax and delivery'} value={money(closingMoney.baseSales, currency)} compact />
+                <SummaryPanel label={isArabic ? 'رسوم التوصيل المحصلة' : 'Collected delivery fees'} value={money(closingMoney.deliveryFees, currency)} compact />
+                <SummaryPanel label={isArabic ? 'إجمالي المصروفات' : 'Total expenses'} value={money(closingSummary.expenseTotal, currency)} compact />
+                <SummaryPanel label={isArabic ? 'صافي الربح' : 'Net profit'} value={money(closingMoney.drawerNet, currency)} compact />
               </div>
               <div className="grid gap-4 lg:grid-cols-2">
                 <Card>
                   <CardHeader><CardTitle>{isArabic ? 'طرق الدفع' : 'Payment Methods'}</CardTitle></CardHeader>
                   <CardContent className="space-y-2">
                     {Object.entries(paymentBreakdown).length === 0 ? (
-                      <p className="text-sm text-slate-500">{isArabic ? 'لا توجد مدفوعات لهذا التقفيل.' : 'No payments for this closing.'}</p>
+                      <p className="text-sm text-slate-500">{isArabic ? 'لا توجد مدفوعات لهذا التقرير.' : 'No payments for this report.'}</p>
                     ) : Object.entries(paymentBreakdown).map(([method, total]) => (
                       <div key={method} className="flex justify-between rounded-md bg-slate-50 px-3 py-2 text-sm dark:bg-slate-900">
                         <span>{paymentLabel(method)}</span>
@@ -547,10 +568,10 @@ export default function DashboardReportsPage() {
                 </Card>
               </div>
               <Card>
-                <CardHeader><CardTitle>{isArabic ? 'طلبات الوردية' : 'Shift Orders'}</CardTitle></CardHeader>
+                <CardHeader><CardTitle>{isArabic ? 'طلبات التقرير' : 'Report Orders'}</CardTitle></CardHeader>
                 <CardContent>
                   {closingSummary.orders.length === 0 ? (
-                    <p className="py-6 text-center text-sm text-slate-500">{isArabic ? 'لا توجد طلبات لهذا التقفيل.' : 'No orders for this closing.'}</p>
+                    <p className="py-6 text-center text-sm text-slate-500">{isArabic ? 'لا توجد طلبات لهذا التقرير.' : 'No orders for this report.'}</p>
                   ) : (
                     <div className="space-y-2">
                       {closingSummary.orders.map((order) => (
@@ -571,34 +592,72 @@ export default function DashboardReportsPage() {
         </div>
       )}
 
-      {clearMemoryOpen && (
+      {clearOrdersOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <Card className="w-full max-w-md">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-red-600">
                 <AlertTriangle className="h-5 w-5" />
-                {isArabic ? 'تأكيد مسح الذاكرة' : 'Confirm Clear Memory'}
+                {isArabic ? 'تأكيد مسح الطلبات' : 'Confirm Clear Orders'}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-slate-600 dark:text-slate-400">
                 {isArabic
-                  ? 'هل أنت متأكد من حذف جميع الطلبات؟ لا يمكن التراجع عن هذه العملية.'
-                  : 'Are you sure you want to delete all orders? This action cannot be undone.'}
+                  ? 'هل أنت متأكد من حذف جميع الطلبات من صفحة طلبات المطعم والتطبيق والمدفوعات والتقفيلات؟ لا يمكن التراجع عن هذه العملية.'
+                  : 'Are you sure you want to delete all orders from restaurant, app, payments, and closing pages? This action cannot be undone.'}
               </p>
               <div className="flex gap-2">
                 <Button
                   variant="outline"
                   className="flex-1"
-                  onClick={() => setClearMemoryOpen(false)}
-                  disabled={clearingMemory}
+                  onClick={() => setClearOrdersOpen(false)}
+                  disabled={clearingOrders}
                 >
                   {isArabic ? 'إلغاء' : 'Cancel'}
                 </Button>
                 <Button
                   className="flex-1 gap-2 bg-red-600 hover:bg-red-700"
-                  onClick={clearMemory}
-                  disabled={clearingMemory}
+                  onClick={clearOrders}
+                  disabled={clearingOrders}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {isArabic ? 'حذف' : 'Delete'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {clearExpensesOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-red-600">
+                <AlertTriangle className="h-5 w-5" />
+                {isArabic ? 'تأكيد مسح المصروفات' : 'Confirm Clear Expenses'}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-slate-600 dark:text-slate-400">
+                {isArabic
+                  ? 'هل أنت متأكد من حذف جميع المصروفات؟ لا يمكن التراجع عن هذه العملية.'
+                  : 'Are you sure you want to delete all expenses? This action cannot be undone.'}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setClearExpensesOpen(false)}
+                  disabled={clearingExpenses}
+                >
+                  {isArabic ? 'إلغاء' : 'Cancel'}
+                </Button>
+                <Button
+                  className="flex-1 gap-2 bg-red-600 hover:bg-red-700"
+                  onClick={clearExpenses}
+                  disabled={clearingExpenses}
                 >
                   <Trash2 className="h-4 w-4" />
                   {isArabic ? 'حذف' : 'Delete'}

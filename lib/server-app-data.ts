@@ -7,7 +7,7 @@ const DATA_DIR = process.env.VERCEL ? '/tmp/ranch-data' : join(process.cwd(), 'd
 const APP_DATA_FILE = join(DATA_DIR, 'app-data.json')
 const APP_DATA_KEY = 'shared_app_data'
 const APP_DATA_CACHE_MS = 10000
-const SUPABASE_READ_TIMEOUT_MS = Number(process.env.SUPABASE_APP_DATA_READ_TIMEOUT_MS || 10000)
+const SUPABASE_READ_TIMEOUT_MS = Number(process.env.SUPABASE_APP_DATA_READ_TIMEOUT_MS || 30000)
 const SUPABASE_COOLDOWN_MS = 45000
 
 let appDataCache: { data: SharedAppData; at: number } | null = null
