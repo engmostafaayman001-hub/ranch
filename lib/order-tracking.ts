@@ -53,6 +53,8 @@ export interface TrackedOrder {
   id: string
   // Shift association (optional for existing historic orders)
   shiftId?: string
+  // Sequential display number per shift
+  displayNumber?: number
   source?: string
   externalReference?: string
   customer: string

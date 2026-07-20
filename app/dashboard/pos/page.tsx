@@ -1308,7 +1308,7 @@ export default function DashboardPosPage() {
                         {legacyAppOrders.map((order) => (
                           <div key={order.id} className="rounded-md bg-slate-50 p-3 text-sm dark:bg-slate-900">
                             <div className="flex items-center justify-between gap-2">
-                              <span className="font-semibold">{order.id}</span>
+                              <span className="font-semibold">#{order.displayNumber || order.id}</span>
                               <span className="font-bold text-red-600">{Number(order.total || 0).toFixed(2)} {currency}</span>
                             </div>
                             <div className="mt-1 text-xs text-slate-500">

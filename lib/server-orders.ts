@@ -47,6 +47,7 @@ type CompactOrderRow = {
   receipt_name?: string | null
   receipt_uploaded_at?: string | null
   shift_id?: string | null
+  display_number?: number | null
 }
 
 function canUseSupabaseRuntimeTables() {
@@ -76,6 +77,7 @@ function normalizeCompactOrder(row: CompactOrderRow): TrackedOrder {
   const status = row.order_status || row.status || 'placed'
   return {
     id: row.id,
+    displayNumber: row.display_number || undefined,
     source: row.source || 'app',
     externalReference: row.external_reference || undefined,
     customer: row.customer || 'Customer',
@@ -137,9 +139,43 @@ function matchesSource(order: TrackedOrder, source?: ServerOrderSourceFilter) {
   return order.source !== 'restaurant_pos'
 }
 
+function ensureDisplayNumbers(orders: TrackedOrder[]): TrackedOrder[] {
+  // Group orders by shiftId to calculate display numbers
+  const byShift = new Map<string | undefined, TrackedOrder[]>()
+  for (const order of orders) {
+    const shiftId = order.shiftId
+    if (!byShift.has(shiftId)) byShift.set(shiftId, [])
+    byShift.get(shiftId)!.push(order)
+  }
+
+  // For each shift, assign sequential display numbers to orders without one
+  const result: TrackedOrder[] = []
+  for (const [, shiftOrders] of byShift) {
+    const sorted = shiftOrders.sort((a, b) => {
+      const aTime = new Date(a.createdAt).getTime()
+      const bTime = new Date(b.createdAt).getTime()
+      return aTime - bTime
+    })
+
+    let nextNum = 1
+    for (const order of sorted) {
+      if (order.displayNumber) {
+        nextNum = Math.max(nextNum, order.displayNumber + 1)
+        result.push(order)
+      } else {
+        result.push({ ...order, displayNumber: nextNum })
+        nextNum++
+      }
+    }
+  }
+
+  return result
+}
+
 function applyReadOptions(orders: TrackedOrder[], options: ReadServerOrdersOptions = {}) {
   const limit = normalizeLimit(options.limit)
-  return orders
+  const withDisplayNumbers = ensureDisplayNumbers(orders)
+  return withDisplayNumbers
     .filter((order) => !options.orderId || order.id.toLowerCase() === options.orderId.toLowerCase())
     .filter((order) => matchesSource(order, options.source))
     .filter((order) => !options.shiftId || order.shiftId === options.shiftId)
@@ -197,6 +233,7 @@ async function readServerOrdersFresh(options: ReadServerOrdersOptions = {}): Pro
         'receipt_name:data->payment->>receiptName',
         'receipt_uploaded_at:data->payment->>receiptUploadedAt',
         'shift_id:data->>shiftId',
+        'display_number:data->>displayNumber',
       ].join(',')
 
       let query = supabase

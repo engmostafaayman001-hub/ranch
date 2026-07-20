@@ -244,7 +244,7 @@ export default function DashboardPaymentsPage() {
                 <tbody>
                   {filteredPaymentOrders.map((order) => (
                     <tr key={order.id} className="border-b last:border-0 dark:border-slate-800">
-                      <td className="py-3 font-medium">{order.id}</td>
+                      <td className="py-3 font-medium">#{order.displayNumber || order.id}</td>
                       <td className="py-3">
                         <p>{order.customer || '-'}</p>
                         <p className="text-xs text-slate-500">{order.createdAt ? new Date(order.createdAt).toLocaleString(locale) : '-'}</p>

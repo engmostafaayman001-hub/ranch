@@ -287,9 +287,21 @@ export async function POST(request: NextRequest) {
     const finalTotal = Math.max(0, Number(calculatedTotal.toFixed(2)))
     const lines = normalizeOrderLines(body)
 
+    // Calculate sequential display number for this shift
+    let displayNumber: number | undefined = undefined
+    if (resolvedShiftId) {
+      const shiftOrders = await readServerOrders({ shiftId: resolvedShiftId })
+      const maxDisplayNumber = shiftOrders.reduce((max, order) => {
+        const num = Number(order.displayNumber || 0)
+        return num > max ? num : max
+      }, 0)
+      displayNumber = maxDisplayNumber + 1
+    }
+
     const order: TrackedOrder = {
       // associate with shiftId provided by header or body when available
       shiftId: resolvedShiftId,
+      displayNumber,
       id,
       source: orderSource,
       externalReference: body.externalReference || body.posOrderId ? String(body.externalReference || body.posOrderId) : undefined,

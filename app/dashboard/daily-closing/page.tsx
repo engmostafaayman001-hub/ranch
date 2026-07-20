@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Printer, TrendingUp, TrendingDown, Wallet, Smartphone } from 'lucide-react'
+import { Printer, TrendingUp, TrendingDown, Wallet, Smartphone, Store } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -56,6 +56,7 @@ export default function DailyClosingPage() {
   const [rangeEnd, setRangeEnd] = useState(() => getDateInputValue(new Date()))
   const [daySession, setDaySession] = useShiftSession()
   const [closingBusy, setClosingBusy] = useState(false)
+  const [showPaymentsModal, setShowPaymentsModal] = useState<'app' | 'restaurant' | null>(null)
 
   const sessionRange = useMemo(() => getShiftSessionDateRange(daySession), [daySession])
 
@@ -225,6 +226,30 @@ export default function DailyClosingPage() {
     }, 0)
   }, [sessionOrders])
 
+  const totalOtherPaymentsApp = useMemo(() => {
+    return sessionOrders.reduce((sum, order) => {
+      if (order.source === 'restaurant_pos') return sum
+      const method = String(order.payment?.method || '').toLowerCase()
+      return ['vodafone_cash', 'instapay'].includes(method) ? sum + Number(order.total || 0) : sum
+    }, 0)
+  }, [sessionOrders])
+
+  const otherPaymentsOrdersApp = useMemo(() => {
+    return sessionOrders.filter((order) => {
+      if (order.source === 'restaurant_pos') return false
+      const method = String(order.payment?.method || '').toLowerCase()
+      return ['vodafone_cash', 'instapay'].includes(method)
+    })
+  }, [sessionOrders])
+
+  const otherPaymentsOrdersRestaurant = useMemo(() => {
+    return sessionOrders.filter((order) => {
+      if (order.source !== 'restaurant_pos') return false
+      const method = String(order.payment?.method || '').toLowerCase()
+      return ['vodafone_cash', 'instapay'].includes(method)
+    })
+  }, [sessionOrders])
+
   const handlePrint = async () => {
     try {
       syncPrinterManagerSettings(settings.printers)
@@ -329,6 +354,36 @@ export default function DailyClosingPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">
+              {isArabic ? 'طلبات التطبيق بالوردية' : 'App Orders (Shift)'}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <p className="text-2xl font-bold">{sessionOrders.filter((o) => o.source !== 'restaurant_pos').length}</p>
+              <Smartphone className="h-5 w-5 text-blue-600" />
+            </div>
+            <p className="text-xs text-slate-500 mt-1">{isArabic ? 'طلبات' : 'orders'}</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">
+              {isArabic ? 'طلبات المطعم بالوردية' : 'Restaurant Orders (Shift)'}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <p className="text-2xl font-bold">{sessionOrders.filter((o) => o.source === 'restaurant_pos').length}</p>
+              <Store className="h-5 w-5 text-green-600" />
+            </div>
+            <p className="text-xs text-slate-500 mt-1">{isArabic ? 'طلبات' : 'orders'}</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">
               {isArabic ? 'إجمالي المبيعات (بدون رسوم التوصيل)' : 'Total Revenue (excl. delivery)'}
             </CardTitle>
           </CardHeader>
@@ -370,21 +425,43 @@ export default function DailyClosingPage() {
             <p className="text-xs text-slate-500 mt-1">{currency}</p>
           </CardContent>
         </Card>
+      </div>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">
-              {isArabic ? 'طرق الدفع الأخرى' : 'Other Payments'}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between">
-              <p className="text-2xl font-bold">{totalOtherPayments.toFixed(2)}</p>
-              <Smartphone className="h-5 w-5 text-blue-600" />
-            </div>
-            <p className="text-xs text-slate-500 mt-1">{currency}</p>
-          </CardContent>
-        </Card>
+      {/* Additional Metrics */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div onClick={() => setShowPaymentsModal('restaurant')} className="cursor-pointer">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">
+                {isArabic ? 'طرق دفع أخرى داخل المطعم' : 'Other Payments Inside Restaurant'}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <p className="text-2xl font-bold">{totalOtherPayments.toFixed(2)}</p>
+                <Smartphone className="h-5 w-5 text-blue-600" />
+              </div>
+              <p className="text-xs text-slate-500 mt-1">{currency}</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div onClick={() => setShowPaymentsModal('app')} className="cursor-pointer">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">
+                {isArabic ? 'طرق دفع أخرى داخل التطبيق' : 'Other Payments Inside App'}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <p className="text-2xl font-bold">{totalOtherPaymentsApp.toFixed(2)}</p>
+                <Smartphone className="h-5 w-5 text-purple-600" />
+              </div>
+              <p className="text-xs text-slate-500 mt-1">{currency}</p>
+            </CardContent>
+          </Card>
+        </div>
 
         <Card>
           <CardHeader className="pb-2">
@@ -474,6 +551,89 @@ export default function DailyClosingPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Payments Modal */}
+      {showPaymentsModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+            <CardHeader className="flex flex-row items-center justify-between sticky top-0 bg-white dark:bg-slate-950">
+              <CardTitle>
+                {showPaymentsModal === 'app'
+                  ? (isArabic ? 'طرق دفع أخرى داخل التطبيق' : 'Other Payments Inside App')
+                  : (isArabic ? 'طرق دفع أخرى داخل المطعم' : 'Other Payments Inside Restaurant')}
+              </CardTitle>
+              <button
+                onClick={() => setShowPaymentsModal(null)}
+                className="text-2xl font-bold text-slate-500 hover:text-slate-700"
+              >
+                ✕
+              </button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {(showPaymentsModal === 'app' ? otherPaymentsOrdersApp : otherPaymentsOrdersRestaurant).length === 0 ? (
+                <p className="text-center text-slate-500 py-8">
+                  {isArabic ? 'لا توجد طلبات' : 'No orders'}
+                </p>
+              ) : (
+                (showPaymentsModal === 'app' ? otherPaymentsOrdersApp : otherPaymentsOrdersRestaurant).map((order) => (
+                  <div key={order.id} className="border rounded-lg p-4 dark:border-slate-700">
+                    <div className="flex flex-col gap-3">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <p className="font-semibold text-lg">#{order.displayNumber || order.id}</p>
+                          <p className="text-sm text-slate-600 dark:text-slate-400">
+                            {order.customer} {order.phone ? `- ${order.phone}` : ''}
+                          </p>
+                          <p className="text-sm text-slate-600 dark:text-slate-400 mt-2">
+                            {isArabic ? 'طريقة الدفع: ' : 'Payment Method: '}
+                            <span className="font-semibold">
+                              {String(order.payment?.method || '').toUpperCase()}
+                            </span>
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-2xl font-bold">{Number(order.total || 0).toFixed(2)}</p>
+                          <p className="text-xs text-slate-500">{currency}</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          className="gap-2 bg-blue-600 hover:bg-blue-700 text-sm flex-1"
+                          onClick={async () => {
+                            try {
+                              syncPrinterManagerSettings(settings.printers)
+                              const payload = createClosingReceiptPayload({
+                                title: isArabic ? 'فاتورة طلب' : 'Order Receipt',
+                                dateLabel: new Date(order.createdAt).toLocaleString(),
+                                orders: [order],
+                                expenses: [],
+                                revenue: Number(order.total || 0),
+                                expenseTotal: 0,
+                                net: Number(order.total || 0),
+                                paymentBreakdown: {},
+                                paymentLabel: (method: string) => method,
+                                currency,
+                                isArabic,
+                              })
+                              await printerManager.printCashierReceipt(payload)
+                              setPrintStatus(isArabic ? 'تم الطباعة' : 'Printed')
+                            } catch (error) {
+                              setPrintStatus(error instanceof Error ? error.message : (isArabic ? 'فشلت الطباعة' : 'Print failed'))
+                            }
+                          }}
+                        >
+                          <Printer className="h-4 w-4" />
+                          {isArabic ? 'طباعة' : 'Print'}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }

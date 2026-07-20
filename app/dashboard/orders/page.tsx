@@ -596,7 +596,7 @@ export default function DashboardOrdersPage() {
                 <div key={order.id} className="min-w-0 max-w-full overflow-hidden rounded-md border p-4 dark:border-slate-800">
                   <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="break-all font-semibold">{order.id}</p>
+                      <p className="break-all font-semibold">#{order.displayNumber || order.id}</p>
                       <p className="text-sm text-slate-500">
                         {order.customer} - {order.phone || '-'}
                         {order.createdAt && <span className="block pt-1 text-xs">{new Date(order.createdAt).toLocaleString(isArabic ? 'ar-EG' : 'en-US')}</span>}
