@@ -1,12 +1,13 @@
 'use client'
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useLanguage } from '@/components/language-provider'
+import { X } from 'lucide-react'
 import { DeliveryDriver, useAppStore } from '@/lib/app-store'
 import { fetchSharedDrivers, mergeDrivers, saveSharedDrivers } from '@/lib/use-shared-app-data'
 
@@ -37,7 +38,7 @@ export default function DashboardDeliveryPage() {
       loadingDrivers.current = false
       setLoading(false)
     }
-  }, [isArabic, setDrivers])
+  }, [drivers, isArabic, setDrivers])
 
   useEffect(() => {
     const timer = window.setTimeout(loadDrivers, 0)
@@ -47,6 +48,13 @@ export default function DashboardDeliveryPage() {
       window.clearInterval(interval)
     }
   }, [loadDrivers])
+
+  const sortedDrivers = useMemo(() => {
+    return [...drivers].sort((first, second) => {
+      if (first.status !== second.status) return first.status === 'active' ? -1 : 1
+      return first.name.localeCompare(second.name)
+    })
+  }, [drivers])
 
   const publishDrivers = async (nextDrivers: DeliveryDriver[]) => {
     const previousDrivers = drivers
@@ -144,37 +152,44 @@ export default function DashboardDeliveryPage() {
       </div>
 
       {formOpen && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{editingId ? (isArabic ? 'تعديل سائق' : 'Edit Driver') : (isArabic ? 'إضافة سائق' : 'Add Driver')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={submit} className="grid gap-4 md:grid-cols-6">
-              <Field id="driver-name" label={isArabic ? 'اسم السائق' : 'Driver Name'} value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
-              <Field id="driver-email" label={isArabic ? 'بريد حساب السائق' : 'Driver Account Email'} value={form.email} onChange={(value) => setForm({ ...form, email: value })} />
-              <Field id="driver-phone" label={isArabic ? 'الهاتف' : 'Phone'} value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} />
-              <Field id="driver-area" label={isArabic ? 'المنطقة' : 'Area'} value={form.area} onChange={(value) => setForm({ ...form, area: value })} />
-              <div>
-                <Label htmlFor="driver-status">{isArabic ? 'الحالة' : 'Status'}</Label>
-                <select
-                  id="driver-status"
-                  value={form.status}
-                  onChange={(event) => setForm({ ...form, status: event.target.value as 'active' | 'inactive' })}
-                  className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950"
-                >
-                  <option value="active">{isArabic ? 'نشط' : 'Active'}</option>
-                  <option value="inactive">{isArabic ? 'غير نشط' : 'Inactive'}</option>
-                </select>
-              </div>
-              <div className="flex items-end gap-2">
-                <Button type="submit" disabled={saving} className="flex-1 bg-red-600 hover:bg-red-700">
-                  {editingId ? (isArabic ? 'حفظ' : 'Save') : (isArabic ? 'إضافة' : 'Add')}
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" onClick={closeForm}>
+          <div className="w-full max-w-3xl" onClick={(event) => event.stopPropagation()}>
+            <Card>
+              <CardHeader>
+                <CardTitle>{editingId ? (isArabic ? 'تعديل سائق' : 'Edit Driver') : (isArabic ? 'إضافة سائق' : 'Add Driver')}</CardTitle>
+                <Button type="button" variant="ghost" size="icon" onClick={closeForm}>
+                  <X className="h-4 w-4" />
                 </Button>
-                <Button type="button" variant="outline" onClick={closeForm}>{isArabic ? 'إلغاء' : 'Cancel'}</Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={submit} className="grid gap-4 p-4 md:grid-cols-6">
+                  <Field id="driver-name" label={isArabic ? 'اسم السائق' : 'Driver Name'} value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
+                  <Field id="driver-email" label={isArabic ? 'بريد حساب السائق' : 'Driver Account Email'} value={form.email} onChange={(value) => setForm({ ...form, email: value })} />
+                  <Field id="driver-phone" label={isArabic ? 'الهاتف' : 'Phone'} value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} />
+                  <Field id="driver-area" label={isArabic ? 'المنطقة' : 'Area'} value={form.area} onChange={(value) => setForm({ ...form, area: value })} />
+                  <div>
+                    <Label htmlFor="driver-status">{isArabic ? 'الحالة' : 'Status'}</Label>
+                    <select
+                      id="driver-status"
+                      value={form.status}
+                      onChange={(event) => setForm({ ...form, status: event.target.value as 'active' | 'inactive' })}
+                      className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950"
+                    >
+                      <option value="active">{isArabic ? 'نشط' : 'Active'}</option>
+                      <option value="inactive">{isArabic ? 'غير نشط' : 'Inactive'}</option>
+                    </select>
+                  </div>
+                  <div className="flex items-end gap-2 md:col-span-6">
+                    <Button type="submit" disabled={saving} className="flex-1 bg-red-600 hover:bg-red-700">
+                      {editingId ? (isArabic ? 'حفظ' : 'Save') : (isArabic ? 'إضافة' : 'Add')}
+                    </Button>
+                    <Button type="button" variant="outline" onClick={closeForm}>{isArabic ? 'إلغاء' : 'Cancel'}</Button>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       )}
 
       <Card>
@@ -184,7 +199,7 @@ export default function DashboardDeliveryPage() {
             <p className="py-8 text-center text-slate-500">{isArabic ? 'جاري تحميل السائقين...' : 'Loading drivers...'}</p>
           ) : drivers.length === 0 ? (
             <p className="py-8 text-center text-slate-500">{isArabic ? 'لا يوجد سائقون بعد.' : 'No drivers yet.'}</p>
-          ) : drivers.map((driver) => (
+          ) : sortedDrivers.map((driver) => (
             <div key={driver.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 dark:border-slate-800">
               <div>
                 <p className="font-semibold">{driver.name}</p>

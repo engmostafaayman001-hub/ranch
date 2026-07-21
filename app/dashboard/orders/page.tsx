@@ -377,17 +377,30 @@ export default function DashboardOrdersPage() {
     setEditForm({ ...editForm, lines: nextLines.length ? nextLines : [{ name: isArabic ? 'منتج' : 'Item', quantity: 1, price: 0 }] })
   }
 
+  const sortedOrders = useMemo(() => {
+    return [...orders].sort((first, second) => {
+      const firstNumber = Number.isFinite(first.displayNumber) ? first.displayNumber as number : NaN
+      const secondNumber = Number.isFinite(second.displayNumber) ? second.displayNumber as number : NaN
+      if (Number.isFinite(firstNumber) && Number.isFinite(secondNumber)) {
+        return firstNumber - secondNumber
+      }
+      if (Number.isFinite(firstNumber)) return -1
+      if (Number.isFinite(secondNumber)) return 1
+      return new Date(first.createdAt).getTime() - new Date(second.createdAt).getTime()
+    })
+  }, [orders])
+
   const filteredOrders = useMemo(() => {
     const term = search.trim().toLowerCase()
-    if (!term) return orders
-    return orders.filter((order) => {
-      const haystack = [order.customer, order.phone, order.address, order.notes, order.id]
+    if (!term) return sortedOrders
+    return sortedOrders.filter((order) => {
+      const haystack = [order.displayNumber?.toString(), order.customer, order.phone, order.address, order.notes, order.id]
         .filter(Boolean)
         .join(' ')
         .toLowerCase()
       return haystack.includes(term)
     })
-  }, [orders, search])
+  }, [search, sortedOrders])
 
   const createPrintPayload = useCallback((order: TrackedOrder) => trackedOrderToReceiptPayload(order, {
     isArabic,
@@ -451,7 +464,7 @@ export default function DashboardOrdersPage() {
       setLoadingReceiptId(null)
     }
   }
-  const appOrders = useMemo(() => orders, [orders])
+  const appOrders = filteredOrders
 
   return (
     <div className="min-w-0 max-w-full space-y-6 overflow-x-hidden">
@@ -584,7 +597,7 @@ export default function DashboardOrdersPage() {
           <Input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder={isArabic ? 'ابحث بالاسم أو الهاتف أو العنوان' : 'Search by name, phone or address'}
+            placeholder={isArabic ? 'ابحث برقم الطلب أو الاسم أو الهاتف أو العنوان' : 'Search by order number, name, phone or address'}
           />
           {loading ? (
             <p className="py-8 text-center text-slate-500">{isArabic ? 'جاري تحميل الطلبات...' : 'Loading orders...'}</p>

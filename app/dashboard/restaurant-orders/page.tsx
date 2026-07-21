@@ -151,10 +151,15 @@ export default function DashboardRestaurantOrdersPage() {
   }
 
   const getOrderLineDisplayName = (line: OrderLine) => {
-    const product = getOrderLineProduct(line)
+    const productId = String(line.productId || line.product?.id || line.product?.productId || '').trim()
+    const product = productId
+      ? products.find((item) => String(item.id) === productId)
+      : getOrderLineProduct(line)
+
     const trimmedName = line.name?.toString().trim() || ''
     const placeholderNames = new Set([isArabic ? 'منتج' : 'Item', isArabic ? 'منتج جديد' : 'New item'])
-    if (product) return isArabic ? product.nameAr || product.nameEn : product.nameEn || product.nameAr
+
+    if (product) return isArabic ? product.nameAr || product.nameEn || product.nameEn : product.nameEn || product.nameAr || product.nameEn
     if (trimmedName && !placeholderNames.has(trimmedName)) return trimmedName
     return isArabic ? 'منتج' : 'Item'
   }
@@ -341,17 +346,30 @@ export default function DashboardRestaurantOrdersPage() {
     logoUrl: settings.invoiceLogo,
   })
 
+  const sortedOrders = useMemo(() => {
+    return [...orders].sort((first, second) => {
+      const firstNumber = Number.isFinite(first.displayNumber) ? first.displayNumber as number : NaN
+      const secondNumber = Number.isFinite(second.displayNumber) ? second.displayNumber as number : NaN
+      if (Number.isFinite(firstNumber) && Number.isFinite(secondNumber)) {
+        return firstNumber - secondNumber
+      }
+      if (Number.isFinite(firstNumber)) return -1
+      if (Number.isFinite(secondNumber)) return 1
+      return new Date(first.createdAt).getTime() - new Date(second.createdAt).getTime()
+    })
+  }, [orders])
+
   const filteredOrders = useMemo(() => {
     const term = search.trim().toLowerCase()
-    if (!term) return orders
-    return orders.filter((order) => {
-      const haystack = [order.customer, order.phone, order.address, order.notes, order.id]
+    if (!term) return sortedOrders
+    return sortedOrders.filter((order) => {
+      const haystack = [order.displayNumber?.toString(), order.customer, order.phone, order.address, order.notes, order.id]
         .filter(Boolean)
         .join(' ')
         .toLowerCase()
       return haystack.includes(term)
     })
-  }, [orders, search])
+  }, [search, sortedOrders])
 
   const isPrinterAvailable = (role: PrinterRole) => {
     const printer = settings.printers[role]
@@ -546,7 +564,7 @@ export default function DashboardRestaurantOrdersPage() {
           <Input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder={isArabic ? 'ابحث بالاسم أو الهاتف أو العنوان' : 'Search by name, phone or address'}
+            placeholder={isArabic ? 'ابحث برقم الطلب أو الاسم أو الهاتف أو العنوان' : 'Search by order number, name, phone or address'}
           />
           {loading ? (
             <p className="py-8 text-center text-slate-500">{isArabic ? 'جاري التحميل...' : 'Loading...'}</p>

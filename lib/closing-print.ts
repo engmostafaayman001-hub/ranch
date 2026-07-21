@@ -25,6 +25,7 @@ type ClosingPrintInput = {
   invoiceAddress?: string
   invoicePhone?: string
   logoUrl?: string
+  invoiceMessage?: string
 }
 
 function isCollectedDrawerOrder(order: TrackedOrder) {

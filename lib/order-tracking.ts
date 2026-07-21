@@ -47,6 +47,13 @@ export interface OrderLine {
   categoryName?: string
   categoryId?: string
   productId?: string
+  product?: {
+    id?: string
+    productId?: string
+    name?: string
+    nameAr?: string
+    nameEn?: string
+  }
 }
 
 export interface TrackedOrder {

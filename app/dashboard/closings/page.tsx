@@ -1,11 +1,17 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useLanguage } from '@/components/language-provider'
 import { readClosings, type ClosingRecord, type SavedClosingExpense } from '@/lib/closings'
+import { CURRENCY_EN } from '@/lib/constants'
+import { useAppStore } from '@/lib/app-store'
+import { Dialog } from '@/components/ui/dialog'
+import { printerManager, syncPrinterManagerSettings } from '@/lib/printer'
+import { createClosingReceiptPayload } from '@/lib/closing-print'
+import { summarizeClosingData } from '@/lib/financial-calculations'
 import useShiftSession from '@/lib/use-shift-session'
 import performShiftClosing from '@/lib/shift-closing'
 import { TrackedOrder } from '@/lib/order-tracking'
@@ -127,11 +133,17 @@ export default function ClosingsPage() {
   const [filterStart, setFilterStart] = useState('')
   const [filterEnd, setFilterEnd] = useState('')
   const [selectedClosingId, setSelectedClosingId] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'details' | 'orders' | 'expenses'>('details')
   const [selectedClosingOrders, setSelectedClosingOrders] = useState<TrackedOrder[]>([])
   const [selectedClosingExpenses, setSelectedClosingExpenses] = useState<SavedClosingExpense[]>([])
   const [closingReport, setClosingReport] = useState<ClosingReport | null>(null)
   const [loadingClosingDetails, setLoadingClosingDetails] = useState(false)
+  const [showClosingModal, setShowClosingModal] = useState(false)
+  const [closingModalTab, setClosingModalTab] = useState<'details' | 'orders' | 'expenses'>('details')
+  const [sessionOrders, setSessionOrders] = useState<TrackedOrder[]>([])
+  const [sessionExpenses, setSessionExpenses] = useState<SavedClosingExpense[]>([])
+  const [loadingSessionItems, setLoadingSessionItems] = useState(false)
+  const [printStatus, setPrintStatus] = useState('')
+  const settings = useAppStore((state) => state.settings)
   const [daySession, setDaySession] = useShiftSession()
   const [closingBusy, setClosingBusy] = useState(false)
 
@@ -188,6 +200,82 @@ export default function ClosingsPage() {
 
   const selectedClosing = closings.find((closing) => closing.id === selectedClosingId)
 
+  const closureOrders = selectedClosing?.orders ?? selectedClosingOrders
+  const closureExpenses = selectedClosing?.expenses ?? selectedClosingExpenses
+
+  const sessionSummary = useMemo(() => summarizeClosingData(closureOrders, closureExpenses), [closureOrders, closureExpenses])
+
+  const paymentBreakdown = useMemo(() => {
+    return closureOrders.reduce<Record<string, number>>((totals, order) => {
+      const method = String(order.payment?.method || 'cash')
+      totals[method] = (totals[method] || 0) + Number(order.total || 0)
+      return totals
+    }, {})
+  }, [closureOrders])
+
+  const handlePrintClosingSummary = useCallback(async () => {
+    if (!selectedClosing) return
+    try {
+      syncPrinterManagerSettings(settings.printers)
+      const payload = createClosingReceiptPayload({
+        title: isArabic ? 'ملخص التقفيل' : 'Closing Summary',
+        dateLabel: `${new Date(selectedClosing.openedAt).toLocaleString(isArabic ? 'ar-EG' : 'en-US')} - ${new Date(selectedClosing.closedAt).toLocaleString(isArabic ? 'ar-EG' : 'en-US')}`,
+        orders: closureOrders,
+        expenses: closureExpenses,
+        revenue: sessionSummary.collectedDrawerRevenue,
+        expenseTotal: sessionSummary.expenses,
+        net: Number((sessionSummary.collectedDrawerRevenue - sessionSummary.expenses).toFixed(2)),
+        paymentBreakdown,
+        paymentLabel: (method: string) => method,
+        currency: selectedClosing.currency || CURRENCY_EN,
+        isArabic,
+      })
+      await printerManager.printCashierReceipt(payload)
+      setPrintStatus(isArabic ? 'تم الطباعة' : 'Printed')
+    } catch (error) {
+      setPrintStatus(error instanceof Error ? error.message : (isArabic ? 'فشلت الطباعة' : 'Print failed'))
+    }
+  }, [closureExpenses, closureOrders, isArabic, paymentBreakdown, selectedClosing, sessionSummary, settings.printers])
+
+  useEffect(() => {
+    let active = true
+    const shiftId = daySession.shiftId
+
+    if (!shiftId) {
+      setSessionOrders([])
+      setSessionExpenses([])
+      return
+    }
+
+    const loadSessionData = async () => {
+      setLoadingSessionItems(true)
+      try {
+        const [ordersResponse, expensesResponse] = await Promise.all([
+          fetch(`/api/orders?limit=9999&shiftId=${encodeURIComponent(shiftId)}`, { cache: 'no-store' }),
+          fetch(`/api/expenses?shiftId=${encodeURIComponent(shiftId)}`, { cache: 'no-store' }),
+        ])
+        const ordersData = await ordersResponse.json().catch(() => ({}))
+        const expensesData = await expensesResponse.json().catch(() => ({}))
+        if (!active) return
+        setSessionOrders(Array.isArray(ordersData.orders) ? ordersData.orders : [])
+        setSessionExpenses(Array.isArray(expensesData.expenses) ? expensesData.expenses : [])
+      } catch {
+        if (active) {
+          setSessionOrders([])
+          setSessionExpenses([])
+        }
+      } finally {
+        if (active) setLoadingSessionItems(false)
+      }
+    }
+
+    void loadSessionData()
+
+    return () => {
+      active = false
+    }
+  }, [daySession.shiftId])
+
   useEffect(() => {
     if (!selectedClosing || !selectedClosing.shiftId) {
       setClosingReport(null)
@@ -196,7 +284,7 @@ export default function ClosingsPage() {
       return
     }
 
-    setActiveTab('details')
+    setClosingModalTab('details')
     setLoadingClosingDetails(true)
 
     fetch(`/api/closings/report?shiftId=${encodeURIComponent(selectedClosing.shiftId)}`, { cache: 'no-store' })
@@ -229,9 +317,6 @@ export default function ClosingsPage() {
     }
   }, [selectedClosing])
 
-  const closureOrders = selectedClosing?.orders ?? selectedClosingOrders
-  const closureExpenses = selectedClosing?.expenses ?? selectedClosingExpenses
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
@@ -253,20 +338,24 @@ export default function ClosingsPage() {
           <div className="flex items-center gap-2">
             {daySession.isOpen ? (
               <Button className="gap-2 bg-red-600 hover:bg-red-700" onClick={async () => {
-                if (!daySession.shiftId || closingBusy) return
+                if (!daySession.shiftId || closingBusy || loadingSessionItems) return
                 setClosingBusy(true)
                 try {
                   const closedAt = new Date().toISOString()
                   setDaySession({ ...daySession, isOpen: false, closedAt })
-                  const record = await performShiftClosing({ ...daySession, closedAt })
+                  const record = await performShiftClosing(
+                    { ...daySession, closedAt },
+                    { orders: sessionOrders, expenses: sessionExpenses, currency: CURRENCY_EN }
+                  )
                   setClosings(readClosings())
                   setSelectedClosingId(record.id)
+                  setShowClosingModal(true)
                 } catch (err) {
                   console.error('Could not perform shift closing', err)
                 } finally {
                   setClosingBusy(false)
                 }
-              }} disabled={closingBusy}>
+              }} disabled={closingBusy || loadingSessionItems}>
                 {isArabic ? 'غلق الوردية' : 'Close Shift'}
               </Button>
             ) : null}
@@ -301,7 +390,11 @@ export default function ClosingsPage() {
                     <td className="px-4 py-3">{(closing.drawerNet ?? 0).toFixed(2)} {closing.currency || 'EGP'}</td>
                     <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{new Date(closing.closedAt).toLocaleTimeString(isArabic ? 'ar-EG' : 'en-US')}</td>
                     <td className="px-4 py-3">
-                      <Button size="sm" variant={selectedClosingId === closing.id ? 'secondary' : 'outline'} onClick={() => setSelectedClosingId(selectedClosingId === closing.id ? null : closing.id)}>
+                      <Button size="sm" variant="outline" onClick={() => {
+                        setSelectedClosingId(closing.id)
+                        setClosingModalTab('details')
+                        setShowClosingModal(true)
+                      }}>
                         {isArabic ? 'عرض' : 'View'}
                       </Button>
                     </td>
@@ -313,37 +406,49 @@ export default function ClosingsPage() {
         )}
       </div>
 
-      {selectedClosing ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>{isArabic ? 'تفاصيل الوردية' : 'Shift Details'}</CardTitle>
-            <CardDescription>
-              {new Date(selectedClosing.openedAt).toLocaleString(isArabic ? 'ar-EG' : 'en-US')} → {new Date(selectedClosing.closedAt).toLocaleString(isArabic ? 'ar-EG' : 'en-US')}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="mx-auto flex max-w-2xl flex-col items-center justify-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 text-center shadow-sm dark:border-slate-800 dark:bg-slate-950">
-              <div className="flex flex-wrap justify-center gap-3">
-                <Button variant={activeTab === 'details' ? 'secondary' : 'outline'} onClick={() => setActiveTab('details')}>
+      {showClosingModal && selectedClosing ? (
+        <Dialog role="dialog" aria-modal="true" className="flex items-center justify-center overflow-hidden p-4">
+          <div className="relative w-full max-w-6xl max-h-[92vh] overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-950">
+            <div className="sticky top-0 z-20 border-b border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-950">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="text-xl font-semibold">{isArabic ? 'تفاصيل التقفيل' : 'Closing Details'}</h3>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    {new Date(selectedClosing.openedAt).toLocaleString(isArabic ? 'ar-EG' : 'en-US')} → {new Date(selectedClosing.closedAt).toLocaleString(isArabic ? 'ar-EG' : 'en-US')}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button className="gap-2 bg-blue-600 hover:bg-blue-700" onClick={handlePrintClosingSummary}>
+                    {isArabic ? 'طباعة الملخص' : 'Print Summary'}
+                  </Button>
+                  <Button variant="outline" onClick={() => setShowClosingModal(false)}>{isArabic ? 'إغلاق' : 'Close'}</Button>
+                </div>
+              </div>
+              {printStatus ? (
+                <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">{printStatus}</p>
+              ) : null}
+            </div>
+
+            <div className="space-y-4 overflow-y-auto p-5">
+              <div className="flex flex-wrap gap-2">
+                <Button variant={closingModalTab === 'details' ? 'secondary' : 'outline'} onClick={() => setClosingModalTab('details')}>
                   {isArabic ? 'التفاصيل' : 'Details'}
                 </Button>
-                <Button variant={activeTab === 'orders' ? 'secondary' : 'outline'} onClick={() => setActiveTab('orders')}>
+                <Button variant={closingModalTab === 'orders' ? 'secondary' : 'outline'} onClick={() => setClosingModalTab('orders')}>
                   {isArabic ? 'عرض الطلبات' : 'View Orders'}
                 </Button>
-                <Button variant={activeTab === 'expenses' ? 'secondary' : 'outline'} onClick={() => setActiveTab('expenses')}>
+                <Button variant={closingModalTab === 'expenses' ? 'secondary' : 'outline'} onClick={() => setClosingModalTab('expenses')}>
                   {isArabic ? 'عرض المصروفات' : 'View Expenses'}
                 </Button>
               </div>
-            </div>
 
-            <div className="mt-4">
               {loadingClosingDetails && <p>{isArabic ? 'جاري تحميل التفاصيل...' : 'Loading details...'}</p>}
-              
-              {activeTab === 'details' && closingReport && (
+
+              {closingModalTab === 'details' && closingReport && (
                 <ClosingReportDetails report={closingReport} currency={selectedClosing.currency} isArabic={isArabic} />
               )}
 
-              {activeTab === 'orders' && (
+              {closingModalTab === 'orders' && (
                 closureOrders.length === 0 ? (
                   <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
                     {isArabic ? 'لا توجد طلبات محفوظة لهذا التقفيل.' : 'No saved orders for this closing.'}
@@ -352,14 +457,24 @@ export default function ClosingsPage() {
                   <div className="space-y-3">
                     {closureOrders.map((order) => (
                       <div key={order.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-                        {/* Order details */}
+                        <div className="flex flex-col gap-3 sm:flex-row sm:justify-between">
+                          <div>
+                            <p className="font-semibold">#{order.displayNumber || order.id}</p>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">{order.customer || order.id}</p>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">{isArabic ? 'طريقة الدفع:' : 'Payment Method:'} {String(order.payment?.method || 'cash')}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-lg font-semibold">{Number(order.total || 0).toFixed(2)} {selectedClosing.currency || 'EGP'}</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">{isArabic ? 'الحالة:' : 'Status:'} {String(order.status || 'unknown')}</p>
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
                 )
               )}
 
-              {activeTab === 'expenses' && (
+              {closingModalTab === 'expenses' && (
                 closureExpenses.length === 0 ? (
                   <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
                     {isArabic ? 'لا توجد مصروفات محفوظة لهذا التقفيل.' : 'No saved expenses for this closing.'}
@@ -368,15 +483,24 @@ export default function ClosingsPage() {
                   <div className="space-y-3">
                     {closureExpenses.map((expense) => (
                       <div key={expense.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-                        {/* Expense details */}
+                        <div className="flex flex-col gap-2 sm:flex-row sm:justify-between">
+                          <div>
+                            <p className="font-semibold">{expense.name}</p>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">{expense.date ? new Date(expense.date).toLocaleString(isArabic ? 'ar-EG' : 'en-US') : ''}</p>
+                            {expense.note ? <p className="text-sm text-slate-500 dark:text-slate-400">{expense.note}</p> : null}
+                          </div>
+                          <div className="text-right">
+                            <p className="text-lg font-semibold">{Number(expense.amount || 0).toFixed(2)} {selectedClosing.currency || 'EGP'}</p>
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
                 )
               )}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </Dialog>
       ) : null}
     </div>
   )
