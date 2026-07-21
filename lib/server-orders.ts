@@ -77,7 +77,9 @@ function normalizeCompactOrder(row: CompactOrderRow): TrackedOrder {
   const status = row.order_status || row.status || 'placed'
   return {
     id: row.id,
-    displayNumber: row.display_number || undefined,
+    displayNumber: row.display_number !== null && row.display_number !== undefined
+      ? Number(row.display_number) || undefined
+      : undefined,
     source: row.source || 'app',
     externalReference: row.external_reference || undefined,
     customer: row.customer || 'Customer',
@@ -154,14 +156,30 @@ function ensureDisplayNumbers(orders: TrackedOrder[]): TrackedOrder[] {
       const bTime = new Date(b.createdAt).getTime()
       return aTime - bTime
     })
-    const total = sorted.length
 
-    sorted.forEach((order, index) => {
+    const usedNumbers = new Set<number>()
+    let nextDisplayNumber = 1
+
+    for (const order of sorted) {
+      const existingNumber = Number.isFinite(order.displayNumber) ? order.displayNumber as number : undefined
+      if (existingNumber && existingNumber >= nextDisplayNumber && !usedNumbers.has(existingNumber)) {
+        usedNumbers.add(existingNumber)
+        nextDisplayNumber = existingNumber + 1
+        result.push(order)
+        continue
+      }
+
+      while (usedNumbers.has(nextDisplayNumber)) {
+        nextDisplayNumber += 1
+      }
+
       result.push({
         ...order,
-        displayNumber: total - index,
+        displayNumber: nextDisplayNumber,
       })
-    })
+      usedNumbers.add(nextDisplayNumber)
+      nextDisplayNumber += 1
+    }
   }
 
   return result

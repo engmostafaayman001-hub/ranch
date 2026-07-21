@@ -55,6 +55,7 @@ export default function DailyClosingPage() {
   const [daySession, setDaySession] = useShiftSession()
   const [closingBusy, setClosingBusy] = useState(false)
   const [showPaymentsModal, setShowPaymentsModal] = useState<'app' | 'restaurant' | null>(null)
+  const [showSummaryModal, setShowSummaryModal] = useState(false)
 
   const sessionRange = useMemo(() => getShiftSessionDateRange(daySession), [daySession])
 
@@ -178,21 +179,20 @@ export default function DailyClosingPage() {
 
   const collectedDrawerRevenue = financialSummary.collectedDrawerRevenue
   const sessionRevenueWithoutDelivery = financialSummary.salesExcludingDelivery
+  const drawerNetAfterExpenses = Number((financialSummary.collectedDrawerRevenue - financialSummary.expenses).toFixed(2))
   const drawerPaymentBreakdown = useMemo(() => {
     return sessionOrders.reduce<Record<string, number>>((totals, order) => {
       if (!order.status || order.status === 'cancelled') return totals
-      if (!financialSummary.collectedDrawerRevenue) return totals
       const method = String(order.payment?.method || 'cash')
       if (order.source === 'restaurant_pos' || String(order.payment?.status || '').toLowerCase() === 'paid') {
         totals[method] = (totals[method] || 0) + Number(order.total || 0)
       }
       return totals
     }, {})
-  }, [financialSummary.collectedDrawerRevenue, sessionOrders])
+  }, [sessionOrders])
 
   const totalRevenue = financialSummary.grossSales
   const totalExpenses = financialSummary.expenses
-  const drawerNetAfterExpenses = financialSummary.actualDrawer
   const totalRemainingToCollect = financialSummary.remainingToCollect
 
   const totalOtherPayments = useMemo(() => {
@@ -260,6 +260,52 @@ export default function DailyClosingPage() {
         cancelled: 'Cancelled',
         active: 'In Progress',
       }
+
+  const summaryCards = useMemo(() => [
+    {
+      key: 'gross-sales',
+      label: isArabic ? 'إجمالي المبيعات' : 'Gross Sales',
+      value: financialSummary.grossSales,
+      accent: 'border-blue-200 bg-blue-50/70 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200',
+      details: [
+        { label: isArabic ? 'مبيعات المطعم' : 'Restaurant sales', value: shiftRestaurantSales },
+        { label: isArabic ? 'مبيعات التطبيق' : 'App sales', value: shiftAppSales },
+        { label: isArabic ? 'رسوم التوصيل' : 'Delivery fees', value: financialSummary.deliveryRevenue },
+        { label: isArabic ? 'الخصومات' : 'Discounts', value: financialSummary.totalDiscounts },
+      ],
+    },
+    {
+      key: 'net-sales',
+      label: isArabic ? 'صافي المبيعات' : 'Net Sales',
+      value: financialSummary.netSales,
+      accent: 'border-green-200 bg-green-50/70 text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300',
+      details: [
+        { label: isArabic ? 'المحصل في الدرج' : 'Collected drawer', value: financialSummary.collectedDrawerRevenue },
+        { label: isArabic ? 'المتبقي للتحصيل' : 'Remaining to collect', value: financialSummary.remainingToCollect },
+        { label: isArabic ? 'المصروفات' : 'Expenses', value: financialSummary.expenses },
+      ],
+    },
+    {
+      key: 'discounts',
+      label: isArabic ? 'الخصومات' : 'Discounts',
+      value: financialSummary.totalDiscounts,
+      accent: 'border-amber-200 bg-amber-50/70 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300',
+      details: [
+        { label: isArabic ? 'خصومات التطبيق' : 'App discounts', value: financialSummary.appDiscounts },
+        { label: isArabic ? 'خصومات المطعم' : 'Restaurant discounts', value: financialSummary.restaurantDiscounts },
+      ],
+    },
+    {
+      key: 'expenses',
+      label: isArabic ? 'المصروفات' : 'Expenses',
+      value: financialSummary.expenses,
+      accent: 'border-red-200 bg-red-50/70 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300',
+      details: [
+        { label: isArabic ? 'عدد البنود' : 'Expense items', value: sessionExpenses.length },
+        { label: isArabic ? 'صافي الدرج بعد المصروفات' : 'Drawer net after expenses', value: drawerNetAfterExpenses },
+      ],
+    },
+  ], [drawerNetAfterExpenses, financialSummary.appDiscounts, financialSummary.collectedDrawerRevenue, financialSummary.deliveryRevenue, financialSummary.expenses, financialSummary.netSales, financialSummary.remainingToCollect, financialSummary.restaurantDiscounts, financialSummary.totalDiscounts, isArabic, sessionExpenses.length, shiftAppSales, shiftRestaurantSales])
 
   const statusCards = useMemo(() => [
     {
@@ -353,9 +399,13 @@ export default function DailyClosingPage() {
               </div>
           </div>
           <div className="ms-2 flex gap-2">
+            <Button className="gap-2 bg-slate-600 hover:bg-slate-700" onClick={() => setShowSummaryModal(true)}>
+              <Printer className="h-4 w-4" />
+              {isArabic ? 'عرض الملخص' : 'View Summary'}
+            </Button>
             <Button className="gap-2 bg-blue-600 hover:bg-blue-700" onClick={handlePrint}>
               <Printer className="h-4 w-4" />
-              {isArabic ? 'طباعة' : 'Print'}
+              {isArabic ? 'طباعة الملخص' : 'Print Summary'}
             </Button>
             {daySession.isOpen ? (
               <Button className="gap-2 bg-red-600 hover:bg-red-700" onClick={async () => {
@@ -366,7 +416,7 @@ export default function DailyClosingPage() {
                   // close locally first so UI updates
                   setDaySession({ ...daySession, isOpen: false, closedAt })
                   // perform closing: collects orders/expenses and saves closing record
-                  await performShiftClosing({ ...daySession, closedAt })
+                  await performShiftClosing({ ...daySession, closedAt }, { orders: sessionOrders, expenses: sessionExpenses, currency })
                   setPrintStatus(isArabic ? 'تم إغلاق الورديه وحفظ التقفيل.' : 'Shift closed and closing saved.')
                 } catch (err) {
                   console.error('performShiftClosing failed', err)
@@ -404,57 +454,28 @@ export default function DailyClosingPage() {
       )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Card className="border-blue-200 bg-blue-50/70 dark:border-blue-900 dark:bg-blue-950/40">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">{isArabic ? 'إجمالي المبيعات' : 'Gross Sales'}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between">
-              <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{financialSummary.grossSales.toFixed(2)}</p>
-              <TrendingUp className="h-5 w-5 text-blue-600" />
-            </div>
-            <p className="mt-1 text-xs text-slate-500">{currency}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-green-200 bg-green-50/70 dark:border-green-900 dark:bg-green-950/40">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">{isArabic ? 'صافي المبيعات' : 'Net Sales'}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between">
-              <p className="text-2xl font-bold text-green-700 dark:text-green-300">{financialSummary.netSales.toFixed(2)}</p>
-              <Wallet className="h-5 w-5 text-green-600" />
-            </div>
-            <p className="mt-1 text-xs text-slate-500">{currency}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-amber-200 bg-amber-50/70 dark:border-amber-900 dark:bg-amber-950/40">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">{isArabic ? 'إجمالي الخصومات' : 'Discounts'}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between">
-              <p className="text-2xl font-bold text-amber-700 dark:text-amber-300">{financialSummary.totalDiscounts.toFixed(2)}</p>
-              <TrendingDown className="h-5 w-5 text-amber-600" />
-            </div>
-            <p className="mt-1 text-xs text-slate-500">{currency}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-red-200 bg-red-50/70 dark:border-red-900 dark:bg-red-950/40">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">{isArabic ? 'إجمالي المصروفات' : 'Expenses'}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between">
-              <p className="text-2xl font-bold text-red-700 dark:text-red-300">{financialSummary.expenses.toFixed(2)}</p>
-              <TrendingDown className="h-5 w-5 text-red-600" />
-            </div>
-            <p className="mt-1 text-xs text-slate-500">{currency}</p>
-          </CardContent>
-        </Card>
+        {summaryCards.map((card) => (
+          <Card key={card.key} className={card.accent}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">{card.label}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-2xl font-bold">{card.value.toFixed(2)}</p>
+                {card.key === 'gross-sales' ? <TrendingUp className="h-5 w-5" /> : card.key === 'net-sales' ? <Wallet className="h-5 w-5" /> : <TrendingDown className="h-5 w-5" />}
+              </div>
+              <p className="mt-1 text-xs text-slate-500">{currency}</p>
+              <div className="mt-3 space-y-2 border-t border-slate-200/70 pt-3 dark:border-slate-700">
+                {card.details.map((detail) => (
+                  <div key={`${card.key}-${detail.label}`} className="flex items-center justify-between gap-3 text-sm">
+                    <span className="text-slate-600 dark:text-slate-400">{detail.label}</span>
+                    <span className="font-semibold">{Number(detail.value || 0).toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -754,6 +775,75 @@ export default function DailyClosingPage() {
         </CardContent>
       </Card>
 
+      {/* Summary Modal */}
+      {showSummaryModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <CardHeader className="flex flex-row items-center justify-between sticky top-0 bg-white dark:bg-slate-950">
+              <div>
+                <CardTitle>{isArabic ? 'ملخص الوردية' : 'Shift Summary'}</CardTitle>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  {isArabic ? 'راجع أرقام الوردية واطبع الملخص فقط.' : 'Review the shift figures and print the summary only.'}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button className="gap-2 bg-blue-600 hover:bg-blue-700" onClick={handlePrint}>
+                  <Printer className="h-4 w-4" />
+                  {isArabic ? 'طباعة الملخص' : 'Print Summary'}
+                </Button>
+                <button
+                  onClick={() => setShowSummaryModal(false)}
+                  className="text-2xl font-bold text-slate-500 hover:text-slate-700"
+                >
+                  ✕
+                </button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
+                  <p className="text-sm text-slate-500 dark:text-slate-400">{isArabic ? 'إجمالي الطلبات' : 'Orders'}</p>
+                  <p className="mt-2 text-3xl font-bold">{sessionOrders.length}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
+                  <p className="text-sm text-slate-500 dark:text-slate-400">{isArabic ? 'إجمالي المبيعات' : 'Gross Sales'}</p>
+                  <p className="mt-2 text-3xl font-bold">{financialSummary.grossSales.toFixed(2)}</p>
+                  <p className="text-xs text-slate-500 mt-1">{currency}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
+                  <p className="text-sm text-slate-500 dark:text-slate-400">{isArabic ? 'مبيعات التطبيق' : 'App Sales'}</p>
+                  <p className="mt-2 text-3xl font-bold">{shiftAppSales.toFixed(2)}</p>
+                  <p className="text-xs text-slate-500 mt-1">{currency}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
+                  <p className="text-sm text-slate-500 dark:text-slate-400">{isArabic ? 'مبيعات المطعم' : 'Restaurant Sales'}</p>
+                  <p className="mt-2 text-3xl font-bold">{shiftRestaurantSales.toFixed(2)}</p>
+                  <p className="text-xs text-slate-500 mt-1">{currency}</p>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
+                  <p className="text-sm text-slate-500 dark:text-slate-400">{isArabic ? 'إيرادات التوصيل' : 'Delivery Revenue'}</p>
+                  <p className="mt-2 text-3xl font-bold">{financialSummary.deliveryRevenue.toFixed(2)}</p>
+                  <p className="text-xs text-slate-500 mt-1">{currency}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
+                  <p className="text-sm text-slate-500 dark:text-slate-400">{isArabic ? 'إجمالي الخصومات' : 'Total Discounts'}</p>
+                  <p className="mt-2 text-3xl font-bold">{financialSummary.totalDiscounts.toFixed(2)}</p>
+                  <p className="text-xs text-slate-500 mt-1">{currency}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
+                  <p className="text-sm text-slate-500 dark:text-slate-400">{isArabic ? 'صافي الدرج' : 'Drawer Net'}</p>
+                  <p className="mt-2 text-3xl font-bold">{drawerNetAfterExpenses.toFixed(2)}</p>
+                  <p className="text-xs text-slate-500 mt-1">{currency}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Payments Modal */}
       {showPaymentsModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -765,6 +855,7 @@ export default function DailyClosingPage() {
                   : (isArabic ? 'طرق دفع أخرى داخل المطعم' : 'Other Payments Inside Restaurant')}
               </CardTitle>
               <button
+                type="button"
                 onClick={() => setShowPaymentsModal(null)}
                 className="text-2xl font-bold text-slate-500 hover:text-slate-700"
               >

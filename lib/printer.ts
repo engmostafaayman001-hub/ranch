@@ -897,22 +897,70 @@ type ReceiptPayloadOptions = Partial<ReceiptPayload> & {
   productCatalog?: ReceiptProductSource[]
 }
 
+function getFirstTextValue(source: Record<string, unknown> | undefined, keys: string[]) {
+  if (!source) return ''
+  for (const key of keys) {
+    const value = source[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  }
+  return ''
+}
+
+function isPlaceholderName(value: string) {
+  const normalized = value.trim().toLowerCase()
+  return !normalized || ['item', 'new item', 'منتج', 'منتج جديد', 'product', 'products', 'order item', 'عنصر', 'عنصر جديد'].includes(normalized)
+}
+
 function resolveReceiptLineName(line: Record<string, unknown>, isArabic: boolean, productCatalog?: ReceiptProductSource[]) {
-  const placeholderNames = new Set(['item', 'new item', 'منتج', 'منتج جديد'])
-  const productId = typeof line.productId === 'string' && line.productId.trim() ? line.productId : ''
-  const matchingProduct = productCatalog?.find((product) => String(product.id || '') === productId)
+  const placeholderNames = new Set(['item', 'new item', 'منتج', 'منتج جديد', 'product', 'products', 'order item', 'عنصر', 'عنصر جديد'])
+  const product = line.product && typeof line.product === 'object' ? line.product as Record<string, unknown> : undefined
+  const item = line.item && typeof line.item === 'object' ? line.item as Record<string, unknown> : undefined
+  const productId = String(
+    line.productId
+    || line.product_id
+    || (product?.id as string | number | undefined)
+    || (product?.productId as string | number | undefined)
+    || (item?.productId as string | number | undefined)
+    || (item?.id as string | number | undefined)
+    || ''
+  ).trim()
+
+  const matchingProduct = productCatalog?.find((catalogProduct) => {
+    const catalogId = String(catalogProduct.id || '').trim().toLowerCase()
+    if (catalogId && productId && catalogId === productId.toLowerCase()) return true
+    const normalizedNames = [catalogProduct.name, catalogProduct.nameAr, catalogProduct.nameEn]
+      .filter(Boolean)
+      .map((value) => String(value).trim().toLowerCase())
+    const candidateNames = [
+      getFirstTextValue(line, ['name', 'productName', 'product_name', 'nameAr', 'nameEn', 'productNameAr', 'productNameEn', 'title', 'label', 'displayName', 'display_name', 'itemName', 'item_name']),
+      getFirstTextValue(product, ['productName', 'product_name', 'name', 'nameAr', 'nameEn', 'productNameAr', 'productNameEn', 'title', 'label']),
+      getFirstTextValue(item, ['productName', 'product_name', 'name', 'nameAr', 'nameEn', 'productNameAr', 'productNameEn', 'title', 'label']),
+    ].filter(Boolean).map((value) => value.toLowerCase())
+
+    return candidateNames.some((candidateName) => normalizedNames.includes(candidateName))
+  })
+
   const productName = matchingProduct
     ? (isArabic ? matchingProduct.nameAr || matchingProduct.nameEn || matchingProduct.name : matchingProduct.nameEn || matchingProduct.nameAr || matchingProduct.name)
     : ''
 
   if (productName) return String(productName)
 
-  const rawName = [line.name, line.productName, line.nameEn, line.nameAr, (line.product as Record<string, unknown> | undefined)?.name, (line.product as Record<string, unknown> | undefined)?.nameEn, (line.product as Record<string, unknown> | undefined)?.nameAr]
-    .map((value) => (typeof value === 'string' ? value : value && typeof value === 'object' ? String(value) : ''))
-    .find((value) => Boolean(value?.trim())) || ''
+  const rawName = [
+    getFirstTextValue(line, ['name', 'productName', 'product_name', 'nameAr', 'nameEn', 'productNameAr', 'productNameEn', 'title', 'label', 'displayName', 'display_name', 'itemName', 'item_name']),
+    getFirstTextValue(product, ['productName', 'product_name', 'name', 'nameAr', 'nameEn', 'productNameAr', 'productNameEn', 'title', 'label']),
+    getFirstTextValue(item, ['productName', 'product_name', 'name', 'nameAr', 'nameEn', 'productNameAr', 'productNameEn', 'title', 'label']),
+    getFirstTextValue(line, ['productNameAr', 'productNameEn', 'product_name_ar', 'product_name_en']),
+  ].find((value) => !isPlaceholderName(value)) || ''
 
   const trimmedName = rawName.trim()
   if (trimmedName && !placeholderNames.has(trimmedName.toLowerCase())) return trimmedName
+
+  const fallbackProductName = getFirstTextValue(product, ['productNameAr', 'productNameEn', 'nameAr', 'nameEn', 'name'])
+  const fallbackItemName = getFirstTextValue(item, ['productNameAr', 'productNameEn', 'nameAr', 'nameEn', 'name'])
+  const fallbackName = fallbackProductName || fallbackItemName
+  if (fallbackName && !placeholderNames.has(fallbackName.toLowerCase())) return fallbackName
 
   return isArabic
     ? 'تفاصيل الأصناف غير محفوظة'

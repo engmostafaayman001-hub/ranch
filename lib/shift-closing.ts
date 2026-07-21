@@ -1,4 +1,6 @@
-import { readClosings, saveClosing, type ClosingRecord } from './closings'
+import { saveClosing, type ClosingRecord, type SavedClosingExpense } from './closings'
+import { summarizeClosingData } from './financial-calculations'
+import type { TrackedOrder } from '@/lib/order-tracking'
 
 type ShiftSession = {
   isOpen: boolean
@@ -7,8 +9,17 @@ type ShiftSession = {
   shiftId?: string
 }
 
-export async function performShiftClosing(session: ShiftSession, options: { currency?: string } = {}): Promise<ClosingRecord> {
+type ShiftClosingOptions = {
+  orders?: TrackedOrder[]
+  expenses?: SavedClosingExpense[]
+  currency?: string
+}
+
+export async function performShiftClosing(session: ShiftSession, options: ShiftClosingOptions = {}): Promise<ClosingRecord> {
   const closedAt = session.closedAt || new Date().toISOString()
+  const orders = options.orders || []
+  const expenses = options.expenses || []
+  const summary = summarizeClosingData(orders, expenses)
 
   try {
     const record: ClosingRecord = {
@@ -18,14 +29,14 @@ export async function performShiftClosing(session: ShiftSession, options: { curr
       closedAt,
       shiftId: session.shiftId,
       currency: options.currency || 'EGP',
-      // The detailed calculations are now handled by the backend report generator.
-      // These fields are kept for potential backwards compatibility, but are not calculated here anymore.
-      ordersCount: 0,
-      salesWithoutDelivery: 0,
-      expensesTotal: 0,
-      uncollectedTotal: 0,
-      otherPaymentsTotal: 0,
-      drawerNet: 0,
+      ordersCount: orders.length,
+      salesWithoutDelivery: summary.salesExcludingDelivery,
+      expensesTotal: summary.expenses,
+      uncollectedTotal: summary.remainingToCollect,
+      otherPaymentsTotal: summary.otherPayments,
+      drawerNet: Number(summary.expectedDrawer.toFixed(2)),
+      orders: orders.length ? orders : undefined,
+      expenses: expenses.length ? expenses : undefined,
     }
 
     saveClosing(record)

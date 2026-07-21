@@ -112,8 +112,8 @@ export function createClosingReceiptPayload(input: ClosingPrintInput): ReceiptPa
     logoUrl: input.logoUrl,
     isArabic: input.isArabic,
     summaryLabels: {
-      subtotal: input.isArabic ? 'صافي المبيعات بعد الخصم والضريبة والتوصيل' : 'Net sales after discount, tax and delivery',
-      discount: input.isArabic ? 'المصروفات' : 'Expenses',
+      subtotal: input.isArabic ? 'إجمالي المبيعات' : 'Gross Sales',
+      discount: input.isArabic ? 'إجمالي الخصومات' : 'Total Discounts',
       total: input.isArabic ? 'صافي الدرج بعد كل شيء' : 'Final drawer net',
     },
   }

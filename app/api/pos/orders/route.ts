@@ -349,24 +349,12 @@ export async function POST(request: NextRequest) {
       return json({ error: 'shift_id_required', message: 'A shift id must be provided in x-shift-id header or body.shiftId' }, { status: 412 })
     }
 
-    if (orderShiftId) {
+    if (orderShiftId && !Number.isFinite(order.displayNumber)) {
       const shiftOrders = await readServerOrders({ shiftId: orderShiftId })
-      const allOrdersForShift = [...shiftOrders.filter((entry) => entry.id !== order.id), order]
-      const getOrderTime = (entry: TrackedOrder) => {
-        const time = new Date(entry.createdAt).getTime()
-        return Number.isFinite(time) ? time : 0
-      }
-      const sortedOrders = allOrdersForShift.sort((a, b) => getOrderTime(a) - getOrderTime(b))
-      const totalOrders = sortedOrders.length
-      for (let index = 0; index < sortedOrders.length; index += 1) {
-        const current = sortedOrders[index]
-        const nextDisplayNumber = totalOrders - index
-        const updatedOrder = { ...current, displayNumber: nextDisplayNumber }
-        if (updatedOrder.id === order.id) {
-          order.displayNumber = nextDisplayNumber
-        }
-        await upsertServerOrder(updatedOrder)
-      }
+      const maxExistingNumber = shiftOrders
+        .map((entry) => Number.isFinite(entry.displayNumber) ? entry.displayNumber as number : 0)
+        .reduce((currentMax, value) => Math.max(currentMax, value), 0)
+      order.displayNumber = maxExistingNumber + 1
     }
 
     if (orderShiftId) {
@@ -503,6 +491,21 @@ export async function PATCH(request: NextRequest) {
         }
       : undefined
 
+    const subtotalChanged = hasOwn(body, 'subtotal') || Boolean(lines)
+    const taxChanged = hasOwn(body, 'tax')
+    const deliveryFeeChanged = hasOwn(body, 'deliveryFee')
+    const discountChanged = discountInput !== undefined
+
+    let updatedTotal: number | undefined
+    if (subtotalChanged || taxChanged || deliveryFeeChanged || discountChanged) {
+      const currentOrder = existingOrder
+      const baseSubtotal = typeof subtotal === 'number' && Number.isFinite(subtotal) ? subtotal : Number(currentOrder?.subtotal || 0)
+      const baseTax = typeof tax === 'number' && Number.isFinite(tax) ? tax : Number(currentOrder?.tax || 0)
+      const baseDeliveryFee = typeof deliveryFee === 'number' && Number.isFinite(deliveryFee) ? deliveryFee : Number(currentOrder?.deliveryFee || 0)
+      const baseDiscountAmount = discount && typeof discount.amount === 'number' ? Math.max(0, Number(discount.amount)) : (currentOrder?.discount?.amount ? Number(currentOrder.discount.amount) : 0)
+      updatedTotal = Math.max(0, Number((baseSubtotal + baseTax + baseDeliveryFee - baseDiscountAmount).toFixed(2)))
+    }
+
     const order = hasDetailUpdates || !status
       ? await updateServerOrder(id, {
           ...(status ? { status } : {}),
@@ -513,7 +516,7 @@ export async function PATCH(request: NextRequest) {
           ...(typeof subtotal === 'number' && Number.isFinite(subtotal) ? { subtotal: Number(subtotal.toFixed(2)) } : {}),
           ...(typeof tax === 'number' && Number.isFinite(tax) ? { tax: Number(tax.toFixed(2)) } : {}),
           ...(typeof deliveryFee === 'number' && Number.isFinite(deliveryFee) ? { deliveryFee: Number(deliveryFee.toFixed(2)) } : {}),
-          ...(hasOwn(body, 'total') ? { total: Math.max(0, Number(body.total || 0)) } : {}),
+          ...(updatedTotal !== undefined ? { total: updatedTotal } : (hasOwn(body, 'total') ? { total: Math.max(0, Number(body.total || 0)) } : {})),
           ...(typeof itemCount === 'number' && Number.isFinite(itemCount) ? { items: itemCount } : {}),
           ...(lines ? { lines } : {}),
           ...(hasOwn(body, 'estimatedDelivery') ? { estimatedDelivery: String(body.estimatedDelivery || '') } : {}),
