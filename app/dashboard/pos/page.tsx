@@ -672,6 +672,8 @@ export default function DashboardPosPage() {
         lines: cartItems.map((item) => ({
           productId: item.product.id,
           name: isArabic ? item.product.nameAr : item.product.nameEn,
+          nameAr: item.product.nameAr,
+          nameEn: item.product.nameEn,
           quantity: item.quantity,
           price: item.product.price,
           notes: item.notes,

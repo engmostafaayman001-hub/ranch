@@ -282,6 +282,8 @@ export default function CheckoutPage() {
         lines: cartItems.map((item) => ({
           productId: item!.product.id,
           name: isArabic ? item!.product.nameAr : item!.product.nameEn,
+          nameAr: item!.product.nameAr,
+          nameEn: item!.product.nameEn,
           quantity: item!.quantity,
           price: item!.product.price,
           categoryName: categories.find((category) => category.id === item!.product.categoryId)?.[isArabic ? 'nameAr' : 'nameEn'] || '',

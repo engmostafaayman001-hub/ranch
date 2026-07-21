@@ -11,6 +11,7 @@ const DEFAULT_ORDERS_LIMIT = 300
 
 let ordersCache: { data: TrackedOrder[]; at: number } | null = null
 let ordersReadPromise: Promise<TrackedOrder[]> | null = null
+let displayNumberAllocation: Promise<void> = Promise.resolve()
 
 export type ServerOrderSourceFilter = 'app' | 'restaurant_pos'
 
@@ -154,7 +155,8 @@ function ensureDisplayNumbers(orders: TrackedOrder[]): TrackedOrder[] {
     const sorted = [...shiftOrders].sort((a, b) => {
       const aTime = new Date(a.createdAt).getTime()
       const bTime = new Date(b.createdAt).getTime()
-      return aTime - bTime
+      if (aTime !== bTime) return aTime - bTime
+      return a.id.localeCompare(b.id)
     })
 
     const usedNumbers = new Set<number>()
@@ -417,6 +419,28 @@ export async function upsertServerOrder(order: TrackedOrder) {
   const updated = [order, ...orders.filter((item) => item.id !== order.id)]
   await writeServerOrders(updated)
   return order
+}
+
+export async function saveNewServerOrder(order: TrackedOrder) {
+  let release!: () => void
+  const previousAllocation = displayNumberAllocation
+  displayNumberAllocation = new Promise<void>((resolve) => {
+    release = resolve
+  })
+
+  await previousAllocation
+  try {
+    if (order.shiftId && !Number.isFinite(order.displayNumber)) {
+      const shiftOrders = await readServerOrders({ shiftId: order.shiftId, limit: 500 })
+      const maxExistingNumber = shiftOrders
+        .map((entry) => Number.isFinite(entry.displayNumber) ? entry.displayNumber as number : 0)
+        .reduce((currentMax, value) => Math.max(currentMax, value), 0)
+      order.displayNumber = maxExistingNumber + 1
+    }
+    return await upsertServerOrder(order)
+  } finally {
+    release()
+  }
 }
 
 export async function deleteServerOrder(orderId: string) {

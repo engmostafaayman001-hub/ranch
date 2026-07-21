@@ -40,6 +40,8 @@ export interface OrderDiscount {
 
 export interface OrderLine {
   name: string
+  nameAr?: string
+  nameEn?: string
   quantity: number
   price?: number
   notes?: string

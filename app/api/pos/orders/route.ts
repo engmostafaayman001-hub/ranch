@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { deleteServerOrder, readServerOrders, ServerOrderSourceFilter, stripHeavyOrderFields, updateServerOrder, updateServerOrderStatus, upsertServerOrder } from '@/lib/server-orders'
+import { deleteServerOrder, readServerOrders, saveNewServerOrder, ServerOrderSourceFilter, stripHeavyOrderFields, updateServerOrder, updateServerOrderStatus } from '@/lib/server-orders'
 import { PaymentStatus, TrackingStatus, trackingSteps, TrackedOrder } from '@/lib/order-tracking'
 import { getRequestAuthenticatedUserEmail, getRequestDashboardAccess } from '@/lib/server-access'
 import { validateNotificationDiscount } from '@/lib/discounts'
@@ -173,12 +173,16 @@ async function normalizeOrderLines(body: Record<string, unknown>): Promise<Track
         : undefined
       const fallbackName = String(item.name || item.nameAr || item.nameEn || item.productName || productInfo.name || productInfo.nameAr || productInfo.nameEn || '').trim()
       const placeholderNames = new Set(['item', 'new item', 'منتج', 'منتج جديد'])
+      const nameAr = String(item.nameAr || productInfo.nameAr || product?.nameAr || '').trim() || undefined
+      const nameEn = String(item.nameEn || productInfo.nameEn || product?.nameEn || '').trim() || undefined
       const resolvedName = product
-        ? (product.nameAr || product.nameEn || 'Item')
-        : fallbackName || 'Item'
+        ? (nameAr || nameEn || fallbackName || 'Item')
+        : fallbackName || nameAr || nameEn || 'Item'
       return {
         productId: productId || undefined,
         name: product && (!fallbackName || placeholderNames.has(fallbackName.toLowerCase())) ? resolvedName : (fallbackName || resolvedName),
+        nameAr,
+        nameEn,
         quantity: Number(item.quantity || item.qty || 1),
         price: Number(item.price || productInfo.price || product?.price || 0),
         notes: item.notes || item.note ? String(item.notes || item.note) : undefined,
@@ -349,14 +353,6 @@ export async function POST(request: NextRequest) {
       return json({ error: 'shift_id_required', message: 'A shift id must be provided in x-shift-id header or body.shiftId' }, { status: 412 })
     }
 
-    if (orderShiftId && !Number.isFinite(order.displayNumber)) {
-      const shiftOrders = await readServerOrders({ shiftId: orderShiftId })
-      const maxExistingNumber = shiftOrders
-        .map((entry) => Number.isFinite(entry.displayNumber) ? entry.displayNumber as number : 0)
-        .reduce((currentMax, value) => Math.max(currentMax, value), 0)
-      order.displayNumber = maxExistingNumber + 1
-    }
-
     if (orderShiftId) {
       if (!(await ensureShiftExists(orderShiftId))) {
         await createShift(requestEmail || customerEmail || null, {
@@ -369,7 +365,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    await upsertServerOrder(order)
+    await saveNewServerOrder(order)
     return json({ order }, { status: 201 })
   } catch (error) {
     console.error('Failed to create POS order:', error)

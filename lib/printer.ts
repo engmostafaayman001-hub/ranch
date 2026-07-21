@@ -933,7 +933,7 @@ function resolveReceiptLineName(line: Record<string, unknown>, isArabic: boolean
       .filter(Boolean)
       .map((value) => String(value).trim().toLowerCase())
     const candidateNames = [
-      getFirstTextValue(line, ['name', 'productName', 'product_name', 'nameAr', 'nameEn', 'productNameAr', 'productNameEn', 'title', 'label', 'displayName', 'display_name', 'itemName', 'item_name']),
+      getFirstTextValue(line, [isArabic ? 'nameAr' : 'nameEn', 'name', 'productName', 'product_name', 'nameAr', 'nameEn', 'productNameAr', 'productNameEn', 'title', 'label', 'displayName', 'display_name', 'itemName', 'item_name']),
       getFirstTextValue(product, ['productName', 'product_name', 'name', 'nameAr', 'nameEn', 'productNameAr', 'productNameEn', 'title', 'label']),
       getFirstTextValue(item, ['productName', 'product_name', 'name', 'nameAr', 'nameEn', 'productNameAr', 'productNameEn', 'title', 'label']),
     ].filter(Boolean).map((value) => value.toLowerCase())
@@ -948,7 +948,7 @@ function resolveReceiptLineName(line: Record<string, unknown>, isArabic: boolean
   if (productName) return String(productName)
 
   const rawName = [
-    getFirstTextValue(line, ['name', 'productName', 'product_name', 'nameAr', 'nameEn', 'productNameAr', 'productNameEn', 'title', 'label', 'displayName', 'display_name', 'itemName', 'item_name']),
+    getFirstTextValue(line, [isArabic ? 'nameAr' : 'nameEn', 'name', 'productName', 'product_name', 'nameAr', 'nameEn', 'productNameAr', 'productNameEn', 'title', 'label', 'displayName', 'display_name', 'itemName', 'item_name']),
     getFirstTextValue(product, ['productName', 'product_name', 'name', 'nameAr', 'nameEn', 'productNameAr', 'productNameEn', 'title', 'label']),
     getFirstTextValue(item, ['productName', 'product_name', 'name', 'nameAr', 'nameEn', 'productNameAr', 'productNameEn', 'title', 'label']),
     getFirstTextValue(line, ['productNameAr', 'productNameEn', 'product_name_ar', 'product_name_en']),
