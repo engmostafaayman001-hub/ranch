@@ -43,6 +43,51 @@ export function readClosings(): ClosingRecord[] {
   }
 }
 
+export function mergeClosings(...groups: ClosingRecord[][]) {
+  const byId = new Map<string, ClosingRecord>()
+  for (const closings of groups) {
+    for (const closing of closings) {
+      if (!closing?.id) continue
+      const existing = byId.get(closing.id)
+      if (!existing || (!existing.orders?.length && closing.orders?.length) || (!existing.expenses?.length && closing.expenses?.length)) {
+        byId.set(closing.id, closing)
+      }
+    }
+  }
+  return Array.from(byId.values()).sort((first, second) => new Date(second.closedAt || second.openedAt).getTime() - new Date(first.closedAt || first.openedAt).getTime())
+}
+
+export function getSettledClosingIds(closings: ClosingRecord[]) {
+  return {
+    orderIds: new Set(closings.flatMap((closing) => closing.orders?.map((order) => order.id) || [])),
+    expenseIds: new Set(closings.flatMap((closing) => closing.expenses?.map((expense) => expense.id) || [])),
+  }
+}
+
+export async function fetchServerClosings(): Promise<ClosingRecord[]> {
+  if (typeof window === 'undefined') return []
+  const response = await fetch('/api/closings', { cache: 'no-store' })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok || !Array.isArray(data.closings)) {
+    throw new Error(data.message || data.error || 'Could not load closings')
+  }
+  return data.closings as ClosingRecord[]
+}
+
+export async function readAllClosings() {
+  const localClosings = readClosings()
+  try {
+    const serverClosings = await fetchServerClosings()
+    const merged = mergeClosings(serverClosings, localClosings)
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(merged))
+    }
+    return merged
+  } catch {
+    return localClosings
+  }
+}
+
 export function saveClosing(record: ClosingRecord) {
   if (typeof window === 'undefined') return
   try {
@@ -59,6 +104,25 @@ export function saveClosing(record: ClosingRecord) {
   } catch (error) {
     console.error('❌ [closings.ts] Failed to save closing:', error)
   }
+}
+
+export async function saveClosingRecord(record: ClosingRecord) {
+  if (typeof window !== 'undefined') {
+    const response = await fetch('/api/closings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ record }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(data.message || data.error || 'Could not save closing')
+    }
+    saveClosing(data.closing || record)
+    return (data.closing || record) as ClosingRecord
+  }
+
+  saveClosing(record)
+  return record
 }
 
 export function clearClosings() {

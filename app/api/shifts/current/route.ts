@@ -1,4 +1,3 @@
-import { NextRequest } from 'next/server'
 import { getCurrentOpenShift } from '@/lib/shifts'
 
 export const runtime = 'nodejs'

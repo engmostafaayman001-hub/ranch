@@ -43,6 +43,7 @@ type CompactOrderRow = {
   order_status?: TrackingStatus | null
   estimated_delivery?: string | null
   driver?: TrackedOrder['driver'] | null
+  lines?: TrackedOrder['lines'] | null
   payment_method?: string | null
   payment_status?: OrderPayment['status'] | null
   receipt_name?: string | null
@@ -93,6 +94,7 @@ function normalizeCompactOrder(row: CompactOrderRow): TrackedOrder {
     deliveryFee: Number(row.delivery_fee || 0),
     total: Number(row.total || 0),
     items: Number(row.items || 0),
+    lines: Array.isArray(row.lines) ? row.lines : undefined,
     status,
     createdAt,
     estimatedDelivery: row.estimated_delivery || '30 min',
@@ -142,49 +144,41 @@ function matchesSource(order: TrackedOrder, source?: ServerOrderSourceFilter) {
   return order.source !== 'restaurant_pos'
 }
 
+function getOrderCreatedTime(order: TrackedOrder) {
+  const time = new Date(order.createdAt).getTime()
+  return Number.isFinite(time) ? time : 0
+}
+
 function ensureDisplayNumbers(orders: TrackedOrder[]): TrackedOrder[] {
-  const byShift = new Map<string | undefined, TrackedOrder[]>()
-  for (const order of orders) {
-    const shiftId = order.shiftId
-    if (!byShift.has(shiftId)) byShift.set(shiftId, [])
-    byShift.get(shiftId)!.push(order)
-  }
+  const sorted = [...orders].sort((a, b) => {
+    const timeDiff = getOrderCreatedTime(a) - getOrderCreatedTime(b)
+    if (timeDiff !== 0) return timeDiff
+    return a.id.localeCompare(b.id)
+  })
 
-  const result: TrackedOrder[] = []
-  for (const [, shiftOrders] of byShift) {
-    const sorted = [...shiftOrders].sort((a, b) => {
-      const aTime = new Date(a.createdAt).getTime()
-      const bTime = new Date(b.createdAt).getTime()
-      if (aTime !== bTime) return aTime - bTime
-      return a.id.localeCompare(b.id)
-    })
+  const usedNumbers = new Set<number>()
+  let nextDisplayNumber = 1
 
-    const usedNumbers = new Set<number>()
-    let nextDisplayNumber = 1
+  return sorted.map((order) => {
+    const existingNumber = Number.isFinite(order.displayNumber) ? Number(order.displayNumber) : 0
+    if (existingNumber > 0 && !usedNumbers.has(existingNumber)) {
+      usedNumbers.add(existingNumber)
+      if (existingNumber >= nextDisplayNumber) nextDisplayNumber = existingNumber + 1
+      return order
+    }
 
-    for (const order of sorted) {
-      const existingNumber = Number.isFinite(order.displayNumber) ? order.displayNumber as number : undefined
-      if (existingNumber && existingNumber >= nextDisplayNumber && !usedNumbers.has(existingNumber)) {
-        usedNumbers.add(existingNumber)
-        nextDisplayNumber = existingNumber + 1
-        result.push(order)
-        continue
-      }
-
-      while (usedNumbers.has(nextDisplayNumber)) {
-        nextDisplayNumber += 1
-      }
-
-      result.push({
-        ...order,
-        displayNumber: nextDisplayNumber,
-      })
-      usedNumbers.add(nextDisplayNumber)
+    while (usedNumbers.has(nextDisplayNumber)) {
       nextDisplayNumber += 1
     }
-  }
 
-  return result
+    const displayNumber = nextDisplayNumber
+    usedNumbers.add(displayNumber)
+    nextDisplayNumber += 1
+    return {
+      ...order,
+      displayNumber,
+    }
+  })
 }
 
 function applyReadOptions(orders: TrackedOrder[], options: ReadServerOrdersOptions = {}) {
@@ -194,6 +188,12 @@ function applyReadOptions(orders: TrackedOrder[], options: ReadServerOrdersOptio
     .filter((order) => !options.orderId || order.id.toLowerCase() === options.orderId.toLowerCase())
     .filter((order) => matchesSource(order, options.source))
     .filter((order) => !options.shiftId || order.shiftId === options.shiftId)
+    .sort((first, second) => {
+      const firstNumber = Number.isFinite(first.displayNumber) ? Number(first.displayNumber) : 0
+      const secondNumber = Number.isFinite(second.displayNumber) ? Number(second.displayNumber) : 0
+      if (firstNumber !== secondNumber) return secondNumber - firstNumber
+      return getOrderCreatedTime(second) - getOrderCreatedTime(first)
+    })
     .slice(0, limit)
 }
 
@@ -243,6 +243,7 @@ async function readServerOrdersFresh(options: ReadServerOrdersOptions = {}): Pro
         'order_status:data->>status',
         'estimated_delivery:data->>estimatedDelivery',
         'driver:data->driver',
+        'lines:data->lines',
         'payment_method:data->payment->>method',
         'payment_status:data->payment->>status',
         'receipt_name:data->payment->>receiptName',
@@ -430,9 +431,9 @@ export async function saveNewServerOrder(order: TrackedOrder) {
 
   await previousAllocation
   try {
-    if (order.shiftId && !Number.isFinite(order.displayNumber)) {
-      const shiftOrders = await readServerOrders({ shiftId: order.shiftId, limit: 500 })
-      const maxExistingNumber = shiftOrders
+    if (!Number.isFinite(order.displayNumber)) {
+      const existingOrders = await readServerOrders({ limit: 500 })
+      const maxExistingNumber = existingOrders
         .map((entry) => Number.isFinite(entry.displayNumber) ? entry.displayNumber as number : 0)
         .reduce((currentMax, value) => Math.max(currentMax, value), 0)
       order.displayNumber = maxExistingNumber + 1

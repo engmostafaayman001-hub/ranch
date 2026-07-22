@@ -29,23 +29,6 @@ export interface ClosingReport {
   }
 }
 
-interface ClosingReportRpcPayload {
-  gross_sales: number
-  net_sales: number
-  product_sales: number
-  delivery_revenue: number
-  total_discounts: number
-  total_orders: number
-  completed_orders: number
-  cancelled_orders: number
-  application_orders: number
-  cash_total: number
-  card_total: number
-  bank_transfer_total: number
-  application_total: number
-  other_payments_total: number
-}
-
 export async function generateClosingReport(shiftId: string): Promise<ClosingReport> {
   const orders = await readServerOrders({ shiftId, limit: 1000, includeReceipts: true })
   const expenses = await readServerExpenses({ shiftId })
@@ -59,7 +42,6 @@ export async function generateClosingReport(shiftId: string): Promise<ClosingRep
   const paymentMethods = completedOrders.reduce(
     (totals, order) => {
       const method = String(order.payment?.method || 'cash').toLowerCase()
-      const netSales = summary.netSales
       const amount = Number(order.total || 0)
       if (method === 'cash') totals.cash += amount
       else if (['card', 'visa', 'mastercard', 'mada'].includes(method)) totals.card += amount

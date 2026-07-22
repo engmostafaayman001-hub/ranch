@@ -22,7 +22,8 @@ export async function GET(request: NextRequest) {
     }
 
     const limit = Number(request.nextUrl.searchParams.get('limit') || '1000')
-    const allOrders = await readServerOrders({ limit })
+    const shiftId = request.nextUrl.searchParams.get('shiftId')?.trim() || undefined
+    const allOrders = await readServerOrders({ limit, shiftId })
     const compactOrders = allOrders.map((order) => stripHeavyOrderFields(order, { includeReceipts: false }))
 
     return json({ orders: compactOrders })

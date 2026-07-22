@@ -8,13 +8,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useLanguage } from '@/components/language-provider'
-import { canDeleteOrders, canManageOrders } from '@/lib/permissions'
+import { canManageOrders } from '@/lib/permissions'
 import { CURRENCY, CURRENCY_EN, ORDER_STATUS_LABELS, ORDER_STATUS_LABELS_EN, PAYMENT_METHOD_OPTIONS } from '@/lib/constants'
 import { MenuProduct, PrinterRole, useAppStore } from '@/lib/app-store'
 import { fetchDashboardOrderDetails, fetchDashboardOrdersBySource } from '@/lib/dashboard-order-fetch'
 import { OrderLine, TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
 import { printerManager, syncPrinterManagerSettings, trackedOrderToReceiptPayload } from '@/lib/printer'
 import { mergeDrivers } from '@/lib/use-shared-app-data'
+import { getSettledClosingIds, readAllClosings } from '@/lib/closings'
 
 const statuses: TrackingStatus[] = ['placed', 'confirmed', 'preparing', 'ready_for_delivery', 'out_for_delivery', 'delivered', 'cancelled']
 
@@ -37,10 +38,6 @@ function canManageOrderRole(role: string | null) {
   return canManageOrders(role)
 }
 
-function canDeleteOrderRole(role: string | null) {
-  return canDeleteOrders(role)
-}
-
 export default function DashboardRestaurantOrdersPage() {
   const { language } = useLanguage()
   const isArabic = language === 'ar'
@@ -59,10 +56,9 @@ export default function DashboardRestaurantOrdersPage() {
   const [editingOrder, setEditingOrder] = useState<TrackedOrder | null>(null)
   const [editForm, setEditForm] = useState<OrderEditForm | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
-  const [loadingEdit, setLoadingEdit] = useState(false)
+  const [, setLoadingEdit] = useState(false)
   const loadingOrders = useRef(false)
   const canEditOrders = canManageOrderRole(dashboardRole)
-  const canDeleteOrders = canDeleteOrderRole(dashboardRole)
   const canModifyPrices = dashboardRole === 'super_admin' || dashboardRole === 'admin'
   const isCashier = dashboardRole === 'cashier'
 
@@ -74,8 +70,10 @@ export default function DashboardRestaurantOrdersPage() {
         fetchDashboardOrdersBySource('app', 180),
         fetchDashboardOrdersBySource('restaurant_pos', 180),
       ])
+      const previousClosings = await readAllClosings()
+      const settledOrderIds = getSettledClosingIds(previousClosings).orderIds
       const mergedOrders = [...appOrders, ...restaurantOrders]
-      const uniqueOrders = mergedOrders.filter((order, index, array) => array.findIndex((entry) => entry.id === order.id) === index)
+      const uniqueOrders = mergedOrders.filter((order, index, array) => !settledOrderIds.has(order.id) && array.findIndex((entry) => entry.id === order.id) === index)
       setOrders(uniqueOrders)
       const inferredDrivers = uniqueOrders.flatMap((order) => {
         if (!order.driver?.name || order.driver.name === 'Pending assignment') return []
@@ -119,19 +117,27 @@ export default function DashboardRestaurantOrdersPage() {
 
   const label = (status: string) => (isArabic ? ORDER_STATUS_LABELS : ORDER_STATUS_LABELS_EN)[status as keyof typeof ORDER_STATUS_LABELS] || status
 
-  const normalizeOrderLine = (line: any): OrderLine => {
-    const productSource = line.product && typeof line.product === 'object' ? line.product : null
-    const rawName = line.name || line.productName || line.nameEn || line.nameAr || productSource?.name || productSource?.nameEn || productSource?.nameAr || ''
-    const rawCategory = line.categoryName || line.category || productSource?.categoryName || productSource?.category?.name || ''
-    const productId = line.productId || productSource?.id || ''
+  const normalizeOrderLine = (line: OrderLine): OrderLine => {
+    const source = line as OrderLine & {
+      productName?: string
+      category?: string
+      product?: OrderLine['product'] & {
+        categoryName?: string
+        category?: { name?: string }
+      }
+    }
+    const productSource = source.product && typeof source.product === 'object' ? source.product : null
+    const rawName = source.name || source.productName || source.nameEn || source.nameAr || productSource?.name || productSource?.nameEn || productSource?.nameAr || ''
+    const rawCategory = source.categoryName || source.category || productSource?.categoryName || productSource?.category?.name || ''
+    const productId = source.productId || productSource?.id || ''
     return {
-      ...line,
+      ...source,
       productId: productId ? String(productId) : undefined,
       name: typeof rawName === 'string' ? rawName.trim() : '',
       categoryName: typeof rawCategory === 'string' ? rawCategory.trim() : undefined,
-      price: Number(line.price || 0),
-      quantity: Math.max(1, Number(line.quantity || 1)),
-      notes: line.notes ? String(line.notes) : undefined,
+      price: Number(source.price || 0),
+      quantity: Math.max(1, Number(source.quantity || 1)),
+      notes: source.notes ? String(source.notes) : undefined,
     }
   }
 
@@ -177,17 +183,6 @@ export default function DashboardRestaurantOrdersPage() {
     })
     const data = await response.json().catch(() => ({}))
     setMessage(response.ok ? (isArabic ? 'تم تحديث طلب المطعم.' : 'Restaurant order updated.') : data.message || data.error || (isArabic ? 'تعذر تحديث الطلب.' : 'Could not update order.'))
-    if (response.ok) loadOrders()
-  }
-
-  const deleteOrder = async (orderId: string) => {
-    const response = await fetch('/api/pos/orders', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orderId }),
-    })
-    const data = await response.json().catch(() => ({}))
-    setMessage(response.ok ? (isArabic ? 'تم حذف طلب المطعم.' : 'Restaurant order deleted.') : data.message || data.error || (isArabic ? 'تعذر حذف الطلب.' : 'Could not delete order.'))
     if (response.ok) loadOrders()
   }
 
@@ -351,11 +346,11 @@ export default function DashboardRestaurantOrdersPage() {
       const firstNumber = Number.isFinite(first.displayNumber) ? first.displayNumber as number : NaN
       const secondNumber = Number.isFinite(second.displayNumber) ? second.displayNumber as number : NaN
       if (Number.isFinite(firstNumber) && Number.isFinite(secondNumber)) {
-        return firstNumber - secondNumber
+        return secondNumber - firstNumber
       }
       if (Number.isFinite(firstNumber)) return -1
       if (Number.isFinite(secondNumber)) return 1
-      return new Date(first.createdAt).getTime() - new Date(second.createdAt).getTime()
+      return new Date(second.createdAt).getTime() - new Date(first.createdAt).getTime()
     })
   }, [orders])
 
@@ -617,7 +612,6 @@ export default function DashboardRestaurantOrdersPage() {
                       <Edit3 className="h-4 w-4" />
                       {isArabic ? 'تعديل' : 'Edit'}
                     </Button>}
-                    {canDeleteOrders && <Button size="sm" variant="destructive" onClick={() => deleteOrder(order.id)} disabled={isOrderCompleted && dashboardRole !== 'super_admin' && dashboardRole !== 'admin'}>{isArabic ? 'حذف' : 'Delete'}</Button>}
                   </div>
                   {isDeliveryOrder(order) && (
                     <div className="mt-4 grid min-w-0 gap-2 rounded-md border bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/40 md:grid-cols-[minmax(0,1fr)_auto]">

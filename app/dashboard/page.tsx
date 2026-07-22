@@ -7,7 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN } from '@/lib/constants'
 import { TrackedOrder } from '@/lib/order-tracking'
-import { type ShiftSession } from '@/lib/pos-day-session'
 import useShiftSession from '@/lib/use-shift-session'
 
 type DashboardCustomer = {
@@ -155,11 +154,7 @@ export default function DashboardPage() {
     const activeStatuses = new Set(['placed', 'confirmed', 'preparing', 'ready_for_delivery', 'out_for_delivery'])
     const activeOrders = orders.filter((order) => activeStatuses.has(order.status)).length
     const shiftOrders = orders.filter((order) => shiftSession.shiftId ? order.shiftId === shiftSession.shiftId : false)
-    const appShiftOrders = shiftOrders.filter((order) => order.source !== 'restaurant_pos')
-    const restaurantShiftOrders = shiftOrders.filter((order) => order.source === 'restaurant_pos')
     const shiftRevenue = shiftOrders.reduce((sum, order) => sum + Number(order.total || 0), 0)
-    const appShiftRevenue = appShiftOrders.reduce((sum, order) => sum + Number(order.total || 0), 0)
-    const restaurantShiftRevenue = restaurantShiftOrders.reduce((sum, order) => sum + Number(order.total || 0), 0)
 
     return [
       [isArabic ? 'إجمالي الطلبات' : 'Total Orders', String(orders.length)],

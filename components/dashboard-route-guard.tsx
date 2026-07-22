@@ -12,6 +12,9 @@ export function DashboardRouteGuard({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     let active = true
+    const resetTimer = window.setTimeout(() => {
+      if (active) setReady(false)
+    }, 0)
 
     const verifyAccess = async () => {
       try {
@@ -39,11 +42,11 @@ export function DashboardRouteGuard({ children }: { children: React.ReactNode })
       }
     }
 
-    setReady(false)
     void verifyAccess()
 
     return () => {
       active = false
+      window.clearTimeout(resetTimer)
     }
   }, [pathname, router])
 

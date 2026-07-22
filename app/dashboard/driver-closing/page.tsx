@@ -1,23 +1,19 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, useRef } from 'react'
-import { Search, Printer, X, Wallet, User, ShoppingBag, Truck, CheckCircle } from 'lucide-react'
+import { Search, Printer, Wallet, User, Truck, CheckCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN, ORDER_STATUS_LABELS, ORDER_STATUS_LABELS_EN } from '@/lib/constants'
 import { TrackedOrder, PaymentStatus, TrackingStatus } from '@/lib/order-tracking'
 import { useAppStore } from '@/lib/app-store'
 import { printerManager, syncPrinterManagerSettings } from '@/lib/printer'
-import { createDriverClosingReceiptPayload, getDriverClosingAmount, getDriverClosingGroups, DriverClosingGroup, isDriverSettlementEligible } from '@/lib/driver-closing-print'
-import { getShiftSessionDateRange, type ShiftSession } from '@/lib/pos-day-session'
+import { createDriverClosingReceiptPayload, getDriverClosingAmount, getDriverClosingGroups, isDriverSettlementEligible } from '@/lib/driver-closing-print'
+import { getShiftSessionDateRange } from '@/lib/pos-day-session'
 import useShiftSession from '@/lib/use-shift-session'
-import { readClosings } from '@/lib/closings'
-
-function getDateInputValue(date: Date) {
-  return date.toISOString().slice(0, 10)
-}
+import { getSettledClosingIds, readAllClosings, type ClosingRecord } from '@/lib/closings'
 
 function isOrderWithinRange(orderDate: string | undefined, start: string, end: string) {
   const startDate = new Date(start.includes('T') ? start : `${start}T00:00:00`)
@@ -54,10 +50,10 @@ export default function DriverClosingPage() {
   const [message, setMessage] = useState('')
   const [rangeStart, setRangeStart] = useState('')
   const [rangeEnd, setRangeEnd] = useState('')
-  const [daySession, setDaySession] = useShiftSession()
+  const [daySession] = useShiftSession()
   const loadingRef = useRef(false)
-  const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set())
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+  const [previousClosings, setPreviousClosings] = useState<ClosingRecord[]>([])
 
   const loadOrders = useCallback(async (active: boolean, shiftId?: string) => {
     try {
@@ -94,8 +90,21 @@ export default function DriverClosingPage() {
   const visibleRangeStart = rangeStart || sessionRange.start.slice(0, 10)
   const visibleRangeEnd = rangeEnd || sessionRange.end.slice(0, 10)
   const selectedRange = useMemo(() => getDateRangeFromInputs(visibleRangeStart, visibleRangeEnd, sessionRange.start, sessionRange.end), [sessionRange.end, sessionRange.start, visibleRangeEnd, visibleRangeStart])
-  const previousClosings = useMemo(() => readClosings(), [daySession])
-  const settledOrderIds = useMemo(() => new Set(previousClosings.flatMap((closing) => closing.orders?.map((order) => order.id) || [])), [previousClosings])
+  useEffect(() => {
+    let active = true
+    readAllClosings()
+      .then((closings) => {
+        if (active) setPreviousClosings(closings)
+      })
+      .catch(() => {
+        if (active) setPreviousClosings([])
+      })
+    return () => {
+      active = false
+    }
+  }, [daySession])
+
+  const settledOrderIds = useMemo(() => getSettledClosingIds(previousClosings).orderIds, [previousClosings])
 
   const visibleOrders = useMemo(() => {
     return orders.filter((order) => {

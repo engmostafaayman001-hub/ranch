@@ -15,7 +15,7 @@ import { printerManager, syncPrinterManagerSettings } from '@/lib/printer'
 import { createClosingReceiptPayload } from '@/lib/closing-print'
 import { calculateOrderFinancials } from '@/lib/financial-calculations'
 import { createDriverClosingReceiptPayload, getDriverClosingGroups } from '@/lib/driver-closing-print'
-import { readClosings, type ClosingRecord } from '@/lib/closings'
+import { getSettledClosingIds, readAllClosings, saveClosingRecord, type ClosingRecord } from '@/lib/closings'
 import { queueOfflineAction, syncOfflineQueue } from '@/lib/offline-queue'
 import { onOnlineStatusChange, readOfflineStatus } from '@/lib/offline-storage'
 import { useSharedAppData } from '@/lib/use-shared-app-data'
@@ -103,7 +103,7 @@ export default function DashboardPosPage() {
   const [lines, setLines] = useState<PosLine[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(false)
-  const [shiftClosingPrinting, setShiftClosingPrinting] = useState(false)
+  const [, setShiftClosingPrinting] = useState(false)
   const [message, setMessage] = useState('')
   const [discountType, setDiscountType] = useState<'percent' | 'fixed'>('percent')
   const [discountValue, setDiscountValue] = useState('0')
@@ -256,9 +256,8 @@ export default function DashboardPosPage() {
 
       const allOrders = Array.isArray(ordersData.orders) ? ordersData.orders : []
       const allExpenses = Array.isArray(expensesData.expenses) ? expensesData.expenses : []
-      const previousClosings = readClosings()
-      const settledOrderIds = new Set(previousClosings.flatMap((closing) => closing.orders?.map((order) => order.id) || []))
-      const settledExpenseIds = new Set(previousClosings.flatMap((closing) => closing.expenses?.map((expense) => expense.id) || []))
+      const previousClosings = await readAllClosings()
+      const { orderIds: settledOrderIds, expenseIds: settledExpenseIds } = getSettledClosingIds(previousClosings)
 
       const combinedOrders = allOrders.filter((order: TrackedOrder) => {
         if (settledOrderIds.has(order.id) || order.status === 'cancelled') return false
@@ -394,10 +393,8 @@ export default function DashboardPosPage() {
         }
       }
       try {
-        const { saveClosing, readClosings } = await import('@/lib/closings')
-        const previousClosings = readClosings()
-        const settledOrderIds = new Set(previousClosings.flatMap(c => c.orders?.map(o => o.id) || []));
-        const settledExpenseIds = new Set(previousClosings.flatMap(c => c.expenses?.map(e => e.id) || []));
+        const previousClosings = await readAllClosings()
+        const { orderIds: settledOrderIds, expenseIds: settledExpenseIds } = getSettledClosingIds(previousClosings)
 
         const shiftId = daySession.shiftId
         const closingRangeStart = daySession.openedAt
@@ -503,7 +500,7 @@ export default function DashboardPosPage() {
           console.warn('⚠️ [POS] No expenses found for closing');
         }
         
-        saveClosing(record)
+        await saveClosingRecord(record)
       } catch (err) {
         console.warn('Could not persist closing', err)
       } finally {
@@ -541,6 +538,7 @@ export default function DashboardPosPage() {
       }
     }
   }
+  void handleDaySessionToggle
 
   const addProduct = (productId: string) => {
     setLines((current) => {

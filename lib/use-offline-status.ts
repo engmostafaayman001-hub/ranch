@@ -2,15 +2,11 @@ import { useEffect, useState } from 'react'
 import { offlineSyncManager } from '@/lib/offline-sync'
 
 export function useOfflineStatus() {
-  const [isOnline, setIsOnline] = useState(true)
+  const [isOnline, setIsOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine))
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'error'>('idle')
-  const [pendingCount, setPendingCount] = useState(0)
+  const [pendingCount, setPendingCount] = useState(() => offlineSyncManager.getQueue().filter((a) => !a.synced).length)
 
   useEffect(() => {
-    // Set initial state
-    setIsOnline(navigator.onLine)
-    setPendingCount(offlineSyncManager.getQueue().filter((a) => !a.synced).length)
-
     const handleOnline = () => {
       setIsOnline(true)
       setSyncStatus('syncing')

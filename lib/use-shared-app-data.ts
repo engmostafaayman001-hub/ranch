@@ -68,6 +68,11 @@ export function useSharedAppData(options: { poll?: boolean } = {}) {
   const poll = options.poll ?? true
   const [loading, setLoading] = useState(true)
   const loadingRef = useRef(false)
+  const currentDriversRef = useRef(currentDrivers)
+
+  useEffect(() => {
+    currentDriversRef.current = currentDrivers
+  }, [currentDrivers])
 
   useEffect(() => {
     let active = true
@@ -84,7 +89,7 @@ export function useSharedAppData(options: { poll?: boolean } = {}) {
         }
         if (data.settings) setSettings(data.settings)
         if (Array.isArray(data.drivers)) {
-          setDrivers(mergeDrivers(currentDrivers, data.drivers))
+          setDrivers(mergeDrivers(currentDriversRef.current, data.drivers))
         }
       } catch {
         // Keep local persisted data if the shared source is unavailable.

@@ -1,11 +1,11 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useLanguage } from '@/components/language-provider'
-import { readClosings, type ClosingRecord, type SavedClosingExpense } from '@/lib/closings'
+import { readAllClosings, readClosings, type ClosingRecord, type SavedClosingExpense } from '@/lib/closings'
 import { CURRENCY_EN } from '@/lib/constants'
 import { useAppStore } from '@/lib/app-store'
 import { Dialog } from '@/components/ui/dialog'
@@ -146,14 +146,25 @@ export default function ClosingsPage() {
   const settings = useAppStore((state) => state.settings)
   const [daySession, setDaySession] = useShiftSession()
   const [closingBusy, setClosingBusy] = useState(false)
+  const closingsLength = closings.length
+  const latestClosingId = closings[0]?.id
 
-  useEffect(() => {
-    setClosings(readClosings())
+  const loadClosings = useCallback(async () => {
+    const nextClosings = await readAllClosings()
+    setClosings(nextClosings)
+    return nextClosings
   }, [])
 
   useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadClosings()
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [loadClosings])
+
+  useEffect(() => {
     const handleStorageChange = () => {
-      setClosings(readClosings())
+      void loadClosings()
     }
     
     window.addEventListener('storage', handleStorageChange)
@@ -161,9 +172,9 @@ export default function ClosingsPage() {
     
     const interval = window.setInterval(() => {
       const updated = readClosings()
-      const hasChanges = updated.length !== closings.length || (updated[0]?.id !== closings[0]?.id)
+      const hasChanges = updated.length !== closingsLength || (updated[0]?.id !== latestClosingId)
       if (hasChanges) {
-        setClosings(updated)
+        void loadClosings()
       }
     }, 300)
     
@@ -172,7 +183,7 @@ export default function ClosingsPage() {
       window.removeEventListener('closings:updated', handleStorageChange)
       window.clearInterval(interval)
     }
-  }, [closings.length, closings[0]?.id])
+  }, [closingsLength, latestClosingId, loadClosings])
 
   const filteredClosings = useMemo(() => {
     const startDate = filterStart ? new Date(`${filterStart}T00:00:00`) : null
@@ -200,8 +211,8 @@ export default function ClosingsPage() {
 
   const selectedClosing = closings.find((closing) => closing.id === selectedClosingId)
 
-  const closureOrders = selectedClosing?.orders ?? selectedClosingOrders
-  const closureExpenses = selectedClosing?.expenses ?? selectedClosingExpenses
+  const closureOrders = selectedClosing?.orders?.length ? selectedClosing.orders : selectedClosingOrders
+  const closureExpenses = selectedClosing?.expenses?.length ? selectedClosing.expenses : selectedClosingExpenses
 
   const sessionSummary = useMemo(() => summarizeClosingData(closureOrders, closureExpenses), [closureOrders, closureExpenses])
 
@@ -240,80 +251,104 @@ export default function ClosingsPage() {
   useEffect(() => {
     let active = true
     const shiftId = daySession.shiftId
+    const timer = window.setTimeout(() => {
+      if (!active) return
 
-    if (!shiftId) {
-      setSessionOrders([])
-      setSessionExpenses([])
-      return
-    }
-
-    const loadSessionData = async () => {
-      setLoadingSessionItems(true)
-      try {
-        const [ordersResponse, expensesResponse] = await Promise.all([
-          fetch(`/api/orders?limit=9999&shiftId=${encodeURIComponent(shiftId)}`, { cache: 'no-store' }),
-          fetch(`/api/expenses?shiftId=${encodeURIComponent(shiftId)}`, { cache: 'no-store' }),
-        ])
-        const ordersData = await ordersResponse.json().catch(() => ({}))
-        const expensesData = await expensesResponse.json().catch(() => ({}))
-        if (!active) return
-        setSessionOrders(Array.isArray(ordersData.orders) ? ordersData.orders : [])
-        setSessionExpenses(Array.isArray(expensesData.expenses) ? expensesData.expenses : [])
-      } catch {
-        if (active) {
-          setSessionOrders([])
-          setSessionExpenses([])
-        }
-      } finally {
-        if (active) setLoadingSessionItems(false)
+      if (!shiftId) {
+        setSessionOrders([])
+        setSessionExpenses([])
+        return
       }
-    }
 
-    void loadSessionData()
+      const loadSessionData = async () => {
+        setLoadingSessionItems(true)
+        try {
+          const [ordersResponse, expensesResponse] = await Promise.all([
+            fetch(`/api/orders?limit=9999&shiftId=${encodeURIComponent(shiftId)}`, { cache: 'no-store' }),
+            fetch(`/api/expenses?shiftId=${encodeURIComponent(shiftId)}`, { cache: 'no-store' }),
+          ])
+          const ordersData = await ordersResponse.json().catch(() => ({}))
+          const expensesData = await expensesResponse.json().catch(() => ({}))
+          if (!active) return
+          setSessionOrders(Array.isArray(ordersData.orders) ? ordersData.orders : [])
+          setSessionExpenses(Array.isArray(expensesData.expenses) ? expensesData.expenses : [])
+        } catch {
+          if (active) {
+            setSessionOrders([])
+            setSessionExpenses([])
+          }
+        } finally {
+          if (active) setLoadingSessionItems(false)
+        }
+      }
+
+      void loadSessionData()
+    }, 0)
 
     return () => {
       active = false
+      window.clearTimeout(timer)
     }
   }, [daySession.shiftId])
 
   useEffect(() => {
-    if (!selectedClosing || !selectedClosing.shiftId) {
-      setClosingReport(null)
-      setSelectedClosingOrders([])
-      setSelectedClosingExpenses([])
-      return
-    }
+    let active = true
+    const timer = window.setTimeout(() => {
+      if (!active) return
+      if (!selectedClosing || !selectedClosing.shiftId) {
+        setClosingReport(null)
+        setSelectedClosingOrders([])
+        setSelectedClosingExpenses([])
+        return
+      }
 
-    setClosingModalTab('details')
-    setLoadingClosingDetails(true)
+      setClosingModalTab('details')
+      setLoadingClosingDetails(true)
 
-    fetch(`/api/closings/report?shiftId=${encodeURIComponent(selectedClosing.shiftId)}`, { cache: 'no-store' })
-      .then((response) => response.json())
-      .then((data) => {
-        if (data.report) {
-          setClosingReport(data.report)
-        }
-      })
-      .catch(() => setClosingReport(null))
-      .finally(() => setLoadingClosingDetails(false))
-
-
-    if (selectedClosing.orders?.length) {
-      setSelectedClosingOrders(selectedClosing.orders)
-    } else {
-      fetch(`/api/orders?limit=500&shiftId=${encodeURIComponent(selectedClosing.shiftId)}`, { cache: 'no-store' })
+      fetch(`/api/closings/report?shiftId=${encodeURIComponent(selectedClosing.shiftId)}`, { cache: 'no-store' })
         .then((response) => response.json())
-        .then((data) => setSelectedClosingOrders(Array.isArray(data.orders) ? data.orders : []))
-        .catch(() => setSelectedClosingOrders([]))
-    }
+        .then((data) => {
+          if (active && data.report) {
+            setClosingReport(data.report)
+          }
+        })
+        .catch(() => {
+          if (active) setClosingReport(null)
+        })
+        .finally(() => {
+          if (active) setLoadingClosingDetails(false)
+        })
 
-    if (selectedClosing.expenses?.length) {
-      setSelectedClosingExpenses(selectedClosing.expenses)
-    } else {
-      fetch(`/api/expenses?shiftId=${encodeURIComponent(selectedClosing.shiftId)}`, { cache: 'no-store' })
-        .then((response) => response.json())
-        .then((data) => setSelectedClosingExpenses(Array.isArray(data.expenses) ? data.expenses : []))
-        .catch(() => setSelectedClosingExpenses([]))
+      if (selectedClosing.orders?.length) {
+        setSelectedClosingOrders(selectedClosing.orders)
+      } else {
+        fetch(`/api/orders?limit=500&shiftId=${encodeURIComponent(selectedClosing.shiftId)}`, { cache: 'no-store' })
+          .then((response) => response.json())
+          .then((data) => {
+            if (active) setSelectedClosingOrders(Array.isArray(data.orders) ? data.orders : [])
+          })
+          .catch(() => {
+            if (active) setSelectedClosingOrders([])
+          })
+      }
+
+      if (selectedClosing.expenses?.length) {
+        setSelectedClosingExpenses(selectedClosing.expenses)
+      } else {
+        fetch(`/api/expenses?shiftId=${encodeURIComponent(selectedClosing.shiftId)}`, { cache: 'no-store' })
+          .then((response) => response.json())
+          .then((data) => {
+            if (active) setSelectedClosingExpenses(Array.isArray(data.expenses) ? data.expenses : [])
+          })
+          .catch(() => {
+            if (active) setSelectedClosingExpenses([])
+          })
+      }
+    }, 0)
+
+    return () => {
+      active = false
+      window.clearTimeout(timer)
     }
   }, [selectedClosing])
 
@@ -347,7 +382,7 @@ export default function ClosingsPage() {
                     { ...daySession, closedAt },
                     { orders: sessionOrders, expenses: sessionExpenses, currency: CURRENCY_EN }
                   )
-                  setClosings(readClosings())
+                  await loadClosings()
                   setSelectedClosingId(record.id)
                   setShowClosingModal(true)
                 } catch (err) {

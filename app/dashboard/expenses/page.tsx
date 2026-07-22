@@ -7,10 +7,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useLanguage } from '@/components/language-provider'
-import { type ShiftSession } from '@/lib/pos-day-session'
 import useShiftSession from '@/lib/use-shift-session'
 import { CURRENCY, CURRENCY_EN } from '@/lib/constants'
 import { queueOfflineAction, syncOfflineQueue } from '@/lib/offline-queue'
+import { getSettledClosingIds, readAllClosings } from '@/lib/closings'
 
 type Expense = {
   id: string
@@ -18,6 +18,7 @@ type Expense = {
   amount: number
   date: string
   note: string
+  shiftId?: string
   createdAt?: string
 }
 
@@ -36,14 +37,17 @@ export default function DashboardExpensesPage() {
   const [form, setForm] = useState({ name: '', amount: '', date: new Date().toISOString().slice(0, 10), note: '' })
   const [search, setSearch] = useState('')
   const [dashboardRole, setDashboardRole] = useState<string | null>(null)
-  const [daySession, setDaySession] = useShiftSession()
+  const [daySession] = useShiftSession()
   const isCashier = dashboardRole === 'cashier'
 
   const loadExpenses = async () => {
     try {
       const response = await fetch(`/api/expenses`, { cache: 'no-store' })
       const data = await response.json().catch(() => ({}))
-      setExpenses(Array.isArray(data.expenses) ? data.expenses : [])
+      const allExpenses = Array.isArray(data.expenses) ? data.expenses : []
+      const previousClosings = await readAllClosings()
+      const settledExpenseIds = getSettledClosingIds(previousClosings).expenseIds
+      setExpenses(allExpenses.filter((expense: Expense) => !settledExpenseIds.has(expense.id)))
     } catch {
       setExpenses([])
     } finally {

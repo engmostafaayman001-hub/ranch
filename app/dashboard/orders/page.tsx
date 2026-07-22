@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { ReceiptPreviewDialog } from '@/components/receipt-preview-dialog'
 import { Textarea } from '@/components/ui/textarea'
 import { useLanguage } from '@/components/language-provider'
-import { canDeleteOrders, canManageOrders } from '@/lib/permissions'
+import { canManageOrders } from '@/lib/permissions'
 import {
   CURRENCY,
   CURRENCY_EN,
@@ -23,6 +23,7 @@ import { fetchDashboardOrderDetails, fetchDashboardOrderReceipt, fetchDashboardO
 import { OrderLine, TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
 import { printerManager, syncPrinterManagerSettings, trackedOrderToReceiptPayload } from '@/lib/printer'
 import { mergeDrivers, saveSharedSettings } from '@/lib/use-shared-app-data'
+import { getSettledClosingIds, readAllClosings } from '@/lib/closings'
 
 const statuses: TrackingStatus[] = ['placed', 'confirmed', 'preparing', 'ready_for_delivery', 'out_for_delivery', 'delivered', 'cancelled']
 
@@ -41,13 +42,10 @@ type OrderEditForm = {
   paymentMethod: string
   paymentStatus: string
   lines: OrderLine[]
+  _searchProduct?: string
 }
 function canManageOrderRole(role: string | null) {
   return canManageOrders(role)
-}
-
-function canDeleteOrderRole(role: string | null) {
-  return canDeleteOrders(role)
 }
 
 export default function DashboardOrdersPage() {
@@ -75,7 +73,6 @@ export default function DashboardOrdersPage() {
   const loadingOrders = useRef(false)
   const isDeliveryUser = dashboardRole === 'delivery'
   const canEditOrders = canManageOrderRole(dashboardRole)
-  const canDeleteOrders = canDeleteOrderRole(dashboardRole)
   const canModifyPrices = dashboardRole === 'super_admin' || dashboardRole === 'admin'
   const restaurantOpen = settings.restaurantOpen !== false
 
@@ -92,6 +89,9 @@ export default function DashboardOrdersPage() {
       } else {
         nextOrders = await fetchDashboardOrdersBySource('app', 120)
       }
+      const previousClosings = await readAllClosings()
+      const settledOrderIds = getSettledClosingIds(previousClosings).orderIds
+      nextOrders = nextOrders.filter((order) => !settledOrderIds.has(order.id))
       setOrders(nextOrders)
       const inferredDrivers = nextOrders.flatMap((order) => {
         if (!order.driver?.name || order.driver.name === 'Pending assignment') return []
@@ -107,7 +107,7 @@ export default function DashboardOrdersPage() {
       loadingOrders.current = false
       setLoading(false)
     }
-  }, [dashboardRole])
+  }, [dashboardRole, drivers, setDrivers])
   useEffect(() => {
     const timer = window.setTimeout(loadOrders, 0)
     const interval = window.setInterval(loadOrders, 30000)
@@ -149,22 +149,6 @@ export default function DashboardOrdersPage() {
     loadOrders()
   }
 
-  const deleteOrder = async (orderId: string) => {
-    setMessage('')
-    const response = await fetch('/api/pos/orders', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orderId }),
-    })
-    const data = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      setMessage(data.message || data.error || (isArabic ? 'تعذر حذف الطلب.' : 'Could not delete order.'))
-      return
-    }
-    setMessage(isArabic ? 'تم حذف الطلب نهائيا من لوحة التحكم.' : 'Order deleted from dashboard.')
-    loadOrders()
-  }
-
   const openEditOrder = (order: TrackedOrder) => {
     setEditingOrder(order)
     setEditForm({
@@ -201,7 +185,10 @@ export default function DashboardOrdersPage() {
     const nextTotal = finalTotal.toFixed(2)
 
     if (nextSubtotal !== editForm.subtotal || nextTax !== editForm.tax || nextTotal !== editForm.total) {
-      setEditForm((currentForm) => currentForm ? { ...currentForm, subtotal: nextSubtotal, tax: nextTax, total: nextTotal } : null)
+      const timer = window.setTimeout(() => {
+        setEditForm((currentForm) => currentForm ? { ...currentForm, subtotal: nextSubtotal, tax: nextTax, total: nextTotal } : null)
+      }, 0)
+      return () => window.clearTimeout(timer)
     }
   }, [editForm?.lines, editForm?.discount, settings.taxRate, editForm])
 
@@ -308,8 +295,8 @@ export default function DashboardOrdersPage() {
 
   const getOrderLineName = (line: OrderLine) => {
     const trimmedName = line.name?.toString().trim()
-    const productId = String((line as any).productId || '')
-    const product = products.find((item) => item.id === productId) || products.find((item) => item.id === (line as any).product?.id)
+    const productId = String(line.productId || '')
+    const product = products.find((item) => item.id === productId) || products.find((item) => item.id === line.product?.id)
     const placeholderNames = new Set([isArabic ? 'منتج' : 'Item', isArabic ? 'منتج جديد' : 'New item'])
     if (product) {
       return isArabic ? product.nameAr : product.nameEn
@@ -382,11 +369,11 @@ export default function DashboardOrdersPage() {
       const firstNumber = Number.isFinite(first.displayNumber) ? first.displayNumber as number : NaN
       const secondNumber = Number.isFinite(second.displayNumber) ? second.displayNumber as number : NaN
       if (Number.isFinite(firstNumber) && Number.isFinite(secondNumber)) {
-        return firstNumber - secondNumber
+        return secondNumber - firstNumber
       }
       if (Number.isFinite(firstNumber)) return -1
       if (Number.isFinite(secondNumber)) return 1
-      return new Date(first.createdAt).getTime() - new Date(second.createdAt).getTime()
+      return new Date(second.createdAt).getTime() - new Date(first.createdAt).getTime()
     })
   }, [orders])
 
@@ -413,7 +400,7 @@ export default function DashboardOrdersPage() {
     invoiceQrUrl2: settings.printers.cashier.printsQr === false ? undefined : settings.invoiceQrUrl2,
     invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
     logoUrl: settings.invoiceLogo,
-  }), [currency, isArabic, settings.addressAr, settings.addressEn, settings.invoiceLogo, settings.invoiceNameAr, settings.invoiceNameEn, settings.invoiceQrUrl, settings.invoiceQrUrl2, settings.invoiceWelcomeAr, settings.invoiceWelcomeEn, settings.phone, settings.printers.cashier.printsQr])
+  }), [currency, isArabic, products, settings.addressAr, settings.addressEn, settings.invoiceLogo, settings.invoiceNameAr, settings.invoiceNameEn, settings.invoiceQrUrl, settings.invoiceQrUrl2, settings.invoiceWelcomeAr, settings.invoiceWelcomeEn, settings.phone, settings.printers.cashier.printsQr])
 
   const isPrinterAvailable = (role: PrinterRole) => {
     const printer = settings.printers[role]
@@ -508,14 +495,14 @@ export default function DashboardOrdersPage() {
                   <div className="relative">
                     <input
                       type="text"
-                      value={typeof (editForm as any)._searchProduct === 'string' ? (editForm as any)._searchProduct : ''}
-                      onChange={(event) => setEditForm({ ...(editForm as any), _searchProduct: event.target.value })}
+                      value={editForm._searchProduct || ''}
+                      onChange={(event) => setEditForm({ ...editForm, _searchProduct: event.target.value })}
                       placeholder={isArabic ? 'ابحث عن منتج لإضافته' : 'Search product to add'}
                       className="h-9 w-64 rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950"
                     />
                     <div className="absolute z-20 mt-1 max-h-40 w-64 overflow-auto rounded-md bg-white shadow ring-1 ring-black/5 dark:bg-slate-900">
-                      {(products.filter(p => (isArabic ? p.nameAr : p.nameEn).toLowerCase().includes(((editForm as any)._searchProduct || '').toLowerCase())).slice(0,50)).map((product) => (
-                        <button key={product.id} type="button" onClick={() => { addEditLine(product); setEditForm({ ...(editForm as any), _searchProduct: '' }) }} className="w-full px-3 py-2 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800">
+                      {(products.filter(p => (isArabic ? p.nameAr : p.nameEn).toLowerCase().includes((editForm._searchProduct || '').toLowerCase())).slice(0,50)).map((product) => (
+                        <button key={product.id} type="button" onClick={() => { addEditLine(product); setEditForm({ ...editForm, _searchProduct: '' }) }} className="w-full px-3 py-2 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800">
                           {isArabic ? product.nameAr : product.nameEn}
                         </button>
                       ))}
@@ -650,7 +637,6 @@ export default function DashboardOrdersPage() {
                       <Edit3 className="h-4 w-4" />
                       {isArabic ? 'تعديل الطلب' : 'Edit Order'}
                     </Button>}
-                    {canDeleteOrders && <Button size="sm" variant="destructive" onClick={() => deleteOrder(order.id)} disabled={isOrderCompleted && dashboardRole !== 'super_admin' && dashboardRole !== 'admin'}>{isArabic ? 'حذف الطلب' : 'Delete Order'}</Button>}
                   </div>
                   <div className="mt-4 grid min-w-0 gap-3 overflow-hidden rounded-md border bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/40 md:grid-cols-[minmax(0,1fr)_auto]">
                     <div className="min-w-0 space-y-1">

@@ -1,4 +1,4 @@
-import { saveClosing, type ClosingRecord, type SavedClosingExpense } from './closings'
+import { saveClosingRecord, type ClosingRecord, type SavedClosingExpense } from './closings'
 import { summarizeClosingData } from './financial-calculations'
 import type { TrackedOrder } from '@/lib/order-tracking'
 
@@ -39,8 +39,7 @@ export async function performShiftClosing(session: ShiftSession, options: ShiftC
       expenses: expenses.length ? expenses : undefined,
     }
 
-    saveClosing(record)
-    return record
+    return await saveClosingRecord(record)
   } catch (err) {
     console.warn('[shift-closing] performShiftClosing failed', err)
     throw err

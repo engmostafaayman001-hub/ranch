@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Banknote, CheckCircle2, CreditCard, FileText, ImageIcon, Smartphone, UploadCloud, X } from 'lucide-react'
+import { Banknote, CheckCircle2, FileText, ImageIcon, Smartphone, UploadCloud, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -527,4 +527,3 @@ export default function CheckoutPage() {
     </main>
   )
 }
-

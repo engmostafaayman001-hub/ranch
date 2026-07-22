@@ -14,7 +14,7 @@ import { summarizeClosingData } from '@/lib/financial-calculations'
 import { createClosingReceiptPayload } from '@/lib/closing-print'
 import { getShiftSessionDateRange, isItemInShiftWindow, isItemWithinDateRange, type ShiftSession } from '@/lib/pos-day-session'
 import useShiftSession from '@/lib/use-shift-session'
-import { readClosings, type ClosingRecord } from '@/lib/closings'
+import { getSettledClosingIds, readAllClosings } from '@/lib/closings'
 import performShiftClosing from '@/lib/shift-closing'
 
 type Expense = {
@@ -92,9 +92,8 @@ export default function DailyClosingPage() {
 
         const allExpenses = Array.isArray(expensesData.expenses) ? expensesData.expenses : []
         const allOrders = Array.isArray(ordersData.orders) ? ordersData.orders : []
-        const previousClosings = readClosings()
-        const settledOrderIds = new Set(previousClosings.flatMap((closing) => closing.orders?.map((order) => order.id) || []))
-        const settledExpenseIds = new Set(previousClosings.flatMap((closing) => closing.expenses?.map((expense) => expense.id) || []))
+        const previousClosings = await readAllClosings()
+        const { orderIds: settledOrderIds, expenseIds: settledExpenseIds } = getSettledClosingIds(previousClosings)
 
         setExpenses(allExpenses.filter((expense: Expense) => {
           if (settledExpenseIds.has(expense.id)) return false
@@ -151,7 +150,7 @@ export default function DailyClosingPage() {
     })
   }, [daySession.shiftId, expenses, effectiveRange])
 
-  const handleOpenShift = () => {
+  const handleOpenShift = async () => {
     const nextSession: ShiftSession = {
       isOpen: true,
       openedAt: new Date().toISOString(),
@@ -159,21 +158,30 @@ export default function DailyClosingPage() {
       shiftId: `SHIFT-${Date.now()}`,
       confirmed: true,
     }
-    setDaySession(nextSession)
-    setPrintStatus(isArabic ? 'تم فتح وردية جديدة.' : 'A new shift has been opened.')
+    try {
+      const response = await fetch('/api/shifts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shiftId: nextSession.shiftId, openedAt: nextSession.openedAt }),
+      })
+      const data = await response.json().catch(() => ({}))
+      const shift = data.shift
+      const sharedSession = shift?.id && shift?.openedAt
+        ? {
+            isOpen: true,
+            openedAt: String(shift.openedAt),
+            closedAt: null,
+            shiftId: String(shift.id),
+            confirmed: true,
+          }
+        : nextSession
+      setDaySession(sharedSession)
+      setPrintStatus(isArabic ? 'تم فتح وردية جديدة.' : 'A new shift has been opened.')
+    } catch {
+      setDaySession(nextSession)
+      setPrintStatus(isArabic ? 'تم فتح وردية جديدة محليا، وسيتم مزامنتها عند توفر الاتصال.' : 'A new shift opened locally and will sync when available.')
+    }
   }
-
-  const handleCloseShift = () => {
-    if (!daySession.shiftId) return
-    const closedAt = new Date().toISOString()
-    const nextSession: ShiftSession = { ...daySession, isOpen: false, closedAt }
-    setDaySession(nextSession)
-    setPrintStatus(isArabic ? 'تم إغلاق الورديه.' : 'The shift has been closed.')
-  }
-
-  const driverSettlements = useMemo(() => {
-    return sessionOrders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0)
-  }, [sessionOrders])
 
   const financialSummary = useMemo(() => summarizeClosingData(sessionOrders, sessionExpenses), [sessionOrders, sessionExpenses])
 
@@ -247,7 +255,7 @@ export default function DailyClosingPage() {
     return counts
   }, [allShiftOrders])
 
-  const statusLabels: Record<string, string> = isArabic
+  const statusLabels: Record<string, string> = useMemo(() => isArabic
     ? {
         delivered: 'تم تسليمه',
         on_the_way: 'في الطريق',
@@ -259,7 +267,7 @@ export default function DailyClosingPage() {
         on_the_way: 'On the Way',
         cancelled: 'Cancelled',
         active: 'In Progress',
-      }
+      }, [isArabic])
 
   const summaryCards = useMemo(() => [
     {
@@ -305,7 +313,7 @@ export default function DailyClosingPage() {
         { label: isArabic ? 'صافي الدرج بعد المصروفات' : 'Drawer net after expenses', value: drawerNetAfterExpenses },
       ],
     },
-  ], [drawerNetAfterExpenses, financialSummary.appDiscounts, financialSummary.collectedDrawerRevenue, financialSummary.deliveryRevenue, financialSummary.expenses, financialSummary.netSales, financialSummary.remainingToCollect, financialSummary.restaurantDiscounts, financialSummary.totalDiscounts, isArabic, sessionExpenses.length, shiftAppSales, shiftRestaurantSales])
+  ], [drawerNetAfterExpenses, financialSummary.appDiscounts, financialSummary.collectedDrawerRevenue, financialSummary.deliveryRevenue, financialSummary.expenses, financialSummary.grossSales, financialSummary.netSales, financialSummary.remainingToCollect, financialSummary.restaurantDiscounts, financialSummary.totalDiscounts, isArabic, sessionExpenses.length, shiftAppSales, shiftRestaurantSales])
 
   const statusCards = useMemo(() => [
     {
@@ -417,6 +425,9 @@ export default function DailyClosingPage() {
                   setDaySession({ ...daySession, isOpen: false, closedAt })
                   // perform closing: collects orders/expenses and saves closing record
                   await performShiftClosing({ ...daySession, closedAt }, { orders: sessionOrders, expenses: sessionExpenses, currency })
+                  setOrders([])
+                  setAllShiftOrders([])
+                  setExpenses([])
                   setPrintStatus(isArabic ? 'تم إغلاق الورديه وحفظ التقفيل.' : 'Shift closed and closing saved.')
                 } catch (err) {
                   console.error('performShiftClosing failed', err)
