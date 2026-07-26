@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { readServerOrders, stripHeavyOrderFields } from '@/lib/server-orders'
 import { getRequestDashboardAccess } from '@/lib/server-access'
 import { getSettledClosingIds } from '@/lib/closings'
-import { readServerClosings } from '@/lib/server-closings'
+import { repairServerClosings } from '@/lib/server-closing-migration'
 
 export const runtime = 'nodejs'
 
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
     const allOrders = await readServerOrders({ limit, shiftId })
     let compactOrders = allOrders.map((order) => stripHeavyOrderFields(order, { includeReceipts: false }))
     if (excludeSettled) {
-      const { orderIds: settledOrderIds } = getSettledClosingIds(await readServerClosings())
+      const { orderIds: settledOrderIds } = getSettledClosingIds(await repairServerClosings({ pruneSettled: true }))
       compactOrders = compactOrders.filter((order) => !settledOrderIds.has(order.id))
     }
 

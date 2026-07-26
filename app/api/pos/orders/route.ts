@@ -7,7 +7,7 @@ import { readServerNotifications } from '@/lib/server-notifications'
 import { readSharedAppData } from '@/lib/server-app-data'
 import { createShift, ensureShiftExists, getCurrentOpenShift, isShiftLocked } from '@/lib/shifts'
 import { getSettledClosingIds } from '@/lib/closings'
-import { readServerClosings } from '@/lib/server-closings'
+import { repairServerClosings } from '@/lib/server-closing-migration'
 
 export const runtime = 'nodejs'
 
@@ -242,7 +242,7 @@ export async function GET(request: NextRequest) {
       : allOrders
     let compactOrders = orders.map((order) => stripHeavyOrderFields(order, { includeReceipts }))
     if (excludeSettled && !requestedOrderId) {
-      const { orderIds: settledOrderIds } = getSettledClosingIds(await readServerClosings())
+      const { orderIds: settledOrderIds } = getSettledClosingIds(await repairServerClosings({ pruneSettled: true }))
       compactOrders = compactOrders.filter((order) => !settledOrderIds.has(order.id))
     }
 
