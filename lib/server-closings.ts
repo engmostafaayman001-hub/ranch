@@ -86,3 +86,9 @@ export async function saveServerClosing(record: ClosingRecord) {
   await writeServerClosings(next)
   return record
 }
+
+export async function clearServerClosings() {
+  const current = await readServerClosings()
+  await writeServerClosings([])
+  return current.length
+}

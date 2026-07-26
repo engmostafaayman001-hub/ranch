@@ -81,8 +81,8 @@ export default function DailyClosingPage() {
     const loadData = async () => {
       try {
         const [expensesResponse, ordersResponse] = await Promise.all([
-          fetch('/api/expenses', { cache: 'no-store' }),
-          fetch('/api/pos/orders?limit=9999', { cache: 'no-store' }),
+          fetch(daySession.shiftId ? `/api/expenses?shiftId=${encodeURIComponent(daySession.shiftId)}` : '/api/expenses', { cache: 'no-store' }),
+          fetch(daySession.shiftId ? `/api/orders?limit=9999&shiftId=${encodeURIComponent(daySession.shiftId)}` : '/api/orders?limit=9999', { cache: 'no-store' }),
         ])
 
         const expensesData = await expensesResponse.json().catch(() => ({}))
@@ -184,6 +184,8 @@ export default function DailyClosingPage() {
   }
 
   const financialSummary = useMemo(() => summarizeClosingData(sessionOrders, sessionExpenses), [sessionOrders, sessionExpenses])
+  const cancelledOrdersCount = allShiftOrders.filter((order) => order.status === 'cancelled').length
+  const totalShiftOrdersCount = allShiftOrders.length
 
   const collectedDrawerRevenue = financialSummary.collectedDrawerRevenue
   const sessionRevenueWithoutDelivery = financialSummary.salesExcludingDelivery
@@ -364,7 +366,7 @@ export default function DailyClosingPage() {
       const payload = createClosingReceiptPayload({
         title: isArabic ? 'تقفيل الوردية' : 'Shift Closing',
         dateLabel: `${new Date(daySession.openedAt).toLocaleString()} - ${daySession.isOpen ? new Date().toLocaleString() : new Date(daySession.closedAt || daySession.openedAt).toLocaleString()}`,
-        orders: sessionOrders,
+        orders: allShiftOrders,
         expenses: sessionExpenses,
         revenue: collectedDrawerRevenue,
         expenseTotal: totalExpenses,
@@ -400,7 +402,10 @@ export default function DailyClosingPage() {
               {isArabic ? 'الحالة' : 'Status'}: {daySession.isOpen ? (isArabic ? 'مفتوحة' : 'Open') : (isArabic ? 'منتهية' : 'Closed')}
             </div>
             <div className="text-xs text-slate-500">
-              {isArabic ? 'الطلبات' : 'Orders'}: {sessionOrders.length}
+              {isArabic ? 'الطلبات' : 'Orders'}: {totalShiftOrdersCount}
+            </div>
+            <div className="text-xs text-slate-500">
+              {isArabic ? 'الطلبات الملغية' : 'Cancelled'}: {cancelledOrdersCount}
             </div>
               <div className="text-xs text-slate-500">
                 {isArabic ? 'مدة الوردية' : 'Duration'}: {formatDuration(new Date((daySession.isOpen ? new Date().toISOString() : (daySession.closedAt || daySession.openedAt))).getTime() - new Date(daySession.openedAt).getTime(), isArabic)}
@@ -424,7 +429,7 @@ export default function DailyClosingPage() {
                   // close locally first so UI updates
                   setDaySession({ ...daySession, isOpen: false, closedAt })
                   // perform closing: collects orders/expenses and saves closing record
-                  await performShiftClosing({ ...daySession, closedAt }, { orders: sessionOrders, expenses: sessionExpenses, currency })
+                  await performShiftClosing({ ...daySession, closedAt }, { orders: allShiftOrders, expenses: sessionExpenses, currency })
                   setOrders([])
                   setAllShiftOrders([])
                   setExpenses([])
@@ -724,7 +729,11 @@ export default function DailyClosingPage() {
           <CardContent className="space-y-3">
             <div className="flex justify-between">
               <span>{isArabic ? 'عدد الطلبات' : 'Orders'}</span>
-              <span className="font-semibold">{sessionOrders.length}</span>
+              <span className="font-semibold">{totalShiftOrdersCount}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>{isArabic ? 'الطلبات الملغية' : 'Cancelled Orders'}</span>
+              <span className="font-semibold text-red-600">{cancelledOrdersCount}</span>
             </div>
             <div className="flex justify-between">
               <span>{isArabic ? 'إجمالي المبيعات' : 'Total'}</span>
@@ -767,7 +776,11 @@ export default function DailyClosingPage() {
           <CardTitle>{isArabic ? 'الملخص النهائي' : 'Final Summary'}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-4">
+            <div>
+              <p className="text-sm text-slate-600 dark:text-slate-400">{isArabic ? 'الطلبات الملغية' : 'Cancelled Orders'}</p>
+              <p className="text-2xl font-bold text-red-600">{cancelledOrdersCount}</p>
+            </div>
             <div>
               <p className="text-sm text-slate-600 dark:text-slate-400">{isArabic ? 'المبيعات' : 'Sales'}</p>
               <p className="text-2xl font-bold text-green-600">{financialSummary.grossSales.toFixed(2)} {currency}</p>
@@ -814,7 +827,11 @@ export default function DailyClosingPage() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
                   <p className="text-sm text-slate-500 dark:text-slate-400">{isArabic ? 'إجمالي الطلبات' : 'Orders'}</p>
-                  <p className="mt-2 text-3xl font-bold">{sessionOrders.length}</p>
+                  <p className="mt-2 text-3xl font-bold">{totalShiftOrdersCount}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
+                  <p className="text-sm text-slate-500 dark:text-slate-400">{isArabic ? 'الطلبات الملغية' : 'Cancelled Orders'}</p>
+                  <p className="mt-2 text-3xl font-bold text-red-600">{cancelledOrdersCount}</p>
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
                   <p className="text-sm text-slate-500 dark:text-slate-400">{isArabic ? 'إجمالي المبيعات' : 'Gross Sales'}</p>

@@ -9,7 +9,7 @@ import { readAllClosings, readClosings, type ClosingRecord, type SavedClosingExp
 import { CURRENCY_EN } from '@/lib/constants'
 import { useAppStore } from '@/lib/app-store'
 import { Dialog } from '@/components/ui/dialog'
-import { printerManager, syncPrinterManagerSettings } from '@/lib/printer'
+import { printerManager, syncPrinterManagerSettings, trackedOrderToReceiptPayload } from '@/lib/printer'
 import { createClosingReceiptPayload } from '@/lib/closing-print'
 import { summarizeClosingData } from '@/lib/financial-calculations'
 import useShiftSession from '@/lib/use-shift-session'
@@ -30,6 +30,11 @@ function StatCard({ title, value, currency, accent = false }: { title: string; v
       </p>
     </div>
   )
+}
+
+function getClosingCancelledCount(closing: ClosingRecord) {
+  if (typeof closing.cancelledOrdersCount === 'number') return closing.cancelledOrdersCount
+  return closing.orders?.filter((order) => order.status === 'cancelled').length || 0
 }
 
 function ClosingReportDetails({ report, currency = 'EGP', isArabic }: { report: ClosingReport; currency?: string; isArabic: boolean }) {
@@ -144,6 +149,7 @@ export default function ClosingsPage() {
   const [loadingSessionItems, setLoadingSessionItems] = useState(false)
   const [printStatus, setPrintStatus] = useState('')
   const settings = useAppStore((state) => state.settings)
+  const products = useAppStore((state) => state.products)
   const [daySession, setDaySession] = useShiftSession()
   const [closingBusy, setClosingBusy] = useState(false)
   const closingsLength = closings.length
@@ -214,15 +220,45 @@ export default function ClosingsPage() {
   const closureOrders = selectedClosing?.orders?.length ? selectedClosing.orders : selectedClosingOrders
   const closureExpenses = selectedClosing?.expenses?.length ? selectedClosing.expenses : selectedClosingExpenses
 
-  const sessionSummary = useMemo(() => summarizeClosingData(closureOrders, closureExpenses), [closureOrders, closureExpenses])
+  const sessionSummary = summarizeClosingData(closureOrders, closureExpenses)
+  const selectedClosingOrdersCount = selectedClosing?.ordersCount ?? closureOrders.length
+  const selectedClosingCancelledCount = selectedClosing ? getClosingCancelledCount(selectedClosing) || sessionSummary.cancelledOrders : sessionSummary.cancelledOrders
 
   const paymentBreakdown = useMemo(() => {
     return closureOrders.reduce<Record<string, number>>((totals, order) => {
+      if (order.status === 'cancelled') return totals
       const method = String(order.payment?.method || 'cash')
       totals[method] = (totals[method] || 0) + Number(order.total || 0)
       return totals
     }, {})
   }, [closureOrders])
+
+  const createOrderPrintPayload = useCallback((order: TrackedOrder) => trackedOrderToReceiptPayload(order, {
+    isArabic,
+    currency: selectedClosing?.currency || CURRENCY_EN,
+    productCatalog: products,
+    invoiceName: isArabic ? settings.invoiceNameAr : settings.invoiceNameEn,
+    invoiceAddress: isArabic ? settings.addressAr : settings.addressEn,
+    invoicePhone: settings.phone,
+    invoiceQrUrl: settings.printers.cashier.printsQr === false ? undefined : settings.invoiceQrUrl,
+    invoiceQrUrl2: settings.printers.cashier.printsQr === false ? undefined : settings.invoiceQrUrl2,
+    invoiceMessage: isArabic ? settings.invoiceWelcomeAr : settings.invoiceWelcomeEn,
+    logoUrl: settings.invoiceLogo,
+  }), [isArabic, products, selectedClosing?.currency, settings.addressAr, settings.addressEn, settings.invoiceLogo, settings.invoiceNameAr, settings.invoiceNameEn, settings.invoiceQrUrl, settings.invoiceQrUrl2, settings.invoiceWelcomeAr, settings.invoiceWelcomeEn, settings.phone, settings.printers.cashier.printsQr])
+
+  const handlePrintClosingOrder = useCallback(async (order: TrackedOrder) => {
+    try {
+      syncPrinterManagerSettings(settings.printers)
+      const result = await printerManager.printCashierReceipt(createOrderPrintPayload(order))
+      if ((result as { skipped?: boolean; reason?: string } | undefined)?.skipped) {
+        setPrintStatus((result as { reason?: string } | undefined)?.reason || (isArabic ? 'لم يتم إرسال الفاتورة لأن الطابعة غير مكتملة الإعداد.' : 'Receipt was not sent because the printer is not fully configured.'))
+        return
+      }
+      setPrintStatus(isArabic ? 'تم إرسال فاتورة الطلب للطابعة.' : 'Order receipt sent to printer.')
+    } catch (error) {
+      setPrintStatus(error instanceof Error ? error.message : (isArabic ? 'فشلت طباعة فاتورة الطلب.' : 'Order receipt print failed.'))
+    }
+  }, [createOrderPrintPayload, isArabic, settings.printers])
 
   const handlePrintClosingSummary = useCallback(async () => {
     if (!selectedClosing) return
@@ -407,6 +443,7 @@ export default function ClosingsPage() {
                 <tr className="bg-slate-100 text-slate-700 dark:bg-slate-900 dark:text-slate-300">
                   <th className="border-b border-slate-200 px-4 py-3">{isArabic ? 'الوردية' : 'Shift'}</th>
                   <th className="border-b border-slate-200 px-4 py-3">{isArabic ? 'الطلبات' : 'Orders'}</th>
+                  <th className="border-b border-slate-200 px-4 py-3">{isArabic ? 'الملغية' : 'Cancelled'}</th>
                   <th className="border-b border-slate-200 px-4 py-3">{isArabic ? 'النوع' : 'Type'}</th>
                   <th className="border-b border-slate-200 px-4 py-3">{isArabic ? 'صافي الدرج' : 'Drawer Net'}</th>
                   <th className="border-b border-slate-200 px-4 py-3">{isArabic ? 'الملاحظات' : 'Notes'}</th>
@@ -421,6 +458,7 @@ export default function ClosingsPage() {
                       <div className="text-xs text-slate-500 dark:text-slate-400">{new Date(closing.openedAt).toLocaleTimeString(isArabic ? 'ar-EG' : 'en-US')}</div>
                     </td>
                     <td className="px-4 py-3">{closing.ordersCount}</td>
+                    <td className="px-4 py-3">{getClosingCancelledCount(closing)}</td>
                     <td className="px-4 py-3">{closing.type === 'driver' ? (isArabic ? 'تقفيل السائقين' : 'Driver') : (isArabic ? 'الوردية' : 'Shift')}</td>
                     <td className="px-4 py-3">{(closing.drawerNet ?? 0).toFixed(2)} {closing.currency || 'EGP'}</td>
                     <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{new Date(closing.closedAt).toLocaleTimeString(isArabic ? 'ar-EG' : 'en-US')}</td>
@@ -443,8 +481,8 @@ export default function ClosingsPage() {
 
       {showClosingModal && selectedClosing ? (
         <Dialog role="dialog" aria-modal="true" className="flex items-center justify-center overflow-hidden p-4">
-          <div className="relative w-full max-w-6xl max-h-[92vh] overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-950">
-            <div className="sticky top-0 z-20 border-b border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-950">
+          <div className="relative flex max-h-[92vh] min-h-0 w-full max-w-6xl flex-col overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-950">
+            <div className="shrink-0 border-b border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-950">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h3 className="text-xl font-semibold">{isArabic ? 'تفاصيل التقفيل' : 'Closing Details'}</h3>
@@ -464,7 +502,7 @@ export default function ClosingsPage() {
               ) : null}
             </div>
 
-            <div className="space-y-4 overflow-y-auto p-5">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-5">
               <div className="flex flex-wrap gap-2">
                 <Button variant={closingModalTab === 'details' ? 'secondary' : 'outline'} onClick={() => setClosingModalTab('details')}>
                   {isArabic ? 'التفاصيل' : 'Details'}
@@ -475,6 +513,12 @@ export default function ClosingsPage() {
                 <Button variant={closingModalTab === 'expenses' ? 'secondary' : 'outline'} onClick={() => setClosingModalTab('expenses')}>
                   {isArabic ? 'عرض المصروفات' : 'View Expenses'}
                 </Button>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-3">
+                <StatCard title={isArabic ? 'إجمالي طلبات الوردية' : 'Shift Orders'} value={selectedClosingOrdersCount} />
+                <StatCard title={isArabic ? 'الطلبات المكتملة' : 'Completed Orders'} value={Math.max(0, selectedClosingOrdersCount - selectedClosingCancelledCount)} />
+                <StatCard title={isArabic ? 'الطلبات الملغية' : 'Cancelled Orders'} value={selectedClosingCancelledCount} />
               </div>
 
               {loadingClosingDetails && <p>{isArabic ? 'جاري تحميل التفاصيل...' : 'Loading details...'}</p>}
@@ -498,9 +542,12 @@ export default function ClosingsPage() {
                             <p className="text-sm text-slate-500 dark:text-slate-400">{order.customer || order.id}</p>
                             <p className="text-sm text-slate-500 dark:text-slate-400">{isArabic ? 'طريقة الدفع:' : 'Payment Method:'} {String(order.payment?.method || 'cash')}</p>
                           </div>
-                          <div className="text-right">
+                          <div className="space-y-2 text-right">
                             <p className="text-lg font-semibold">{Number(order.total || 0).toFixed(2)} {selectedClosing.currency || 'EGP'}</p>
                             <p className="text-xs text-slate-500 dark:text-slate-400">{isArabic ? 'الحالة:' : 'Status:'} {String(order.status || 'unknown')}</p>
+                            <Button size="sm" variant="outline" onClick={() => handlePrintClosingOrder(order)}>
+                              {isArabic ? 'طباعة الفاتورة' : 'Print Receipt'}
+                            </Button>
                           </div>
                         </div>
                       </div>

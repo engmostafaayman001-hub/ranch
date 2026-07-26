@@ -30,6 +30,7 @@ export async function performShiftClosing(session: ShiftSession, options: ShiftC
       shiftId: session.shiftId,
       currency: options.currency || 'EGP',
       ordersCount: orders.length,
+      cancelledOrdersCount: summary.cancelledOrders,
       salesWithoutDelivery: summary.salesExcludingDelivery,
       expensesTotal: summary.expenses,
       uncollectedTotal: summary.remainingToCollect,

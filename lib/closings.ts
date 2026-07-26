@@ -18,6 +18,7 @@ export type ClosingRecord = {
   openedAt: string
   closedAt: string
   ordersCount?: number
+  cancelledOrdersCount?: number
   salesWithoutDelivery?: number
   expensesTotal?: number
   uncollectedTotal?: number

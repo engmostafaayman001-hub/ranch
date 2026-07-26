@@ -40,9 +40,9 @@ function isCollectedDrawerOrder(order: TrackedOrder) {
 }
 
 export function createClosingReceiptPayload(input: ClosingPrintInput): ReceiptPayload {
-  const collectedOrders = input.orders.filter(isCollectedDrawerOrder)
   const completedOrders = input.orders.filter((order) => String(order.status || '').toLowerCase() !== 'cancelled')
   const cancelledOrders = input.orders.filter((order) => String(order.status || '').toLowerCase() === 'cancelled')
+  const collectedOrders = completedOrders.filter(isCollectedDrawerOrder)
   const totalSalesToday = completedOrders.reduce((sum, order) => sum + Number(order.total || 0), 0)
   const restaurantSales = completedOrders
     .filter((order) => order.source === 'restaurant_pos')
@@ -81,6 +81,7 @@ export function createClosingReceiptPayload(input: ClosingPrintInput): ReceiptPa
       address: input.dateLabel,
       notes: [
         `${input.isArabic ? 'عدد الطلبات' : 'Orders'}: ${input.orders.length}`,
+        `${input.isArabic ? 'الطلبات الملغية' : 'Cancelled orders'}: ${cancelledOrders.length}`,
         `${input.isArabic ? 'طرق الدفع' : 'Payment methods'}: ${paymentEntries.length}`,
         `${input.isArabic ? 'عدد المصروفات' : 'Expenses'}: ${input.expenses.length}`,
       ].join(' | '),

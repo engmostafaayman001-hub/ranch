@@ -247,8 +247,8 @@ export default function DashboardPosPage() {
     try {
       const activeShiftId = daySession.shiftId
       const [ordersResponse, expensesResponse] = await Promise.all([
-        fetch('/api/pos/orders?limit=300', { cache: 'no-store' }),
-        fetch('/api/expenses', { cache: 'no-store' }),
+        fetch(activeShiftId ? `/api/orders?limit=500&shiftId=${encodeURIComponent(activeShiftId)}` : '/api/orders?limit=500', { cache: 'no-store' }),
+        fetch(activeShiftId ? `/api/expenses?shiftId=${encodeURIComponent(activeShiftId)}` : '/api/expenses', { cache: 'no-store' }),
       ])
 
       const ordersData = await ordersResponse.json().catch(() => ({}))
@@ -402,8 +402,8 @@ export default function DashboardPosPage() {
         console.log('🔍 Starting shift closing fetch...', { shiftId, previousClosingsCount: previousClosings.length, closingRangeStart, closingRangeEnd });
         
         const [ordersResponse, expensesResponse] = await Promise.all([
-          fetch(`/api/pos/orders?limit=9999`, { cache: 'no-store' }),
-          fetch(`/api/expenses`, { cache: 'no-store' }),
+          fetch(shiftId ? `/api/orders?limit=9999&shiftId=${encodeURIComponent(shiftId)}` : `/api/orders?limit=9999`, { cache: 'no-store' }),
+          fetch(shiftId ? `/api/expenses?shiftId=${encodeURIComponent(shiftId)}` : `/api/expenses`, { cache: 'no-store' }),
         ]);
 
         const ordersData = await ordersResponse.json().catch((err) => { console.error('❌ Error parsing orders:', err); return {}; });
@@ -415,7 +415,7 @@ export default function DashboardPosPage() {
         console.log('📦 Closing shift - fetched data:', { allOrdersCount: allOrders.length, allExpensesCount: allExpenses.length, shiftId });
         
         const ordersForClosing = allOrders.filter((o: TrackedOrder) => {
-          if (settledOrderIds.has(o.id) || o.status === 'cancelled') return false;
+          if (settledOrderIds.has(o.id)) return false;
           const matchesCurrentShift = o.shiftId === shiftId;
           const createdDuringSession = isItemWithinDateRange(o.createdAt, closingRangeStart, closingRangeEnd, { includeSameDayBeforeStart: true });
           const isLegacyOutsideShift = !o.shiftId;

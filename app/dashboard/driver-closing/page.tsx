@@ -59,7 +59,7 @@ export default function DriverClosingPage() {
     try {
       if (loadingRef.current) return
       loadingRef.current = true
-      const url = `/api/pos/orders?limit=200${shiftId ? `&shiftId=${encodeURIComponent(shiftId)}` : ''}`
+      const url = `/api/orders?limit=500${shiftId ? `&shiftId=${encodeURIComponent(shiftId)}` : ''}`
       const response = await fetch(url, { cache: 'no-store' })
       const data = await response.json()
       if (active && Array.isArray(data.orders)) {

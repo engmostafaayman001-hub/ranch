@@ -33,8 +33,23 @@ export function useShiftSession(): readonly [ShiftSession, (s: ShiftSession) => 
       try {
         const response = await fetch('/api/shifts', { cache: 'no-store' })
         const data = await response.json().catch(() => ({}))
-        const shift = data?.shift as ServerShift | undefined
-        if (!active || !response.ok || !shift?.id || !shift.openedAt) return
+        let shift = data?.shift as ServerShift | undefined
+        if (!active || !response.ok) return
+
+        if (!shift?.id || !shift.openedAt) {
+          const localSession = loadShiftSession()
+          if (!localSession.isOpen || !localSession.shiftId) return
+          const createResponse = await fetch('/api/shifts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ shiftId: localSession.shiftId, openedAt: localSession.openedAt }),
+          })
+          const createData = await createResponse.json().catch(() => ({}))
+          if (!active || !createResponse.ok) return
+          shift = createData?.shift as ServerShift | undefined
+        }
+
+        if (!shift?.id || !shift.openedAt) return
 
         const sharedSession = serverShiftToSession(shift)
         saveShiftSession(sharedSession)

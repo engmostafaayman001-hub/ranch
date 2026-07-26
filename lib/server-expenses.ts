@@ -108,3 +108,9 @@ export async function deleteServerExpense(id: string) {
   await writeServerExpenses(updated)
   return updated.length !== expenses.length
 }
+
+export async function clearServerExpenses() {
+  const expenses = await readServerExpenses()
+  await writeServerExpenses([])
+  return expenses.length
+}

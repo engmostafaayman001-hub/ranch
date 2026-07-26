@@ -1,8 +1,10 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { createSupabaseAdminClient } from '@/lib/supabase'
 
 const DATA_DIR = process.env.VERCEL ? '/tmp/ranch-data' : join(process.cwd(), 'data')
 const SHIFTS_FILE = join(DATA_DIR, 'shifts.json')
+const SHIFTS_KEY = 'shifts'
 
 export type ShiftState = 'opened' | 'active' | 'ready_to_close' | 'confirmed' | 'closed' | 'locked'
 
@@ -19,6 +21,24 @@ export type ShiftRecord = {
   metadata?: Record<string, unknown>
 }
 
+function canUseSupabaseRuntimeTables() {
+  return Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL &&
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY &&
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+  )
+}
+
+function shouldRequireSupabaseRuntimeTables() {
+  return Boolean(process.env.VERCEL && canUseSupabaseRuntimeTables())
+}
+
+function getSupabaseErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === 'object' && 'message' in error) return String((error as { message?: unknown }).message || error)
+  return String(error || 'Unknown Supabase error')
+}
+
 async function ensureDataFile() {
   await mkdir(DATA_DIR, { recursive: true })
   try {
@@ -29,6 +49,17 @@ async function ensureDataFile() {
 }
 
 export async function readShifts(): Promise<ShiftRecord[]> {
+  if (canUseSupabaseRuntimeTables()) {
+    const supabase = createSupabaseAdminClient()
+    const { data, error } = await supabase.from('app_data').select('data').eq('key', SHIFTS_KEY).maybeSingle()
+    if (!error && Array.isArray(data?.data)) {
+      return data.data as ShiftRecord[]
+    }
+    if (error && shouldRequireSupabaseRuntimeTables()) {
+      throw new Error(`Could not read shifts from Supabase: ${getSupabaseErrorMessage(error)}`)
+    }
+  }
+
   await ensureDataFile()
   try {
     const raw = await readFile(SHIFTS_FILE, 'utf8')
@@ -40,6 +71,19 @@ export async function readShifts(): Promise<ShiftRecord[]> {
 }
 
 async function writeShifts(shifts: ShiftRecord[]) {
+  if (canUseSupabaseRuntimeTables()) {
+    const supabase = createSupabaseAdminClient()
+    const { error } = await supabase.from('app_data').upsert({
+      key: SHIFTS_KEY,
+      data: shifts,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'key' })
+    if (!error) return
+    if (shouldRequireSupabaseRuntimeTables()) {
+      throw new Error(`Could not save shifts to Supabase: ${getSupabaseErrorMessage(error)}`)
+    }
+  }
+
   await ensureDataFile()
   await writeFile(SHIFTS_FILE, JSON.stringify(shifts, null, 2), 'utf8')
 }
@@ -63,6 +107,11 @@ export async function createShift(openedBy?: string | null, initial?: Partial<Sh
     if (existing) return existing
   }
   const now = new Date().toISOString()
+  const closedActiveShifts = shifts.map((existing) =>
+    isShiftActiveState(existing.state)
+      ? { ...existing, state: 'closed' as const, closedAt: existing.closedAt || initial?.openedAt || now }
+      : existing
+  )
   const shift: ShiftRecord = {
     id: requestedId || `SHIFT-${Date.now()}`,
     openedAt: initial?.openedAt || now,
@@ -75,7 +124,7 @@ export async function createShift(openedBy?: string | null, initial?: Partial<Sh
     closingBalance: null,
     metadata: initial?.metadata || {},
   }
-  const next = [shift, ...shifts]
+  const next = [shift, ...closedActiveShifts]
   await writeShifts(next)
   return shift
 }

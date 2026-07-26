@@ -462,6 +462,23 @@ export async function deleteServerOrder(orderId: string) {
   return updated.length !== orders.length
 }
 
+export async function clearServerOrders() {
+  const orders = await readServerOrders({ limit: 9999 })
+  if (canUseSupabaseRuntimeTables()) {
+    const supabase = createSupabaseAdminClient()
+    const { error } = await supabase.from('app_orders').delete().not('id', 'is', null)
+    if (!error) {
+      setOrdersCache([])
+      return orders.length
+    }
+
+    if (shouldRequireSupabaseRuntimeTables()) throw new Error(`Could not clear orders from Supabase: ${getSupabaseErrorMessage(error)}`)
+  }
+
+  await writeServerOrders([])
+  return orders.length
+}
+
 export type ServerOrderUpdates = {
   customer?: string
   phone?: string
