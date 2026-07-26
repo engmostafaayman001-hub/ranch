@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useLanguage } from '@/components/language-provider'
-import { readAllClosings, readClosings, type ClosingRecord, type SavedClosingExpense } from '@/lib/closings'
+import { getSettledClosingIds, readAllClosings, readClosings, type ClosingRecord, type SavedClosingExpense } from '@/lib/closings'
 import { CURRENCY_EN } from '@/lib/constants'
 import { useAppStore } from '@/lib/app-store'
 import { Dialog } from '@/components/ui/dialog'
@@ -17,6 +17,7 @@ import useShiftSession from '@/lib/use-shift-session'
 import performShiftClosing from '@/lib/shift-closing'
 import { TrackedOrder } from '@/lib/order-tracking'
 import { ClosingReport } from '@/lib/closing-report'
+import { isItemInShiftWindow, isItemWithinDateRange } from '@/lib/pos-day-session'
 
 function isValidDate(date: Date) {
   return !Number.isNaN(date.getTime())
@@ -300,15 +301,27 @@ export default function ClosingsPage() {
       const loadSessionData = async () => {
         setLoadingSessionItems(true)
         try {
-          const [ordersResponse, expensesResponse] = await Promise.all([
-            fetch(`/api/orders?limit=9999&shiftId=${encodeURIComponent(shiftId)}`, { cache: 'no-store' }),
-            fetch(`/api/expenses?shiftId=${encodeURIComponent(shiftId)}`, { cache: 'no-store' }),
+          const [ordersResponse, expensesResponse, previousClosings] = await Promise.all([
+            fetch('/api/orders?limit=9999', { cache: 'no-store' }),
+            fetch('/api/expenses', { cache: 'no-store' }),
+            readAllClosings(),
           ])
           const ordersData = await ordersResponse.json().catch(() => ({}))
           const expensesData = await expensesResponse.json().catch(() => ({}))
           if (!active) return
-          setSessionOrders(Array.isArray(ordersData.orders) ? ordersData.orders : [])
-          setSessionExpenses(Array.isArray(expensesData.expenses) ? expensesData.expenses : [])
+          const { orderIds: settledOrderIds, expenseIds: settledExpenseIds } = getSettledClosingIds(previousClosings)
+          const allOrders = Array.isArray(ordersData.orders) ? ordersData.orders : []
+          const allExpenses = Array.isArray(expensesData.expenses) ? expensesData.expenses : []
+          setSessionOrders(allOrders.filter((order: TrackedOrder) => {
+            if (settledOrderIds.has(order.id)) return false
+            if (order.shiftId === shiftId) return true
+            return !order.shiftId && isItemInShiftWindow(order.createdAt, daySession, { includeSameDayBeforeStart: true })
+          }))
+          setSessionExpenses(allExpenses.filter((expense: SavedClosingExpense) => {
+            if (settledExpenseIds.has(expense.id)) return false
+            if (expense.shiftId === shiftId) return true
+            return !expense.shiftId && isItemInShiftWindow(expense.date, daySession, { includeSameDayBeforeStart: true })
+          }))
         } catch {
           if (active) {
             setSessionOrders([])
@@ -326,7 +339,7 @@ export default function ClosingsPage() {
       active = false
       window.clearTimeout(timer)
     }
-  }, [daySession.shiftId])
+  }, [daySession])
 
   useEffect(() => {
     let active = true
@@ -359,10 +372,16 @@ export default function ClosingsPage() {
       if (selectedClosing.orders?.length) {
         setSelectedClosingOrders(selectedClosing.orders)
       } else {
-        fetch(`/api/orders?limit=500&shiftId=${encodeURIComponent(selectedClosing.shiftId)}`, { cache: 'no-store' })
+        fetch('/api/orders?limit=9999', { cache: 'no-store' })
           .then((response) => response.json())
           .then((data) => {
-            if (active) setSelectedClosingOrders(Array.isArray(data.orders) ? data.orders : [])
+            if (active) {
+              const allOrders = Array.isArray(data.orders) ? data.orders : []
+              setSelectedClosingOrders(allOrders.filter((order: TrackedOrder) => (
+                order.shiftId === selectedClosing.shiftId ||
+                (!order.shiftId && isItemWithinDateRange(order.createdAt, selectedClosing.openedAt, selectedClosing.closedAt, { includeSameDayBeforeStart: true }))
+              )))
+            }
           })
           .catch(() => {
             if (active) setSelectedClosingOrders([])
@@ -372,10 +391,16 @@ export default function ClosingsPage() {
       if (selectedClosing.expenses?.length) {
         setSelectedClosingExpenses(selectedClosing.expenses)
       } else {
-        fetch(`/api/expenses?shiftId=${encodeURIComponent(selectedClosing.shiftId)}`, { cache: 'no-store' })
+        fetch('/api/expenses', { cache: 'no-store' })
           .then((response) => response.json())
           .then((data) => {
-            if (active) setSelectedClosingExpenses(Array.isArray(data.expenses) ? data.expenses : [])
+            if (active) {
+              const allExpenses = Array.isArray(data.expenses) ? data.expenses : []
+              setSelectedClosingExpenses(allExpenses.filter((expense: SavedClosingExpense) => (
+                expense.shiftId === selectedClosing.shiftId ||
+                (!expense.shiftId && isItemWithinDateRange(expense.date, selectedClosing.openedAt, selectedClosing.closedAt, { includeSameDayBeforeStart: true }))
+              )))
+            }
           })
           .catch(() => {
             if (active) setSelectedClosingExpenses([])

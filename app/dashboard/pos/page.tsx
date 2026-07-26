@@ -247,8 +247,8 @@ export default function DashboardPosPage() {
     try {
       const activeShiftId = daySession.shiftId
       const [ordersResponse, expensesResponse] = await Promise.all([
-        fetch(activeShiftId ? `/api/orders?limit=500&shiftId=${encodeURIComponent(activeShiftId)}` : '/api/orders?limit=500', { cache: 'no-store' }),
-        fetch(activeShiftId ? `/api/expenses?shiftId=${encodeURIComponent(activeShiftId)}` : '/api/expenses', { cache: 'no-store' }),
+        fetch('/api/orders?limit=9999', { cache: 'no-store' }),
+        fetch('/api/expenses', { cache: 'no-store' }),
       ])
 
       const ordersData = await ordersResponse.json().catch(() => ({}))
@@ -263,14 +263,14 @@ export default function DashboardPosPage() {
         if (settledOrderIds.has(order.id) || order.status === 'cancelled') return false
         const createdDuringSession = isItemInShiftWindow(order.createdAt, daySession, { includeSameDayBeforeStart: true })
         if (!activeShiftId) return createdDuringSession || !order.shiftId
-        return order.shiftId === activeShiftId || !order.shiftId || createdDuringSession
+        return order.shiftId === activeShiftId || (!order.shiftId && createdDuringSession)
       })
 
       const combinedExpenses = allExpenses.filter((expense: Expense) => {
         if (settledExpenseIds.has(expense.id)) return false
         const createdDuringSession = isItemInShiftWindow(expense.date, daySession, { includeSameDayBeforeStart: true })
         if (!activeShiftId) return createdDuringSession || !expense.shiftId
-        return expense.shiftId === activeShiftId || !expense.shiftId || createdDuringSession
+        return expense.shiftId === activeShiftId || (!expense.shiftId && createdDuringSession)
       })
 
       setShiftOrders(combinedOrders)
@@ -402,8 +402,8 @@ export default function DashboardPosPage() {
         console.log('🔍 Starting shift closing fetch...', { shiftId, previousClosingsCount: previousClosings.length, closingRangeStart, closingRangeEnd });
         
         const [ordersResponse, expensesResponse] = await Promise.all([
-          fetch(shiftId ? `/api/orders?limit=9999&shiftId=${encodeURIComponent(shiftId)}` : `/api/orders?limit=9999`, { cache: 'no-store' }),
-          fetch(shiftId ? `/api/expenses?shiftId=${encodeURIComponent(shiftId)}` : `/api/expenses`, { cache: 'no-store' }),
+          fetch('/api/orders?limit=9999', { cache: 'no-store' }),
+          fetch('/api/expenses', { cache: 'no-store' }),
         ]);
 
         const ordersData = await ordersResponse.json().catch((err) => { console.error('❌ Error parsing orders:', err); return {}; });
@@ -418,10 +418,10 @@ export default function DashboardPosPage() {
           if (settledOrderIds.has(o.id)) return false;
           const matchesCurrentShift = o.shiftId === shiftId;
           const createdDuringSession = isItemWithinDateRange(o.createdAt, closingRangeStart, closingRangeEnd, { includeSameDayBeforeStart: true });
-          const isLegacyOutsideShift = !o.shiftId;
-          const include = matchesCurrentShift || isLegacyOutsideShift || createdDuringSession;
+          const isLegacyOrderInShift = !o.shiftId && createdDuringSession;
+          const include = matchesCurrentShift || isLegacyOrderInShift;
           if (include) {
-            console.log(`  ✅ Order ${o.id}: currentShift=${matchesCurrentShift}, legacyOutsideShift=${isLegacyOutsideShift}, createdDuringSession=${createdDuringSession}, shiftId=${o.shiftId}`);
+            console.log(`  ✅ Order ${o.id}: currentShift=${matchesCurrentShift}, legacyInShift=${isLegacyOrderInShift}, createdDuringSession=${createdDuringSession}, shiftId=${o.shiftId}`);
           }
           return include;
         });
@@ -430,10 +430,10 @@ export default function DashboardPosPage() {
           if (settledExpenseIds.has(e.id)) return false;
           const matchesCurrentShift = e.shiftId === shiftId;
           const createdDuringSession = isItemWithinDateRange(e.date, closingRangeStart, closingRangeEnd, { includeSameDayBeforeStart: true });
-          const isLegacyOutsideShift = !e.shiftId;
-          const include = matchesCurrentShift || isLegacyOutsideShift || createdDuringSession;
+          const isLegacyExpenseInShift = !e.shiftId && createdDuringSession;
+          const include = matchesCurrentShift || isLegacyExpenseInShift;
           if (include) {
-            console.log(`  ✅ Expense ${e.id}: currentShift=${matchesCurrentShift}, legacyOutsideShift=${isLegacyOutsideShift}, createdDuringSession=${createdDuringSession}, shiftId=${e.shiftId}`);
+            console.log(`  ✅ Expense ${e.id}: currentShift=${matchesCurrentShift}, legacyInShift=${isLegacyExpenseInShift}, createdDuringSession=${createdDuringSession}, shiftId=${e.shiftId}`);
           }
           return include;
         });

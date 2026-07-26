@@ -135,7 +135,7 @@ function setOrdersCache(orders: TrackedOrder[]) {
 
 function normalizeLimit(limit?: number) {
   if (!Number.isFinite(limit)) return DEFAULT_ORDERS_LIMIT
-  return Math.min(500, Math.max(1, Math.floor(Number(limit))))
+  return Math.min(10000, Math.max(1, Math.floor(Number(limit))))
 }
 
 function matchesSource(order: TrackedOrder, source?: ServerOrderSourceFilter) {

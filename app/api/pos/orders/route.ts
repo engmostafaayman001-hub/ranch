@@ -72,7 +72,7 @@ function normalizeSourceFilter(value?: string | null): ServerOrderSourceFilter |
 function normalizeLimit(value?: string | null) {
   const limit = Number(value || 100)
   if (!Number.isFinite(limit)) return 100
-  return Math.min(500, Math.max(1, Math.floor(limit)))
+  return Math.min(10000, Math.max(1, Math.floor(limit)))
 }
 
 function isOrderAssignedToDelivery(order: TrackedOrder, access: { email: string | null; name: string | null }) {

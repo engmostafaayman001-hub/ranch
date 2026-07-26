@@ -81,8 +81,8 @@ export default function DailyClosingPage() {
     const loadData = async () => {
       try {
         const [expensesResponse, ordersResponse] = await Promise.all([
-          fetch(daySession.shiftId ? `/api/expenses?shiftId=${encodeURIComponent(daySession.shiftId)}` : '/api/expenses', { cache: 'no-store' }),
-          fetch(daySession.shiftId ? `/api/orders?limit=9999&shiftId=${encodeURIComponent(daySession.shiftId)}` : '/api/orders?limit=9999', { cache: 'no-store' }),
+          fetch('/api/expenses', { cache: 'no-store' }),
+          fetch('/api/orders?limit=9999', { cache: 'no-store' }),
         ])
 
         const expensesData = await expensesResponse.json().catch(() => ({}))
