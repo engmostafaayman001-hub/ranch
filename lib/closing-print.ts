@@ -93,7 +93,7 @@ export function createClosingReceiptPayload(input: ClosingPrintInput): ReceiptPa
       { name: input.isArabic ? 'إجمالي مبيعات التطبيق' : 'Total app sales', quantity: 1, price: appSales },
       { name: input.isArabic ? 'إجمالي طرق الدفع' : 'Total payment methods', quantity: 1, price: paymentTotals },
       { name: input.isArabic ? 'إجمالي الخصومات' : 'Total discounts', quantity: 1, price: discounts },
-      { name: input.isArabic ? 'إجمالي الطلبات الملغية' : 'Total cancelled orders', quantity: 1, price: cancelledOrders.length },
+      { name: input.isArabic ? 'إجمالي الطلبات الملغية' : 'Total cancelled orders', quantity: cancelledOrders.length, hidePrice: true },
       { name: input.isArabic ? 'إجمالي خدمة التوصيل المحصلة' : 'Collected delivery service', quantity: 1, price: deliveryFees },
       { kind: 'section', hidePrice: true, name: input.isArabic ? 'طرق الدفع' : 'Payment Methods', quantity: 0 },
       ...(paymentLines.length ? paymentLines : [{ name: input.isArabic ? 'لا توجد مدفوعات' : 'No payments', quantity: 1, hidePrice: true }]),

@@ -183,6 +183,23 @@ async function normalizeOrderLines(body: Record<string, unknown>): Promise<Track
         name: product && (!fallbackName || placeholderNames.has(fallbackName.toLowerCase())) ? resolvedName : (fallbackName || resolvedName),
         nameAr,
         nameEn,
+        product: product
+          ? {
+              id: product.id,
+              productId: product.id,
+              name: product.nameAr || product.nameEn,
+              nameAr: product.nameAr,
+              nameEn: product.nameEn,
+            }
+          : productInfo.id || productInfo.name || productInfo.nameAr || productInfo.nameEn
+            ? {
+                id: productInfo.id ? String(productInfo.id) : undefined,
+                productId: productInfo.productId ? String(productInfo.productId) : undefined,
+                name: productInfo.name ? String(productInfo.name) : undefined,
+                nameAr: productInfo.nameAr ? String(productInfo.nameAr) : undefined,
+                nameEn: productInfo.nameEn ? String(productInfo.nameEn) : undefined,
+              }
+            : undefined,
         quantity: Number(item.quantity || item.qty || 1),
         price: Number(item.price || productInfo.price || product?.price || 0),
         notes: item.notes || item.note ? String(item.notes || item.note) : undefined,
@@ -365,8 +382,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    await saveNewServerOrder(order)
-    return json({ order }, { status: 201 })
+    const savedOrder = await saveNewServerOrder(order)
+    return json({ order: savedOrder }, { status: 201 })
   } catch (error) {
     console.error('Failed to create POS order:', error)
     return json({ error: 'Could not create order', message: error instanceof Error ? error.message : 'Unknown error' }, { status: 500 })

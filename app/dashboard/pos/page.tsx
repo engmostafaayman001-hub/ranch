@@ -692,7 +692,7 @@ export default function DashboardPosPage() {
         status: 'confirmed',
         estimatedDelivery: orderTypeLabel,
       }
-      let data: { order?: { id?: string; createdAt?: string }; message?: string; error?: string } = {}
+      let data: { order?: { id?: string; displayNumber?: number; createdAt?: string }; message?: string; error?: string } = {}
       if (!window.navigator.onLine) {
         queueOfflineAction({ type: 'create-order', payload: requestPayload })
         data = { order: { id: `offline-${Date.now()}` } }
@@ -756,7 +756,7 @@ export default function DashboardPosPage() {
         loadShiftData()
       }, 500)
       const receiptPayload = {
-        orderId: data.order?.id || '',
+        orderId: data.order?.displayNumber ? `#${data.order.displayNumber}` : data.order?.id || '',
         orderType: orderTypeLabel,
         tableNumber: orderType === 'dine_in' ? customer.deliveryAddress || '1' : undefined,
         createdAt: data.order?.createdAt || new Date().toISOString(),

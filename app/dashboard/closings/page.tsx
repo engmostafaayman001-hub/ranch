@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Printer } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -545,7 +546,8 @@ export default function ClosingsPage() {
                           <div className="space-y-2 text-right">
                             <p className="text-lg font-semibold">{Number(order.total || 0).toFixed(2)} {selectedClosing.currency || 'EGP'}</p>
                             <p className="text-xs text-slate-500 dark:text-slate-400">{isArabic ? 'الحالة:' : 'Status:'} {String(order.status || 'unknown')}</p>
-                            <Button size="sm" variant="outline" onClick={() => handlePrintClosingOrder(order)}>
+                            <Button size="sm" variant="outline" className="gap-2" onClick={() => handlePrintClosingOrder(order)}>
+                              <Printer className="h-4 w-4" />
                               {isArabic ? 'طباعة الفاتورة' : 'Print Receipt'}
                             </Button>
                           </div>

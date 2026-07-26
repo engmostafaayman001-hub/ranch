@@ -150,35 +150,47 @@ function getOrderCreatedTime(order: TrackedOrder) {
 }
 
 function ensureDisplayNumbers(orders: TrackedOrder[]): TrackedOrder[] {
-  const sorted = [...orders].sort((a, b) => {
-    const timeDiff = getOrderCreatedTime(a) - getOrderCreatedTime(b)
-    if (timeDiff !== 0) return timeDiff
-    return a.id.localeCompare(b.id)
-  })
+  const groups = new Map<string, TrackedOrder[]>()
+  for (const order of orders) {
+    const key = order.shiftId || '__legacy__'
+    groups.set(key, [...(groups.get(key) || []), order])
+  }
 
-  const usedNumbers = new Set<number>()
-  let nextDisplayNumber = 1
+  const byId = new Map<string, TrackedOrder>()
+  for (const groupOrders of groups.values()) {
+    const sorted = [...groupOrders].sort((a, b) => {
+      const timeDiff = getOrderCreatedTime(a) - getOrderCreatedTime(b)
+      if (timeDiff !== 0) return timeDiff
+      return a.id.localeCompare(b.id)
+    })
 
-  return sorted.map((order) => {
-    const existingNumber = Number.isFinite(order.displayNumber) ? Number(order.displayNumber) : 0
-    if (existingNumber > 0 && !usedNumbers.has(existingNumber)) {
-      usedNumbers.add(existingNumber)
-      if (existingNumber >= nextDisplayNumber) nextDisplayNumber = existingNumber + 1
-      return order
-    }
+    const usedNumbers = new Set<number>()
+    let nextDisplayNumber = 1
 
-    while (usedNumbers.has(nextDisplayNumber)) {
+    for (const order of sorted) {
+      const existingNumber = Number.isFinite(order.displayNumber) ? Number(order.displayNumber) : 0
+      if (existingNumber > 0 && !usedNumbers.has(existingNumber)) {
+        usedNumbers.add(existingNumber)
+        if (existingNumber >= nextDisplayNumber) nextDisplayNumber = existingNumber + 1
+        byId.set(order.id, order)
+        continue
+      }
+
+      while (usedNumbers.has(nextDisplayNumber)) {
+        nextDisplayNumber += 1
+      }
+
+      const displayNumber = nextDisplayNumber
+      usedNumbers.add(displayNumber)
       nextDisplayNumber += 1
+      byId.set(order.id, {
+        ...order,
+        displayNumber,
+      })
     }
+  }
 
-    const displayNumber = nextDisplayNumber
-    usedNumbers.add(displayNumber)
-    nextDisplayNumber += 1
-    return {
-      ...order,
-      displayNumber,
-    }
-  })
+  return orders.map((order) => byId.get(order.id) || order)
 }
 
 function applyReadOptions(orders: TrackedOrder[], options: ReadServerOrdersOptions = {}) {
@@ -278,7 +290,7 @@ async function readServerOrdersFresh(options: ReadServerOrdersOptions = {}): Pro
         const orders = shouldReadFullData
           ? (data as unknown as Array<{ data: TrackedOrder } | TrackedOrder>).map(normalizeOrder)
           : (data as unknown as CompactOrderRow[]).map(normalizeCompactOrder)
-        if (!options.orderId) setOrdersCache(orders)
+        if (!options.orderId && !options.shiftId && !options.source) setOrdersCache(orders)
         return applyReadOptions(orders, options)
       }
     } catch (error) {
@@ -297,6 +309,7 @@ async function readServerOrdersFresh(options: ReadServerOrdersOptions = {}): Pro
 export async function readServerOrders(options: ReadServerOrdersOptions = {}): Promise<TrackedOrder[]> {
   if (options.orderId) return readServerOrdersFresh(options)
   if (options.source) return readServerOrdersFresh(options)
+  if (options.shiftId) return readServerOrdersFresh(options)
   if (isFreshCache()) return applyReadOptions(ordersCache!.data, options)
   if (options.limit) return readServerOrdersFresh(options)
   if (ordersReadPromise) return ordersReadPromise
@@ -432,7 +445,9 @@ export async function saveNewServerOrder(order: TrackedOrder) {
   await previousAllocation
   try {
     if (!Number.isFinite(order.displayNumber)) {
-      const existingOrders = await readServerOrders({ limit: 500 })
+      const existingOrders = order.shiftId
+        ? await readServerOrders({ limit: 500, shiftId: order.shiftId })
+        : await readServerOrders({ limit: 500 })
       const maxExistingNumber = existingOrders
         .map((entry) => Number.isFinite(entry.displayNumber) ? entry.displayNumber as number : 0)
         .reduce((currentMax, value) => Math.max(currentMax, value), 0)
