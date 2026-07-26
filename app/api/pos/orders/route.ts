@@ -6,6 +6,8 @@ import { validateNotificationDiscount } from '@/lib/discounts'
 import { readServerNotifications } from '@/lib/server-notifications'
 import { readSharedAppData } from '@/lib/server-app-data'
 import { createShift, ensureShiftExists, getCurrentOpenShift, isShiftLocked } from '@/lib/shifts'
+import { getSettledClosingIds } from '@/lib/closings'
+import { readServerClosings } from '@/lib/server-closings'
 
 export const runtime = 'nodejs'
 
@@ -221,6 +223,7 @@ export async function GET(request: NextRequest) {
     const access = await getRequestDashboardAccess(request)
     const isAdmin = access.allowed
     const includeReceipts = request.nextUrl.searchParams.get('includeReceipts') === '1'
+    const excludeSettled = request.nextUrl.searchParams.get('excludeSettled') === '1'
     const requestedOrderIdRaw = request.nextUrl.searchParams.get('orderId')?.trim()
     const requestedOrderId = requestedOrderIdRaw?.toLowerCase()
     const source = requestedOrderId ? undefined : normalizeSourceFilter(request.nextUrl.searchParams.get('source'))
@@ -237,7 +240,11 @@ export async function GET(request: NextRequest) {
     const orders = requestedOrderId
       ? allOrders.filter((order) => order.id.toLowerCase() === requestedOrderId)
       : allOrders
-    const compactOrders = orders.map((order) => stripHeavyOrderFields(order, { includeReceipts }))
+    let compactOrders = orders.map((order) => stripHeavyOrderFields(order, { includeReceipts }))
+    if (excludeSettled && !requestedOrderId) {
+      const { orderIds: settledOrderIds } = getSettledClosingIds(await readServerClosings())
+      compactOrders = compactOrders.filter((order) => !settledOrderIds.has(order.id))
+    }
 
     if (access.role === 'delivery') {
       return json({ orders: compactOrders.filter((order) => isOrderAssignedToDelivery(order, access)) })

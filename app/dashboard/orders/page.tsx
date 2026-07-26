@@ -82,7 +82,7 @@ export default function DashboardOrdersPage() {
     try {
       let nextOrders: TrackedOrder[] = []
       if (dashboardRole === 'delivery') {
-        const response = await fetch('/api/pos/orders?limit=120', { cache: 'no-store' })
+        const response = await fetch('/api/pos/orders?limit=120&excludeSettled=1', { cache: 'no-store' })
         const data = await response.json().catch(() => ({}))
         if (!response.ok || !Array.isArray(data.orders)) throw new Error(data.message || data.error || 'Could not load assigned orders')
         nextOrders = data.orders

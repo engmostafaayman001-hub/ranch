@@ -20,9 +20,9 @@ async function fetchOrdersJson(url: string) {
 
 export async function fetchDashboardOrdersBySource(source: OrderSource, limit = 120) {
   try {
-    return await fetchOrdersJson(`/api/pos/orders?source=${source}&limit=${limit}`)
+    return await fetchOrdersJson(`/api/pos/orders?source=${source}&limit=${limit}&excludeSettled=1`)
   } catch {
-    const orders = await fetchOrdersJson(`/api/pos/orders?limit=${Math.max(limit, 200)}`)
+    const orders = await fetchOrdersJson(`/api/pos/orders?limit=${Math.max(limit, 200)}&excludeSettled=1`)
     return orders.filter((order) => matchesSource(order, source)).slice(0, limit)
   }
 }

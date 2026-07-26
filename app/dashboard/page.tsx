@@ -7,7 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useLanguage } from '@/components/language-provider'
 import { CURRENCY, CURRENCY_EN } from '@/lib/constants'
 import { TrackedOrder } from '@/lib/order-tracking'
-import useShiftSession from '@/lib/use-shift-session'
+import { readAllClosings, type ClosingRecord, type SavedClosingExpense } from '@/lib/closings'
+import { summarizeClosingData } from '@/lib/financial-calculations'
 
 type DashboardCustomer = {
   id: string
@@ -20,6 +21,8 @@ type DashboardPresenceEntry = {
   lastSeen: number
   isActive: boolean
 }
+
+type DashboardExpense = SavedClosingExpense
 
 const DASHBOARD_PRESENCE_STORAGE_KEY = 'dashboard-active-users'
 const DASHBOARD_PRESENCE_WINDOW_MS = 30000
@@ -107,14 +110,41 @@ function useActiveDashboardUsers() {
   return activeUsersCount
 }
 
+function uniqueOrders(...groups: TrackedOrder[][]) {
+  const byId = new Map<string, TrackedOrder>()
+  for (const orders of groups) {
+    for (const order of orders) {
+      if (!order?.id) continue
+      const existing = byId.get(order.id)
+      if (!existing || (!existing.lines?.length && order.lines?.length)) byId.set(order.id, order)
+    }
+  }
+  return Array.from(byId.values()).sort((first, second) => new Date(second.createdAt).getTime() - new Date(first.createdAt).getTime())
+}
+
+function uniqueExpenses(...groups: DashboardExpense[][]) {
+  const byId = new Map<string, DashboardExpense>()
+  for (const expenses of groups) {
+    for (const expense of expenses) {
+      if (expense?.id) byId.set(expense.id, expense)
+    }
+  }
+  return Array.from(byId.values()).sort((first, second) => new Date(second.date || '').getTime() - new Date(first.date || '').getTime())
+}
+
+function money(value: number, currency: string) {
+  return `${Number(value || 0).toFixed(2)} ${currency}`
+}
+
 export default function DashboardPage() {
   const { language } = useLanguage()
   const isArabic = language === 'ar'
   const currency = isArabic ? CURRENCY : CURRENCY_EN
   const [orders, setOrders] = useState<TrackedOrder[]>([])
+  const [expenses, setExpenses] = useState<DashboardExpense[]>([])
+  const [closings, setClosings] = useState<ClosingRecord[]>([])
   const [customers, setCustomers] = useState<DashboardCustomer[]>([])
   const [loading, setLoading] = useState(true)
-  const [shiftSession] = useShiftSession()
   const loadingDashboard = useRef(false)
   const activeDashboardUsers = useActiveDashboardUsers()
 
@@ -125,16 +155,31 @@ export default function DashboardPage() {
       if (loadingDashboard.current) return
       loadingDashboard.current = true
       try {
-        const [ordersResponse, customersResponse] = await Promise.all([
-          fetch('/api/pos/orders', { cache: 'no-store' }),
+        const [ordersResponse, expensesResponse, customersResponse, closingRecords] = await Promise.all([
+          fetch('/api/orders?limit=10000', { cache: 'no-store' }),
+          fetch('/api/expenses', { cache: 'no-store' }),
           fetch('/api/customers', { cache: 'no-store' }),
+          readAllClosings(),
         ])
         const ordersData = await ordersResponse.json().catch(() => ({}))
+        const expensesData = await expensesResponse.json().catch(() => ({}))
         const customersData = await customersResponse.json().catch(() => ({}))
 
         if (!active) return
-        setOrders(Array.isArray(ordersData.orders) ? ordersData.orders : [])
+        const currentOrders = Array.isArray(ordersData.orders) ? ordersData.orders as TrackedOrder[] : []
+        const currentExpenses = Array.isArray(expensesData.expenses) ? expensesData.expenses as DashboardExpense[] : []
+        const closingOrders = closingRecords.flatMap((closing) => closing.orders || [])
+        const closingExpenses = closingRecords.flatMap((closing) => closing.expenses || [])
+        setOrders(uniqueOrders(currentOrders, closingOrders))
+        setExpenses(uniqueExpenses(currentExpenses, closingExpenses))
+        setClosings(closingRecords)
         setCustomers(Array.isArray(customersData.customers) ? customersData.customers : [])
+      } catch {
+        if (!active) return
+        setOrders([])
+        setExpenses([])
+        setClosings([])
+        setCustomers([])
       } finally {
         loadingDashboard.current = false
         if (active) setLoading(false)
@@ -153,18 +198,26 @@ export default function DashboardPage() {
   const stats = useMemo(() => {
     const activeStatuses = new Set(['placed', 'confirmed', 'preparing', 'ready_for_delivery', 'out_for_delivery'])
     const activeOrders = orders.filter((order) => activeStatuses.has(order.status)).length
-    const shiftOrders = orders.filter((order) => shiftSession.shiftId ? order.shiftId === shiftSession.shiftId : false)
-    const shiftRevenue = shiftOrders.reduce((sum, order) => sum + Number(order.total || 0), 0)
+    const completedOrders = orders.filter((order) => order.status !== 'cancelled')
+    const cancelledOrders = orders.length - completedOrders.length
+    const summary = summarizeClosingData(orders, expenses)
+    const closedShiftCount = closings.filter((closing) => closing.type !== 'driver').length
+    const appOrders = completedOrders.filter((order) => order.source !== 'restaurant_pos').length
+    const restaurantOrders = completedOrders.filter((order) => order.source === 'restaurant_pos').length
 
     return [
-      [isArabic ? 'إجمالي الطلبات' : 'Total Orders', String(orders.length)],
-      [isArabic ? 'طلبات الوردية' : 'Shift Orders', String(shiftOrders.length)],
-      [isArabic ? 'إيرادات الوردية' : 'Shift Revenue', `${shiftRevenue.toFixed(2)} ${currency}`],
-      [isArabic ? 'طلبات نشطة' : 'Active Orders', String(activeOrders)],
-      [isArabic ? 'الأشخاص النشطون الآن' : 'Active People Now', String(activeDashboardUsers)],
+      [isArabic ? 'إجمالي طلبات التطبيق' : 'All App Orders', String(orders.length)],
+      [isArabic ? 'صافي مبيعات التطبيق' : 'App Net Sales', money(summary.netSales, currency)],
+      [isArabic ? 'إجمالي المصروفات' : 'Total Expenses', money(summary.expenses, currency)],
+      [isArabic ? 'الطلبات الملغية' : 'Cancelled Orders', String(cancelledOrders)],
+      [isArabic ? 'طلبات نشطة حاليا' : 'Active Orders Now', String(activeOrders)],
+      [isArabic ? 'الورديات المقفولة' : 'Closed Shifts', String(closedShiftCount)],
+      [isArabic ? 'طلبات التطبيق' : 'Customer App Orders', String(appOrders)],
+      [isArabic ? 'طلبات المطعم' : 'Restaurant Orders', String(restaurantOrders)],
       [isArabic ? 'العملاء' : 'Customers', String(customers.length)],
+      [isArabic ? 'الأشخاص النشطون الآن' : 'Active People Now', String(activeDashboardUsers)],
     ]
-  }, [orders, customers, activeDashboardUsers, shiftSession.shiftId, isArabic, currency])
+  }, [orders, expenses, closings, customers, activeDashboardUsers, isArabic, currency])
 
   const recentOrders = orders.slice(0, 5)
 
@@ -174,7 +227,7 @@ export default function DashboardPage() {
         <div>
           <h2 className="text-3xl font-bold">{isArabic ? 'نظرة عامة' : 'Overview'}</h2>
           <p className="mt-2 text-slate-600 dark:text-slate-400">
-            {isArabic ? 'أرقام حقيقية من الطلبات والعملاء، ويتم تحديثها تلقائيا كل 15 ثانية.' : 'Live numbers from orders and customers, refreshed every 15 seconds.'}
+            {isArabic ? 'نتائج التطبيق بالكامل من الطلبات الحالية والتقفيلات المحفوظة والمصروفات، وليست أرقام الوردية فقط.' : 'App-wide results from live orders, saved closings, and expenses, not just the current shift.'}
           </p>
         </div>
         <Link href="/dashboard/orders">
@@ -182,7 +235,7 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {stats.map(([label, value]) => (
           <Card key={label}>
             <CardHeader className="pb-2">
