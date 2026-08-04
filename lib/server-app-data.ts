@@ -37,13 +37,23 @@ function canUseSupabaseRuntimeTables() {
 }
 
 function shouldRequireSupabaseRuntimeTables() {
-  return canUseSupabaseRuntimeTables()
+  return process.env.SUPABASE_REQUIRE_RUNTIME_TABLES === 'true' && canUseSupabaseRuntimeTables()
 }
 
 function getSupabaseErrorMessage(error: unknown) {
   if (error instanceof Error) return error.message
   if (error && typeof error === 'object' && 'message' in error) return String((error as { message?: unknown }).message || error)
   return String(error || 'Unknown Supabase error')
+}
+
+function isRecoverableSupabaseError(error: unknown) {
+  const message = getSupabaseErrorMessage(error).toLowerCase()
+  return message.includes('could not find the table')
+    || message.includes('does not exist')
+    || message.includes('relation')
+    || message.includes('pgrst205')
+    || message.includes('failed to fetch')
+    || message.includes('timed out')
 }
 
 function normalizeSharedData(data: Partial<SharedAppData> | null | undefined): SharedAppData {
@@ -142,23 +152,23 @@ async function readSharedAppDataFresh(): Promise<SharedAppData> {
   if (canUseSupabaseRuntimeTables() && (requireSupabase || Date.now() >= supabaseAppDataCooldownUntil)) {
     const supabase = createSupabaseAdminClient()
     try {
-      const { data, error } = await withTimeout(
+      const { data: row, error } = await withTimeout(
         supabase
           .from('app_data')
           .select('data')
           .eq('key', APP_DATA_KEY)
-          .maybeSingle(),
+          .maybeSingle<{ data: Partial<SharedAppData> | null }>(),
         SUPABASE_READ_TIMEOUT_MS
       )
 
       if (error) throw error
 
-      if (data?.data) {
-        const normalized = normalizeSharedData(data.data as Partial<SharedAppData>)
+      if (row?.data) {
+        const normalized = normalizeSharedData(row.data)
         setAppDataCache(normalized)
         return normalized
       }
-      if (!error && !data) {
+      if (!error && !row) {
         const normalized = normalizeSharedData(fallbackData)
         const { error: upsertError } = await supabase.from('app_data').upsert({
           key: APP_DATA_KEY,
@@ -173,7 +183,9 @@ async function readSharedAppDataFresh(): Promise<SharedAppData> {
       console.warn('[server-app-data] Falling back after Supabase read failed:', getSupabaseErrorMessage(error))
       supabaseAppDataCooldownUntil = Date.now() + SUPABASE_COOLDOWN_MS
       if (appDataCache) return appDataCache.data
-      if (requireSupabase) throw error
+      if (requireSupabase && !isRecoverableSupabaseError(error)) {
+        throw error
+      }
     }
   }
 
@@ -212,8 +224,12 @@ export async function writeSharedAppData(data: SharedAppData) {
       return normalized
     }
 
-    if (shouldRequireSupabaseRuntimeTables()) {
+    if (shouldRequireSupabaseRuntimeTables() && !isRecoverableSupabaseError(error)) {
       throw new Error(`Could not save app data to Supabase: ${getSupabaseErrorMessage(error)}`)
+    }
+
+    if (isRecoverableSupabaseError(error)) {
+      console.warn('[server-app-data] Falling back to local file after Supabase write failed:', getSupabaseErrorMessage(error))
     }
   }
 

@@ -86,6 +86,20 @@ function roleAccess(userId: string | null, email: string, role: string | null, n
   return { allowed: true, userId, email, name, role }
 }
 
+function fallbackDashboardAccess(email: string, sessionUser: Awaited<ReturnType<typeof getSupabaseSessionUser>>): DashboardAccess {
+  if (canAccessDashboardByEmail(email)) {
+    return {
+      allowed: true,
+      userId: sessionUser?.id || null,
+      email,
+      name: sessionUser?.user_metadata?.name || null,
+      role: 'super_admin',
+    }
+  }
+
+  return { allowed: false, userId: sessionUser?.id || null, email, name: null, role: null }
+}
+
 export async function getRequestDashboardAccess(request: NextRequest): Promise<DashboardAccess> {
   const cacheKey = getAccessCacheKey(request)
   const cached = getCachedAccess(cacheKey)
@@ -100,6 +114,8 @@ export async function getRequestDashboardAccess(request: NextRequest): Promise<D
     setCachedAccess(cacheKey, denied)
     return denied
   }
+
+  const fallbackAccess = fallbackDashboardAccess(email, sessionUser)
 
   try {
     const supabase = createSupabaseAdminClient()
@@ -138,17 +154,14 @@ export async function getRequestDashboardAccess(request: NextRequest): Promise<D
       }
     }
   } catch {
-    if (!canAccessDashboardByEmail(email)) {
-      const denied = { allowed: false, userId: sessionUser?.id || null, email, name: null, role: null }
-      setCachedAccess(cacheKey, denied)
-      return denied
-    }
+    const fallback = fallbackDashboardAccess(email, sessionUser)
+    setCachedAccess(cacheKey, fallback)
+    return fallback
   }
 
-  if (canAccessDashboardByEmail(email)) {
-    const access = { allowed: true, userId: sessionUser?.id || null, email, name: sessionUser?.user_metadata?.name || null, role: 'super_admin' }
-    setCachedAccess(cacheKey, access)
-    return access
+  if (fallbackAccess.allowed) {
+    setCachedAccess(cacheKey, fallbackAccess)
+    return fallbackAccess
   }
 
   const denied = { allowed: false, userId: sessionUser?.id || null, email, name: null, role: null }
