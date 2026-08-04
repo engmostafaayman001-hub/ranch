@@ -30,11 +30,20 @@ export interface ClosingReport {
 }
 
 export async function generateClosingReport(shiftId: string): Promise<ClosingReport> {
-  const orders = await readServerOrders({ shiftId, limit: 1000, includeReceipts: true })
-  const expenses = await readServerExpenses({ shiftId })
+  const shift = await getShift(shiftId)
+  const rangeStart = shift?.openedAt
+  const rangeEnd = shift?.closedAt || new Date().toISOString()
+
+  const orders = await readServerOrders({
+    shiftId,
+    rangeStart,
+    rangeEnd,
+    limit: 10000,
+    includeReceipts: true,
+  })
+  const expenses = await readServerExpenses({ shiftId, rangeStart, rangeEnd })
   const expensesTotal = expenses.reduce((sum, exp) => sum + exp.amount, 0)
 
-  const shift = await getShift(shiftId)
   const openingCash = shift?.openingBalance || 0
   const summary = summarizeClosingData(orders, expenses)
 

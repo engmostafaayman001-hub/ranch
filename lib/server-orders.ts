@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { OrderPayment, TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
 import { createSupabaseAdminClient } from '@/lib/supabase'
+import { isItemWithinDateRange } from '@/lib/pos-day-session'
 
 const DATA_DIR = process.env.VERCEL ? '/tmp/ranch-data' : join(process.cwd(), 'data')
 const ORDERS_FILE = join(DATA_DIR, 'orders.json')
@@ -18,6 +19,8 @@ export type ServerOrderSourceFilter = 'app' | 'restaurant_pos'
 export type ReadServerOrdersOptions = {
   source?: ServerOrderSourceFilter
   shiftId?: string
+  rangeStart?: string
+  rangeEnd?: string
   limit?: number
   orderId?: string
   includeReceipts?: boolean
@@ -199,7 +202,17 @@ function applyReadOptions(orders: TrackedOrder[], options: ReadServerOrdersOptio
   return withDisplayNumbers
     .filter((order) => !options.orderId || order.id.toLowerCase() === options.orderId.toLowerCase())
     .filter((order) => matchesSource(order, options.source))
-    .filter((order) => !options.shiftId || order.shiftId === options.shiftId)
+    .filter((order) => {
+      if (!options.shiftId && !options.rangeStart && !options.rangeEnd) return true
+
+      const withinRange = (options.rangeStart || options.rangeEnd)
+        ? isItemWithinDateRange(order.createdAt, options.rangeStart || order.createdAt, options.rangeEnd || order.createdAt, { includeSameDayBeforeStart: true })
+        : false
+
+      if (options.shiftId && order.shiftId === options.shiftId) return true
+      if (withinRange) return true
+      return false
+    })
     .sort((first, second) => {
       const firstNumber = Number.isFinite(first.displayNumber) ? Number(first.displayNumber) : 0
       const secondNumber = Number.isFinite(second.displayNumber) ? Number(second.displayNumber) : 0
@@ -269,16 +282,19 @@ async function readServerOrdersFresh(options: ReadServerOrdersOptions = {}): Pro
         .select(shouldReadFullData ? 'data' : compactSelect)
         .order('created_at', { ascending: false })
 
-      if (options.shiftId) {
-        query = query.eq('data->>shiftId', options.shiftId)
-      }
-
       if (options.orderId) {
         query = query.eq('id', options.orderId).limit(1)
       } else {
-        query = query.limit(readLimit)
+        if (options.rangeStart) {
+          query = query.gte('created_at', options.rangeStart)
+        }
+        if (options.rangeEnd) {
+          query = query.lte('created_at', options.rangeEnd)
+        }
+        if (options.shiftId && !options.rangeStart && !options.rangeEnd) {
+          query = query.eq('data->>shiftId', options.shiftId)
+        }
       }
-
       const { data, error } = await withTimeout(
         query,
         SUPABASE_READ_TIMEOUT_MS

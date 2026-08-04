@@ -56,6 +56,7 @@ export default function DailyClosingPage() {
   const [closingBusy, setClosingBusy] = useState(false)
   const [showPaymentsModal, setShowPaymentsModal] = useState<'app' | 'restaurant' | null>(null)
   const [showSummaryModal, setShowSummaryModal] = useState(false)
+  const [showCancelledOrdersModal, setShowCancelledOrdersModal] = useState(false)
 
   const sessionRange = useMemo(() => getShiftSessionDateRange(daySession), [daySession])
 
@@ -184,7 +185,12 @@ export default function DailyClosingPage() {
   }
 
   const financialSummary = useMemo(() => summarizeClosingData(sessionOrders, sessionExpenses), [sessionOrders, sessionExpenses])
-  const cancelledOrdersCount = allShiftOrders.filter((order) => order.status === 'cancelled').length
+  const cancelledOrders = useMemo(() => allShiftOrders.filter((order) => order.status === 'cancelled'), [allShiftOrders])
+  const cancelledOrdersCount = cancelledOrders.length
+  const totalCancelledOrdersAmount = useMemo(
+    () => cancelledOrders.reduce((sum, order) => sum + Number(order.total || 0), 0),
+    [cancelledOrders]
+  )
   const totalShiftOrdersCount = allShiftOrders.length
 
   const collectedDrawerRevenue = financialSummary.collectedDrawerRevenue
@@ -539,6 +545,9 @@ export default function DailyClosingPage() {
               <Smartphone className="h-5 w-5 text-blue-600" />
             </div>
             <p className="text-xs text-slate-500 mt-1">{isArabic ? 'طلبات' : 'orders'}</p>
+            <p className="text-xs text-slate-500 mt-1">
+              {isArabic ? 'الإجمالي' : 'Total'}: {shiftAppSales.toFixed(2)} {currency}
+            </p>
           </CardContent>
         </Card>
 
@@ -554,6 +563,9 @@ export default function DailyClosingPage() {
               <Store className="h-5 w-5 text-green-600" />
             </div>
             <p className="text-xs text-slate-500 mt-1">{isArabic ? 'طلبات' : 'orders'}</p>
+            <p className="text-xs text-slate-500 mt-1">
+              {isArabic ? 'الإجمالي' : 'Total'}: {shiftRestaurantSales.toFixed(2)} {currency}
+            </p>
           </CardContent>
         </Card>
 
@@ -697,8 +709,21 @@ export default function DailyClosingPage() {
               {statusCards.map((card) => {
                 const totalOrdersForPercent = allShiftOrders.length
                 const percent = totalOrdersForPercent ? Math.round((card.count / totalOrdersForPercent) * 100) : 0
+                const isClickable = card.key === 'cancelled'
                 return (
-                  <div key={card.key} className={`rounded-2xl border p-4 shadow-sm ${card.accent}`}>
+                  <div
+                    key={card.key}
+                    className={`rounded-2xl border p-4 shadow-sm ${card.accent} ${isClickable ? 'cursor-pointer hover:ring-1 hover:ring-slate-400' : ''}`}
+                    role={isClickable ? 'button' : undefined}
+                    tabIndex={isClickable ? 0 : undefined}
+                    onClick={isClickable ? () => setShowCancelledOrdersModal(true) : undefined}
+                    onKeyDown={isClickable ? (event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        setShowCancelledOrdersModal(true)
+                      }
+                    } : undefined}
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-sm font-semibold">{card.label}</p>
@@ -867,6 +892,56 @@ export default function DailyClosingPage() {
                   <p className="text-xs text-slate-500 mt-1">{currency}</p>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {showCancelledOrdersModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <Card className="w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <CardHeader className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-4 bg-white dark:bg-slate-950">
+              <div>
+                <CardTitle>{isArabic ? 'الطلبات الملغية' : 'Cancelled Orders'}</CardTitle>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  {isArabic ? 'عرض الطلبات الملغية في الوردية الحالية.' : 'Review cancelled orders in the current shift.'}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="text-sm text-slate-500 dark:text-slate-400">
+                  {isArabic ? 'الإجمالي' : 'Total'}: {totalCancelledOrdersAmount.toFixed(2)} {currency}
+                </div>
+                <Button variant="outline" onClick={() => setShowCancelledOrdersModal(false)}>
+                  {isArabic ? 'إغلاق' : 'Close'}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {cancelledOrders.length === 0 ? (
+                <p className="py-8 text-center text-slate-500 dark:text-slate-400">
+                  {isArabic ? 'لا توجد طلبات ملغية في الوردية الحالية.' : 'There are no cancelled orders in the current shift.'}
+                </p>
+              ) : (
+                cancelledOrders.map((order) => (
+                  <div key={order.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:justify-between">
+                      <div>
+                        <p className="font-semibold">#{order.displayNumber || order.id}</p>
+                        <p className="text-sm text-slate-600 dark:text-slate-400">{order.customer || order.id}</p>
+                        <p className="text-sm text-slate-600 dark:text-slate-400">{new Date(order.createdAt).toLocaleString()}</p>
+                        <p className="text-sm text-slate-600 dark:text-slate-400">
+                          {isArabic ? 'طريقة الدفع:' : 'Payment Method:'} {String(order.payment?.method || 'cash')}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-2xl font-bold text-red-600">{Number(order.total || 0).toFixed(2)}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">{currency}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">{isArabic ? 'السبب:' : 'Status:'} {order.status}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
             </CardContent>
           </Card>
         </div>

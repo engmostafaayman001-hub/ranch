@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createSupabaseAdminClient } from '@/lib/supabase'
+import { isItemWithinDateRange } from '@/lib/pos-day-session'
 
 const DATA_DIR = process.env.VERCEL ? '/tmp/ranch-data' : join(process.cwd(), 'data')
 const EXPENSES_FILE = join(DATA_DIR, 'expenses.json')
@@ -50,11 +51,22 @@ async function ensureDataFile() {
 
 export type ReadServerExpensesOptions = {
   shiftId?: string
+  rangeStart?: string
+  rangeEnd?: string
 }
 
 export async function readServerExpenses(options: ReadServerExpensesOptions = {}): Promise<ServerExpense[]> {
   const expenses = await readServerExpensesAll()
-  return options.shiftId ? expenses.filter((expense) => expense.shiftId === options.shiftId) : expenses
+  if (!options.shiftId && !options.rangeStart && !options.rangeEnd) return expenses
+  return expenses.filter((expense) => {
+    const withinRange = (options.rangeStart || options.rangeEnd)
+      ? isItemWithinDateRange(expense.date, options.rangeStart || expense.date, options.rangeEnd || expense.date, { includeSameDayBeforeStart: true })
+      : false
+
+    if (options.shiftId && expense.shiftId === options.shiftId) return true
+    if (withinRange) return true
+    return false
+  })
 }
 
 async function readServerExpensesAll(): Promise<ServerExpense[]> {
