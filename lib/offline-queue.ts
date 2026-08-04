@@ -28,6 +28,16 @@ export function writeOfflineQueue(actions: OfflineQueueAction[]) {
 }
 
 export function queueOfflineAction(action: Omit<OfflineQueueAction, 'id' | 'createdAt' | 'attempts'>) {
+  const current = readOfflineQueue()
+  const payloadId = String(action.payload?.id || action.payload?.orderId || action.payload?.externalReference || '').trim()
+  if (payloadId) {
+    const existing = current.find((item) => (
+      item.type === action.type &&
+      String(item.payload?.id || item.payload?.orderId || item.payload?.externalReference || '').trim() === payloadId
+    ))
+    if (existing) return existing
+  }
+
   const nextAction: OfflineQueueAction = {
     id: `${action.type}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     payload: action.payload,
@@ -35,7 +45,6 @@ export function queueOfflineAction(action: Omit<OfflineQueueAction, 'id' | 'crea
     createdAt: new Date().toISOString(),
     attempts: 0,
   }
-  const current = readOfflineQueue()
   writeOfflineQueue([...current, nextAction])
   return nextAction
 }

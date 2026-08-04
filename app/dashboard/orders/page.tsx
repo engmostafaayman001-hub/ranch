@@ -23,7 +23,6 @@ import { fetchDashboardOrderDetails, fetchDashboardOrderReceipt, fetchDashboardO
 import { OrderLine, TrackedOrder, TrackingStatus } from '@/lib/order-tracking'
 import { printerManager, syncPrinterManagerSettings, trackedOrderToReceiptPayload } from '@/lib/printer'
 import { mergeDrivers, saveSharedSettings } from '@/lib/use-shared-app-data'
-import { getSettledClosingIds, readAllClosings } from '@/lib/closings'
 
 const statuses: TrackingStatus[] = ['placed', 'confirmed', 'preparing', 'ready_for_delivery', 'out_for_delivery', 'delivered', 'cancelled']
 
@@ -89,9 +88,6 @@ export default function DashboardOrdersPage() {
       } else {
         nextOrders = await fetchDashboardOrdersBySource('app', 120)
       }
-      const previousClosings = await readAllClosings()
-      const settledOrderIds = getSettledClosingIds(previousClosings).orderIds
-      nextOrders = nextOrders.filter((order) => !settledOrderIds.has(order.id))
       setOrders(nextOrders)
       const inferredDrivers = nextOrders.flatMap((order) => {
         if (!order.driver?.name || order.driver.name === 'Pending assignment') return []
@@ -110,7 +106,9 @@ export default function DashboardOrdersPage() {
   }, [dashboardRole, drivers, setDrivers])
   useEffect(() => {
     const timer = window.setTimeout(loadOrders, 0)
-    const interval = window.setInterval(loadOrders, 30000)
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void loadOrders()
+    }, 120000)
     return () => {
       window.clearTimeout(timer)
       window.clearInterval(interval)

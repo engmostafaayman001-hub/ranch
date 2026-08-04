@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { getRequestDashboardAccess } from '@/lib/server-access'
-import { saveServerClosing } from '@/lib/server-closings'
+import { readServerClosings, saveServerClosing } from '@/lib/server-closings'
 import { closeShift } from '@/lib/shifts'
 import type { ClosingRecord } from '@/lib/closings'
 import { archiveClosedShiftOrdersWithoutClosing, enrichShiftClosing, pruneSettledClosingItems, repairServerClosings } from '@/lib/server-closing-migration'
@@ -23,13 +23,32 @@ function isClosingRecord(value: unknown): value is ClosingRecord {
   return Boolean(record.id && record.openedAt && record.closedAt)
 }
 
+function compactClosing(record: ClosingRecord): ClosingRecord {
+  return {
+    ...record,
+    orders: undefined,
+    expenses: undefined,
+  }
+}
+
 export async function GET(request: NextRequest) {
   const access = await getRequestDashboardAccess(request)
   if (!access.allowed) return json({ error: 'Unauthorized' }, { status: 401 })
 
-  await archiveClosedShiftOrdersWithoutClosing({ pruneSettled: true })
-  const closings = await repairServerClosings({ pruneSettled: true })
-  return json({ closings })
+  const shouldRepair = request.nextUrl.searchParams.get('repair') === '1'
+  const includeDetails = request.nextUrl.searchParams.get('includeDetails') === '1'
+  const requestedId = request.nextUrl.searchParams.get('id')?.trim()
+  let closings: ClosingRecord[]
+  if (shouldRepair) {
+    await archiveClosedShiftOrdersWithoutClosing({ pruneSettled: true })
+    closings = await repairServerClosings({ pruneSettled: true })
+  } else {
+    closings = await readServerClosings()
+  }
+  if (requestedId) {
+    closings = closings.filter((closing) => closing.id === requestedId)
+  }
+  return json({ closings: includeDetails ? closings : closings.map(compactClosing) })
 }
 
 export async function POST(request: NextRequest) {

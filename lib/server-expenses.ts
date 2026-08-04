@@ -5,6 +5,10 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 const DATA_DIR = process.env.VERCEL ? '/tmp/ranch-data' : join(process.cwd(), 'data')
 const EXPENSES_FILE = join(DATA_DIR, 'expenses.json')
 const EXPENSES_KEY = 'expenses'
+const EXPENSES_CACHE_MS = 60000
+
+let expensesCache: { data: ServerExpense[]; at: number } | null = null
+let expensesReadPromise: Promise<ServerExpense[]> | null = null
 
 export type ServerExpense = {
   id: string
@@ -49,12 +53,29 @@ export type ReadServerExpensesOptions = {
 }
 
 export async function readServerExpenses(options: ReadServerExpensesOptions = {}): Promise<ServerExpense[]> {
+  const expenses = await readServerExpensesAll()
+  return options.shiftId ? expenses.filter((expense) => expense.shiftId === options.shiftId) : expenses
+}
+
+async function readServerExpensesAll(): Promise<ServerExpense[]> {
+  if (expensesCache && Date.now() - expensesCache.at < EXPENSES_CACHE_MS) return expensesCache.data
+  if (expensesReadPromise) return expensesReadPromise
+
+  expensesReadPromise = readServerExpensesFresh().finally(() => {
+    expensesReadPromise = null
+  })
+
+  return expensesReadPromise
+}
+
+async function readServerExpensesFresh(): Promise<ServerExpense[]> {
   if (canUseSupabaseRuntimeTables()) {
     const supabase = createSupabaseAdminClient()
     const { data, error } = await supabase.from('app_data').select('data').eq('key', EXPENSES_KEY).maybeSingle()
     if (!error && Array.isArray(data?.data)) {
       const expenses = data.data as ServerExpense[]
-      return options.shiftId ? expenses.filter((expense) => expense.shiftId === options.shiftId) : expenses
+      expensesCache = { data: expenses, at: Date.now() }
+      return expenses
     }
     if (error && shouldRequireSupabaseRuntimeTables()) {
       throw new Error(`Could not read expenses from Supabase: ${getSupabaseErrorMessage(error)}`)
@@ -66,10 +87,16 @@ export async function readServerExpenses(options: ReadServerExpensesOptions = {}
     const raw = await readFile(EXPENSES_FILE, 'utf8')
     const parsed = JSON.parse(raw)
     const expenses = Array.isArray(parsed) ? parsed : []
-    return options.shiftId ? expenses.filter((expense) => expense.shiftId === options.shiftId) : expenses
+    expensesCache = { data: expenses, at: Date.now() }
+    return expenses
   } catch {
     return []
   }
+}
+
+function clearExpensesCache() {
+  expensesCache = null
+  expensesReadPromise = null
 }
 
 async function writeServerExpenses(expenses: ServerExpense[]) {
@@ -99,6 +126,7 @@ export async function createServerExpense(input: Omit<ServerExpense, 'id' | 'cre
   }
   const updated = [expense, ...expenses]
   await writeServerExpenses(updated)
+  clearExpensesCache()
   return expense
 }
 
@@ -106,11 +134,13 @@ export async function deleteServerExpense(id: string) {
   const expenses = await readServerExpenses()
   const updated = expenses.filter((expense) => expense.id !== id)
   await writeServerExpenses(updated)
+  clearExpensesCache()
   return updated.length !== expenses.length
 }
 
 export async function clearServerExpenses() {
   const expenses = await readServerExpenses()
   await writeServerExpenses([])
+  clearExpensesCache()
   return expenses.length
 }

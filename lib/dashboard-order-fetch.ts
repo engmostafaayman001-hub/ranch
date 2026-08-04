@@ -10,7 +10,7 @@ function matchesSource(order: TrackedOrder, source: OrderSource) {
 }
 
 async function fetchOrdersJson(url: string) {
-  const response = await fetchWithRetry(url, { cache: 'no-store' }, { retries: 3 })
+  const response = await fetchWithRetry(url, { cache: 'no-store' }, { retries: 1 })
   const data = await response.json().catch(() => ({}))
   if (!response.ok || !Array.isArray(data.orders)) {
     throw new Error(data.message || data.error || 'Could not load orders')

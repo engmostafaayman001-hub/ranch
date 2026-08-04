@@ -6,6 +6,19 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 const DATA_DIR = process.env.VERCEL ? '/tmp/ranch-data' : join(process.cwd(), 'data')
 const CLOSINGS_FILE = join(DATA_DIR, 'closings.json')
 const CLOSINGS_KEY = 'closings'
+const CLOSINGS_CACHE_MS = 60000
+
+let closingsCache: { data: ClosingRecord[]; at: number } | null = null
+let closingsReadPromise: Promise<ClosingRecord[]> | null = null
+
+function setClosingsCache(closings: ClosingRecord[]) {
+  closingsCache = { data: closings, at: Date.now() }
+}
+
+function clearClosingsCache() {
+  closingsCache = null
+  closingsReadPromise = null
+}
 
 function canUseSupabaseRuntimeTables() {
   return Boolean(
@@ -39,11 +52,24 @@ function sortClosings(closings: ClosingRecord[]) {
 }
 
 export async function readServerClosings(): Promise<ClosingRecord[]> {
+  if (closingsCache && Date.now() - closingsCache.at < CLOSINGS_CACHE_MS) return closingsCache.data
+  if (closingsReadPromise) return closingsReadPromise
+
+  closingsReadPromise = readServerClosingsFresh().finally(() => {
+    closingsReadPromise = null
+  })
+
+  return closingsReadPromise
+}
+
+async function readServerClosingsFresh(): Promise<ClosingRecord[]> {
   if (canUseSupabaseRuntimeTables()) {
     const supabase = createSupabaseAdminClient()
     const { data, error } = await supabase.from('app_data').select('data').eq('key', CLOSINGS_KEY).maybeSingle()
     if (!error && Array.isArray(data?.data)) {
-      return sortClosings(data.data as ClosingRecord[])
+      const closings = sortClosings(data.data as ClosingRecord[])
+      setClosingsCache(closings)
+      return closings
     }
     if (error && shouldRequireSupabaseRuntimeTables()) {
       throw new Error(`Could not read closings from Supabase: ${getSupabaseErrorMessage(error)}`)
@@ -54,7 +80,9 @@ export async function readServerClosings(): Promise<ClosingRecord[]> {
   try {
     const raw = await readFile(CLOSINGS_FILE, 'utf8')
     const parsed = JSON.parse(raw)
-    return sortClosings(Array.isArray(parsed) ? parsed as ClosingRecord[] : [])
+    const closings = sortClosings(Array.isArray(parsed) ? parsed as ClosingRecord[] : [])
+    setClosingsCache(closings)
+    return closings
   } catch {
     return []
   }
@@ -84,11 +112,13 @@ export async function saveServerClosing(record: ClosingRecord) {
   const closings = await readServerClosings()
   const next = [record, ...closings.filter((closing) => closing.id !== record.id)]
   await writeServerClosings(next)
+  clearClosingsCache()
   return record
 }
 
 export async function clearServerClosings() {
   const current = await readServerClosings()
   await writeServerClosings([])
+  clearClosingsCache()
   return current.length
 }

@@ -35,7 +35,7 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json()
 
     if (body.type === 'catalog') {
-      if (!['super_admin', 'admin', 'manager'].includes(access.role || '')) {
+      if (!['super_admin', 'admin', 'supervisor', 'cashier'].includes(access.role || '')) {
         return json({ error: 'Forbidden' }, { status: 403 })
       }
 
@@ -47,7 +47,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (body.type === 'settings') {
-      if (!['super_admin', 'admin'].includes(access.role || '')) {
+      if (!['super_admin', 'admin', 'supervisor', 'cashier'].includes(access.role || '')) {
         return json({ error: 'Forbidden' }, { status: 403 })
       }
 
@@ -56,7 +56,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (body.type === 'drivers') {
-      if (!['super_admin', 'admin', 'manager'].includes(access.role || '')) {
+      if (!['super_admin', 'admin', 'cashier'].includes(access.role || '')) {
         return json({ error: 'Forbidden' }, { status: 403 })
       }
 

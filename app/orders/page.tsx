@@ -55,7 +55,9 @@ export default function OrdersPage() {
     }
 
     const timer = window.setTimeout(loadOrders, 0)
-    const interval = window.setInterval(loadOrders, 30000)
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void loadOrders()
+    }, 60000)
     return () => {
       active = false
       window.clearTimeout(timer)

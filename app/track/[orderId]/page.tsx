@@ -36,7 +36,7 @@ export default function TrackOrderPage() {
 
     async function loadOrder() {
       try {
-        const response = await fetch('/api/pos/orders', { cache: 'no-store' })
+        const response = await fetch(`/api/pos/orders?orderId=${encodeURIComponent(orderId)}`, { cache: 'no-store' })
         const data = await response.json().catch(() => ({}))
         const apiOrders = Array.isArray(data.orders) ? data.orders as TrackedOrder[] : []
         const visibleOrders = isLoggedIn && user?.email
@@ -53,7 +53,9 @@ export default function TrackOrderPage() {
     }
 
     const timer = window.setTimeout(loadOrder, 0)
-    const interval = window.setInterval(loadOrder, 30000)
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void loadOrder()
+    }, 60000)
     return () => {
       active = false
       window.clearTimeout(timer)
@@ -229,4 +231,3 @@ function Info({ label, value, accent = '' }: { label: string; value: string; acc
     </div>
   )
 }
-

@@ -42,7 +42,9 @@ export default function TrackPage() {
     }
 
     const timer = window.setTimeout(loadRecentOrders, 0)
-    const interval = window.setInterval(loadRecentOrders, 30000)
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void loadRecentOrders()
+    }, 60000)
     return () => {
       active = false
       window.clearTimeout(timer)

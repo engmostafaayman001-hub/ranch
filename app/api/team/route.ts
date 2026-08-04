@@ -7,7 +7,7 @@ import { UserRole } from '@/lib/types'
 export const runtime = 'nodejs'
 
 const MANAGER_ROLES = ['super_admin', 'admin']
-const TEAM_ROLES = ['admin', 'manager', 'cashier', 'delivery', 'support'] as const
+const TEAM_ROLES = ['admin', 'supervisor', 'cashier'] as const
 
 function json(data: unknown, init?: ResponseInit) {
   return Response.json(data, {

@@ -120,11 +120,8 @@ export default function DashboardReportsPage() {
       const customersData = await customersResponse.json().catch(() => ({}))
       const currentOrders = Array.isArray(ordersData.orders) ? ordersData.orders as TrackedOrder[] : []
       const currentExpenses = Array.isArray(expensesData.expenses) ? expensesData.expenses as Expense[] : []
-      const closingOrders = closingRecords.flatMap((closing) => closing.orders || [])
-      const closingExpenses = closingRecords.flatMap((closing) => closing.expenses || [])
-
-      setOrders(uniqueOrders(currentOrders, closingOrders))
-      setExpenses(uniqueExpenses(currentExpenses, closingExpenses))
+      setOrders(uniqueOrders(currentOrders))
+      setExpenses(uniqueExpenses(currentExpenses))
       setClosings(closingRecords)
       setCustomers(Array.isArray(customersData.customers) ? customersData.customers : [])
     } catch (loadError) {
@@ -142,7 +139,9 @@ export default function DashboardReportsPage() {
     const timer = window.setTimeout(() => {
       void loadReports()
     }, 0)
-    const interval = window.setInterval(loadReports, 120000)
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void loadReports()
+    }, 600000)
     return () => {
       window.clearTimeout(timer)
       window.clearInterval(interval)
@@ -162,8 +161,18 @@ export default function DashboardReportsPage() {
     const closedShiftCount = scopedClosings.filter((closing) => closing.type !== 'driver').length
     const driverClosingCount = scopedClosings.filter((closing) => closing.type === 'driver').length
     const closingCancelledOrders = scopedClosings.reduce((sum, closing) => sum + getClosingCancelledCount(closing), 0)
+    const closingOrdersCount = scopedClosings.reduce((sum, closing) => sum + Number(closing.ordersCount || 0), 0)
+    const closingCompletedOrders = Math.max(0, closingOrdersCount - closingCancelledOrders)
+    const closingNetSales = scopedClosings.reduce((sum, closing) => sum + Number(closing.salesWithoutDelivery || 0), 0)
+    const closingExpenses = scopedClosings.reduce((sum, closing) => sum + Number(closing.expensesTotal || 0), 0)
+    const closingDrawerNet = scopedClosings.reduce((sum, closing) => sum + Number(closing.drawerNet || 0), 0)
+    const closingSavedExpensesCount = scopedClosings.reduce((sum, closing) => (
+      Number(closing.expensesTotal || 0) > 0 ? sum + 1 : sum
+    ), 0)
     const totalItems = completedOrders.reduce((sum, order) => sum + Number(order.items || 0), 0)
-    const averageOrder = completedOrders.length ? summary.netSales / completedOrders.length : 0
+    const totalCompletedOrders = completedOrders.length + closingCompletedOrders
+    const totalNetSales = summary.netSales + closingNetSales
+    const averageOrder = totalCompletedOrders ? totalNetSales / totalCompletedOrders : 0
 
     const paymentTotals = completedOrders.reduce<Record<string, number>>((totals, order) => {
       const method = String(order.payment?.method || 'cash')
@@ -195,6 +204,14 @@ export default function DashboardReportsPage() {
       closedShiftCount,
       driverClosingCount,
       closingCancelledOrders,
+      closingOrdersCount,
+      closingCompletedOrders,
+      closingNetSales,
+      closingExpenses,
+      closingDrawerNet,
+      closingSavedExpensesCount,
+      totalCompletedOrders,
+      totalNetSales,
       totalItems,
       averageOrder,
       paymentTotals,

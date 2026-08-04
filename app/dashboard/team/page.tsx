@@ -17,6 +17,12 @@ type TeamMember = {
   status: 'active' | 'inactive'
 }
 
+const TEAM_ROLES = [
+  { value: 'admin', ar: 'مدير', en: 'Manager' },
+  { value: 'supervisor', ar: 'مشرف', en: 'Supervisor' },
+  { value: 'cashier', ar: 'كاشير', en: 'Cashier' },
+]
+
 export default function DashboardTeamPage() {
   const { language } = useLanguage()
   const isArabic = language === 'ar'
@@ -28,24 +34,16 @@ export default function DashboardTeamPage() {
   const [form, setForm] = useState({ name: '', email: '', role: 'admin', status: 'active' as 'active' | 'inactive' })
   const [search, setSearch] = useState('')
 
-  const ROLES = [
-    { value: 'super_admin', label: isArabic ? 'مسؤول فائق (Super Admin)' : 'Super Admin' },
-    { value: 'admin', label: isArabic ? 'مدير (Admin)' : 'Admin' },
-    { value: 'manager', label: isArabic ? 'مدير عام (Manager)' : 'Manager' },
-    { value: 'supervisor', label: isArabic ? 'مشرف (Supervisor)' : 'Supervisor' },
-    { value: 'cashier', label: isArabic ? 'كاشير (Cashier)' : 'Cashier' },
-    { value: 'delivery', label: isArabic ? 'مندوب توصيل (Delivery)' : 'Delivery' },
-    { value: 'support', label: isArabic ? 'دعم العملاء (Support)' : 'Support' },
-  ]
-
-  const getRoleLabel = (role: string) => {
-    const roleObj = ROLES.find((r) => r.value === role)
-    return roleObj ? roleObj.label : role
+  const roleLabel = (role: string) => {
+    const match = TEAM_ROLES.find((item) => item.value === role)
+    if (match) return isArabic ? match.ar : match.en
+    return role === 'super_admin' ? (isArabic ? 'مدير' : 'Manager') : role
   }
+
   const filteredTeam = useMemo(() => {
     const term = search.trim().toLowerCase()
     if (!term) return team
-    return team.filter((member) => `${member.name} ${member.email} ${member.role} ${member.status}`.toLowerCase().includes(term))
+    return team.filter((member) => `${member.name} ${member.email} ${roleLabel(member.role)} ${member.status}`.toLowerCase().includes(term))
   }, [search, team])
 
   const loadTeam = async () => {
@@ -53,7 +51,7 @@ export default function DashboardTeamPage() {
     try {
       const response = await fetch('/api/team', { cache: 'no-store' })
       const data = await response.json().catch(() => ({}))
-      setTeam(Array.isArray(data.members) ? data.members : Array.isArray(data.team) ? data.team : [])
+      setTeam(Array.isArray(data.members) ? data.members : [])
     } catch {
       setTeam([])
     } finally {
@@ -63,7 +61,9 @@ export default function DashboardTeamPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(loadTeam, 0)
-    const interval = window.setInterval(loadTeam, 120000)
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void loadTeam()
+    }, 300000)
     return () => {
       window.clearTimeout(timer)
       window.clearInterval(interval)
@@ -76,24 +76,18 @@ export default function DashboardTeamPage() {
     setFormOpen(false)
   }
 
-  const upsertLocalMember = (member: unknown) => {
-    if (!member || typeof member !== 'object') return
-
-    const nextMember = member as TeamMember
-    setTeam((currentTeam) => {
-      const exists = currentTeam.some((item) => item.id === nextMember.id)
-      if (exists) {
-        return currentTeam.map((item) => (item.id === nextMember.id ? nextMember : item))
-      }
-
-      return [nextMember, ...currentTeam]
-    })
-  }
-
   const openNewMember = () => {
     setEditingId(null)
     setForm({ name: '', email: '', role: 'admin', status: 'active' })
     setFormOpen(true)
+  }
+
+  const upsertLocalMember = (member: unknown) => {
+    if (!member || typeof member !== 'object') return
+    const nextMember = member as TeamMember
+    setTeam((current) => current.some((item) => item.id === nextMember.id)
+      ? current.map((item) => (item.id === nextMember.id ? nextMember : item))
+      : [nextMember, ...current])
   }
 
   const submit = async (event: FormEvent) => {
@@ -109,7 +103,7 @@ export default function DashboardTeamPage() {
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.message || data.error || 'Could not save member')
       upsertLocalMember(data.member)
-      setMessage(editingId ? (isArabic ? 'تم حفظ تعديل العضو.' : 'Member updated.') : (isArabic ? 'تمت إضافة العضو وتفعيل صلاحياته.' : 'Member added and permissions enabled.'))
+      setMessage(editingId ? (isArabic ? 'تم حفظ تعديل العضو.' : 'Member updated.') : (isArabic ? 'تمت إضافة العضو.' : 'Member added.'))
       closeForm()
       void loadTeam()
     } catch (error) {
@@ -121,7 +115,12 @@ export default function DashboardTeamPage() {
 
   const edit = (member: TeamMember) => {
     setEditingId(member.id)
-    setForm({ name: member.name, email: member.email, role: member.role, status: member.status })
+    setForm({
+      name: member.name,
+      email: member.email,
+      role: TEAM_ROLES.some((role) => role.value === member.role) ? member.role : 'admin',
+      status: member.status,
+    })
     setFormOpen(true)
   }
 
@@ -158,9 +157,8 @@ export default function DashboardTeamPage() {
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.message || data.error || 'Could not delete member')
-      setTeam((currentTeam) => currentTeam.filter((item) => item.id !== member.id))
+      setTeam((current) => current.filter((item) => item.id !== member.id))
       setMessage(isArabic ? 'تم حذف العضو.' : 'Member deleted.')
-      void loadTeam()
     } catch (error) {
       setMessage(error instanceof Error ? error.message : (isArabic ? 'تعذر حذف العضو.' : 'Could not delete member.'))
     } finally {
@@ -173,13 +171,16 @@ export default function DashboardTeamPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-3xl font-bold">{isArabic ? 'إدارة الفريق' : 'Team Management'}</h2>
-          <p className="mt-2 text-slate-500 dark:text-slate-400">{isArabic ? 'أدر أعضاء لوحة التحكم والصلاحيات من قائمة واضحة.' : 'Manage dashboard members and permissions from a clear list.'}</p>
+          <p className="mt-2 text-slate-500 dark:text-slate-400">
+            {isArabic ? 'الأدوار المتاحة: مدير، مشرف، كاشير.' : 'Available roles: Manager, Supervisor, Cashier.'}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={loadTeam} disabled={loading}>{loading ? (isArabic ? 'جاري التحديث...' : 'Refreshing...') : (isArabic ? 'تحديث' : 'Refresh')}</Button>
           <Button onClick={openNewMember} className="bg-red-600 hover:bg-red-700">{isArabic ? 'إضافة عضو' : 'Add Member'}</Button>
         </div>
       </div>
+
       {message && <p className="rounded-md bg-slate-100 p-3 text-sm dark:bg-slate-900">{message}</p>}
 
       {formOpen && (
@@ -192,8 +193,8 @@ export default function DashboardTeamPage() {
               <div>
                 <Label htmlFor="role">{isArabic ? 'الدور' : 'Role'}</Label>
                 <select id="role" value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })} className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 dark:border-slate-800 dark:bg-slate-950">
-                  {ROLES.map((r) => (
-                    <option key={r.value} value={r.value}>{r.label}</option>
+                  {TEAM_ROLES.map((role) => (
+                    <option key={role.value} value={role.value}>{isArabic ? role.ar : role.en}</option>
                   ))}
                 </select>
               </div>
@@ -213,19 +214,21 @@ export default function DashboardTeamPage() {
             <Search className="h-4 w-4 text-slate-400" />
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isArabic ? 'بحث في الفريق' : 'Search team'} className="min-w-0 flex-1 bg-transparent text-sm outline-none" />
           </div>
-          {team.length === 0 ? <p className="py-10 text-center text-slate-500">{isArabic ? 'لا يوجد أعضاء فريق محفوظون بعد.' : 'No team members saved yet.'}</p> : filteredTeam.length === 0 ? (
+          {team.length === 0 ? (
+            <p className="py-10 text-center text-slate-500">{isArabic ? 'لا يوجد أعضاء فريق محفوظون بعد.' : 'No team members saved yet.'}</p>
+          ) : filteredTeam.length === 0 ? (
             <p className="py-10 text-center text-slate-500">{isArabic ? 'لا توجد نتائج مطابقة.' : 'No matching team members.'}</p>
           ) : filteredTeam.map((member) => (
             <div key={member.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 dark:border-slate-800">
               <div>
                 <p className="font-semibold">{member.name}</p>
-                <p className="text-sm text-slate-500">{member.email} - {getRoleLabel(member.role)}</p>
+                <p className="text-sm text-slate-500">{member.email} - {roleLabel(member.role)}</p>
                 <Badge className={member.status === 'active' ? 'bg-green-600' : 'bg-slate-500'}>{member.status === 'active' ? (isArabic ? 'نشط' : 'Active') : (isArabic ? 'غير نشط' : 'Inactive')}</Badge>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="outline" disabled={loading} onClick={() => edit(member)}>{loading ? '...' : (isArabic ? 'تعديل' : 'Edit')}</Button>
-                <Button size="sm" variant="outline" disabled={loading} onClick={() => updateStatus(member)}>{loading ? '...' : (member.status === 'active' ? (isArabic ? 'تعطيل' : 'Disable') : (isArabic ? 'تفعيل' : 'Enable'))}</Button>
-                <Button size="sm" variant="destructive" disabled={loading} onClick={() => deleteMember(member)}>{loading ? '...' : (isArabic ? 'حذف' : 'Delete')}</Button>
+                <Button size="sm" variant="outline" disabled={loading} onClick={() => edit(member)}>{isArabic ? 'تعديل' : 'Edit'}</Button>
+                <Button size="sm" variant="outline" disabled={loading} onClick={() => updateStatus(member)}>{member.status === 'active' ? (isArabic ? 'تعطيل' : 'Disable') : (isArabic ? 'تفعيل' : 'Enable')}</Button>
+                <Button size="sm" variant="destructive" disabled={loading} onClick={() => deleteMember(member)}>{isArabic ? 'حذف' : 'Delete'}</Button>
               </div>
             </div>
           ))}

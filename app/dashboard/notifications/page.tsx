@@ -49,9 +49,10 @@ export default function DashboardNotificationsPage() {
       loadNotifications().catch(() => setNotifications([]))
     }, 0)
     const interval = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return
       setReadIds(getReadNotificationIds())
       loadNotifications().catch(() => setNotifications([]))
-    }, 120000)
+    }, 300000)
     return () => {
       window.clearTimeout(timer)
       window.clearInterval(interval)

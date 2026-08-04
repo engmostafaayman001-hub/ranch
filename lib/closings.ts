@@ -65,9 +65,20 @@ export function getSettledClosingIds(closings: ClosingRecord[]) {
   }
 }
 
-export async function fetchServerClosings(): Promise<ClosingRecord[]> {
+type ReadClosingsOptions = {
+  repair?: boolean
+  includeDetails?: boolean
+  id?: string
+}
+
+export async function fetchServerClosings(options: ReadClosingsOptions = {}): Promise<ClosingRecord[]> {
   if (typeof window === 'undefined') return []
-  const response = await fetch('/api/closings', { cache: 'no-store' })
+  const params = new URLSearchParams()
+  if (options.repair) params.set('repair', '1')
+  if (options.includeDetails) params.set('includeDetails', '1')
+  if (options.id) params.set('id', options.id)
+  const query = params.toString()
+  const response = await fetch(`/api/closings${query ? `?${query}` : ''}`, { cache: 'no-store' })
   const data = await response.json().catch(() => ({}))
   if (!response.ok || !Array.isArray(data.closings)) {
     throw new Error(data.message || data.error || 'Could not load closings')
@@ -75,11 +86,11 @@ export async function fetchServerClosings(): Promise<ClosingRecord[]> {
   return data.closings as ClosingRecord[]
 }
 
-export async function readAllClosings() {
+export async function readAllClosings(options: ReadClosingsOptions = {}) {
   const localClosings = readClosings()
   try {
-    const serverClosings = await fetchServerClosings()
-    const merged = mergeClosings(serverClosings, localClosings)
+    const serverClosings = await fetchServerClosings(options)
+    const merged = options.includeDetails ? mergeClosings(serverClosings, localClosings) : serverClosings
     if (typeof window !== 'undefined') {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(merged))
     }

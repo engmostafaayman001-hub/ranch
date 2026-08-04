@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, useRef } from 'react'
-import { Search, Printer, Wallet, User, Truck, CheckCircle } from 'lucide-react'
+import { Search, Printer, Wallet, User, Truck, CheckCircle, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -13,7 +13,6 @@ import { printerManager, syncPrinterManagerSettings } from '@/lib/printer'
 import { createDriverClosingReceiptPayload, getDriverClosingAmount, getDriverClosingGroups, isDriverSettlementEligible } from '@/lib/driver-closing-print'
 import { getShiftSessionDateRange } from '@/lib/pos-day-session'
 import useShiftSession from '@/lib/use-shift-session'
-import { getSettledClosingIds, readAllClosings, type ClosingRecord } from '@/lib/closings'
 
 function isOrderWithinRange(orderDate: string | undefined, start: string, end: string) {
   const startDate = new Date(start.includes('T') ? start : `${start}T00:00:00`)
@@ -53,13 +52,13 @@ export default function DriverClosingPage() {
   const [daySession] = useShiftSession()
   const loadingRef = useRef(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
-  const [previousClosings, setPreviousClosings] = useState<ClosingRecord[]>([])
+  const [selectedDriverGroupKey, setSelectedDriverGroupKey] = useState<string | null>(null)
 
   const loadOrders = useCallback(async (active: boolean, shiftId?: string) => {
     try {
       if (loadingRef.current) return
       loadingRef.current = true
-      const url = `/api/orders?limit=500${shiftId ? `&shiftId=${encodeURIComponent(shiftId)}` : ''}`
+      const url = `/api/orders?limit=500&excludeSettled=1${shiftId ? `&shiftId=${encodeURIComponent(shiftId)}` : ''}`
       const response = await fetch(url, { cache: 'no-store' })
       const data = await response.json()
       if (active && Array.isArray(data.orders)) {
@@ -78,7 +77,7 @@ export default function DriverClosingPage() {
     }, 0)
     const interval = window.setInterval(() => {
       void loadOrders(active, daySession.shiftId)
-    }, 60000)
+    }, 120000)
     return () => {
       active = false
       window.clearTimeout(timer)
@@ -90,32 +89,16 @@ export default function DriverClosingPage() {
   const visibleRangeStart = rangeStart || sessionRange.start.slice(0, 10)
   const visibleRangeEnd = rangeEnd || sessionRange.end.slice(0, 10)
   const selectedRange = useMemo(() => getDateRangeFromInputs(visibleRangeStart, visibleRangeEnd, sessionRange.start, sessionRange.end), [sessionRange.end, sessionRange.start, visibleRangeEnd, visibleRangeStart])
-  useEffect(() => {
-    let active = true
-    readAllClosings()
-      .then((closings) => {
-        if (active) setPreviousClosings(closings)
-      })
-      .catch(() => {
-        if (active) setPreviousClosings([])
-      })
-    return () => {
-      active = false
-    }
-  }, [daySession])
-
-  const settledOrderIds = useMemo(() => getSettledClosingIds(previousClosings).orderIds, [previousClosings])
-
   const visibleOrders = useMemo(() => {
     return orders.filter((order) => {
-      if (settledOrderIds.has(order.id) || order.status === 'cancelled') return false
+      if (order.status === 'cancelled') return false
       const matchesShift = daySession.shiftId ? order.shiftId === daySession.shiftId : false
       const legacyWithinShiftWindow = !order.shiftId && isOrderWithinRange(order.createdAt, sessionRange.start, sessionRange.end)
       const inShiftScope = matchesShift || legacyWithinShiftWindow
       const inSelectedRange = isOrderWithinRange(order.createdAt, selectedRange.start, selectedRange.end)
       return inShiftScope && inSelectedRange
     })
-  }, [daySession.shiftId, orders, selectedRange.end, selectedRange.start, sessionRange.end, sessionRange.start, settledOrderIds])
+  }, [daySession.shiftId, orders, selectedRange.end, selectedRange.start, sessionRange.end, sessionRange.start])
 
   const driverGroups = useMemo(() => {
     const groups = getDriverClosingGroups(visibleOrders)
@@ -125,16 +108,13 @@ export default function DriverClosingPage() {
   }, [search, visibleOrders]);
 
   const toggleGroup = (groupKey: string) => {
-    setExpandedGroups(current => {
-      const next = new Set(current)
-      if (next.has(groupKey)) {
-        next.delete(groupKey)
-      } else {
-        next.add(groupKey)
-      }
-      return next
-    })
+    setSelectedDriverGroupKey(groupKey)
+    setExpandedGroups(new Set())
   }
+
+  const selectedDriverGroup = useMemo(() => (
+    selectedDriverGroupKey ? driverGroups.find((group) => group.key === selectedDriverGroupKey) || null : null
+  ), [driverGroups, selectedDriverGroupKey])
 
   const statusLabel = (status: string) => (isArabic ? ORDER_STATUS_LABELS : ORDER_STATUS_LABELS_EN)[status as keyof typeof ORDER_STATUS_LABELS] || status
 
@@ -342,6 +322,77 @@ export default function DriverClosingPage() {
           })
         )}
       </div>
+
+      {selectedDriverGroup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
+          <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-white shadow-xl dark:bg-slate-950">
+            <div className="flex items-start justify-between gap-3 border-b p-4 dark:border-slate-800">
+              <div>
+                <h3 className="text-xl font-bold">{selectedDriverGroup.name}</h3>
+                <p className="text-sm text-slate-500">{selectedDriverGroup.phone}</p>
+              </div>
+              <Button type="button" size="icon" variant="ghost" onClick={() => setSelectedDriverGroupKey(null)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="grid gap-3 border-b p-4 text-sm dark:border-slate-800 sm:grid-cols-3">
+              <div className="rounded-md bg-slate-50 p-3 dark:bg-slate-900">
+                <p className="text-xs text-slate-500">{isArabic ? 'إجمالي التحصيل' : 'Total Collection'}</p>
+                <p className="font-bold">{selectedDriverGroup.total.toFixed(2)} {currency}</p>
+              </div>
+              <div className="rounded-md bg-slate-50 p-3 dark:bg-slate-900">
+                <p className="text-xs text-slate-500">{isArabic ? 'عدد الطلبات' : 'Orders Count'}</p>
+                <p className="font-bold">{selectedDriverGroup.orders.length}</p>
+              </div>
+              <div className="rounded-md bg-slate-50 p-3 dark:bg-slate-900">
+                <p className="text-xs text-slate-500">{isArabic ? 'المتبقي تحصيله' : 'Remaining to Collect'}</p>
+                <p className="font-bold">
+                  {selectedDriverGroup.orders.reduce((sum, order) => (
+                    String(order.payment?.status || '').toLowerCase() === 'cash_on_delivery' ? sum + getDriverClosingAmount(order) : sum
+                  ), 0).toFixed(2)} {currency}
+                </p>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="space-y-3">
+                {selectedDriverGroup.orders.map((order) => (
+                  <div key={order.id} className="rounded-lg border bg-white dark:border-slate-800 dark:bg-slate-950">
+                    <div className="p-4">
+                      <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                        <div className="space-y-1">
+                          <p className="font-semibold text-base">{order.customer || order.id}</p>
+                          <p className="text-sm text-slate-500">{order.phone || (isArabic ? 'لا يوجد رقم' : 'No phone')}</p>
+                          <p className="text-xs text-slate-500">{order.createdAt ? new Date(order.createdAt).toLocaleString(isArabic ? 'ar-EG' : 'en-US') : ''}</p>
+                          <p className="text-xs text-slate-500">{isArabic ? 'فاتورة' : 'Invoice'}: {order.displayNumber || order.externalReference || order.id.slice(0, 8)}</p>
+                        </div>
+                        <div className="space-y-1.5 text-sm md:text-right">
+                          <p><span className="font-medium text-slate-600 dark:text-slate-400">{isArabic ? 'التحصيل' : 'Collect'}:</span> <span className="font-bold">{getDriverClosingAmount(order).toFixed(2)} {currency}</span></p>
+                          <p><span className="font-medium text-slate-600 dark:text-slate-400">{isArabic ? 'التوصيل' : 'Fee'}:</span> {Number(order.deliveryFee || 0).toFixed(2)} {currency}</p>
+                          <p><span className="font-bold text-slate-800 dark:text-slate-200">{isArabic ? 'الإجمالي' : 'Total'}:</span> <span className="font-extrabold text-base">{Number(order.total || 0).toFixed(2)} {currency}</span></p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 border-t p-3 dark:border-slate-800">
+                      {isDriverSettlementEligible(order) && order.payment?.status !== 'paid' && !collectedOrderIds.has(order.id) ? (
+                        <Button size="sm" className="flex-grow gap-2 bg-green-600 hover:bg-green-700" onClick={() => handleSettle(order)} disabled={settlingOrderId === order.id}>
+                          {settlingOrderId === order.id ? (isArabic ? 'جاري التحصيل...' : 'Collecting...') : (<><Wallet className="h-4 w-4" />{isArabic ? 'تحصيل' : 'Collect'}</>)}
+                        </Button>
+                      ) : (
+                        <div className="flex flex-grow flex-wrap gap-2">
+                          {paymentStatuses.map(status => (
+                            <Button key={status} size="sm" variant={order.payment?.status === status ? 'default' : 'outline'} onClick={() => updatePaymentStatus(order.id, status)} className="h-auto px-2 py-1 text-xs">{paymentStatusLabel(status)}</Button>
+                          ))}
+                        </div>
+                      )}
+                      <Button size="sm" variant="outline" className="flex-grow gap-2" onClick={() => handlePrint(order)}><Printer className="h-4 w-4" />{isArabic ? 'طباعة' : 'Print'}</Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

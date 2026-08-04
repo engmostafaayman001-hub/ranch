@@ -15,7 +15,7 @@ function json(data: unknown, init?: ResponseInit) {
 }
 
 function canManageDrivers(role?: string | null) {
-  return ['super_admin', 'admin', 'manager'].includes(role || '')
+  return ['super_admin', 'admin', 'cashier'].includes(role || '')
 }
 
 export async function GET(request: NextRequest) {

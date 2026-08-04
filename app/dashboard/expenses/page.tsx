@@ -10,7 +10,6 @@ import { useLanguage } from '@/components/language-provider'
 import useShiftSession from '@/lib/use-shift-session'
 import { CURRENCY, CURRENCY_EN } from '@/lib/constants'
 import { queueOfflineAction, syncOfflineQueue } from '@/lib/offline-queue'
-import { getSettledClosingIds, readAllClosings } from '@/lib/closings'
 
 type Expense = {
   id: string
@@ -42,12 +41,10 @@ export default function DashboardExpensesPage() {
 
   const loadExpenses = async () => {
     try {
-      const response = await fetch(`/api/expenses`, { cache: 'no-store' })
+      const response = await fetch(`/api/expenses?excludeSettled=1`, { cache: 'no-store' })
       const data = await response.json().catch(() => ({}))
       const allExpenses = Array.isArray(data.expenses) ? data.expenses : []
-      const previousClosings = await readAllClosings()
-      const settledExpenseIds = getSettledClosingIds(previousClosings).expenseIds
-      setExpenses(allExpenses.filter((expense: Expense) => !settledExpenseIds.has(expense.id)))
+      setExpenses(allExpenses)
     } catch {
       setExpenses([])
     } finally {
@@ -57,7 +54,9 @@ export default function DashboardExpensesPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(loadExpenses, 0)
-    const interval = window.setInterval(loadExpenses, 120000)
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void loadExpenses()
+    }, 300000)
     return () => {
       window.clearTimeout(timer)
       window.clearInterval(interval)

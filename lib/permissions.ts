@@ -82,15 +82,21 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     Permission.DASHBOARD_VIEW,
     Permission.PRODUCTS_MANAGE,
     Permission.DISCOUNTS_MANAGE,
+    Permission.CUSTOMERS_VIEW,
+    Permission.CUSTOMERS_MANAGE,
+    Permission.SETTINGS_MANAGE,
   ],
   [UserRole.CASHIER]: [
     Permission.DASHBOARD_VIEW,
     Permission.POS_USE,
+    Permission.ORDERS_VIEW_ALL,
     Permission.ORDERS_EDIT,
     Permission.CUSTOMERS_VIEW,
     Permission.CASHIER_CLOSEOUT,
     Permission.DRIVERS_CLOSEOUT,
     Permission.EXPENSES_MANAGE,
+    Permission.PRODUCTS_MANAGE,
+    Permission.SETTINGS_MANAGE,
   ],
   [UserRole.DELIVERY]: [
     Permission.DASHBOARD_VIEW,
@@ -183,14 +189,14 @@ export function canManageCustomers(role: string | null | undefined): boolean {
  * Check if a role can view customers
  */
 export function canViewCustomers(role: string | null | undefined): boolean {
-  return canManageCustomers(role) || hasPermission(role as UserRole, Permission.CUSTOMERS_VIEW) || role === 'support';
+  return canManageCustomers(role) || hasPermission(role as UserRole, Permission.CUSTOMERS_VIEW) || role === 'support' || role === 'supervisor';
 }
 
 /**
  * Check if a role can manage products
  */
 export function canManageProducts(role: string | null | undefined): boolean {
-  return hasPermission(role as UserRole, Permission.PRODUCTS_MANAGE) || role === 'manager' || role === 'supervisor' || role === 'admin' || role === 'super_admin';
+  return hasPermission(role as UserRole, Permission.PRODUCTS_MANAGE) || role === 'manager' || role === 'supervisor' || role === 'cashier' || role === 'admin' || role === 'super_admin';
 }
 
 /**
@@ -225,19 +231,19 @@ export function canPerformDriverCloseout(role: string | null | undefined): boole
  * Check if a role can view financial reports
  */
 export function canViewFinancialReports(role: string | null | undefined): boolean {
-  return hasPermission(role as UserRole, Permission.REPORTS_VIEW_FINANCIAL) || role === 'manager' || role === 'admin' || role === 'super_admin';
+  return hasPermission(role as UserRole, Permission.REPORTS_VIEW_FINANCIAL) || role === 'admin' || role === 'super_admin';
 }
 
 /**
  * Check if a role can manage team members
  */
 export function canManageTeam(role: string | null | undefined): boolean {
-  return hasPermission(role as UserRole, Permission.TEAM_MANAGE) || role === 'manager' || role === 'admin' || role === 'super_admin';
+  return hasPermission(role as UserRole, Permission.TEAM_MANAGE) || role === 'admin' || role === 'super_admin';
 }
 
 /**
  * Check if a role can manage system settings
  */
 export function canManageSettings(role: string | null | undefined): boolean {
-  return hasPermission(role as UserRole, Permission.SETTINGS_MANAGE) || role === 'manager' || role === 'admin' || role === 'super_admin';
+  return hasPermission(role as UserRole, Permission.SETTINGS_MANAGE) || role === 'supervisor' || role === 'cashier' || role === 'admin' || role === 'super_admin';
 }

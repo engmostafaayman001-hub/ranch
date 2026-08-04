@@ -1,22 +1,22 @@
 import { ROUTES } from '@/lib/constants'
 
-export const DASHBOARD_ROLES = ['super_admin', 'admin', 'manager', 'supervisor', 'cashier', 'delivery', 'support'] as const
+export const DASHBOARD_ROLES = ['super_admin', 'admin', 'supervisor', 'cashier'] as const
 
 export const DASHBOARD_ROUTE_ROLES: Record<string, readonly string[]> = {
-  [ROUTES.DASHBOARD]: ['super_admin', 'admin', 'manager', 'cashier', 'delivery', 'support'],
-  [ROUTES.DASHBOARD_ORDERS]: ['super_admin', 'admin', 'cashier', 'delivery'],
+  [ROUTES.DASHBOARD]: ['super_admin', 'admin'],
+  [ROUTES.DASHBOARD_ORDERS]: ['super_admin', 'admin', 'cashier'],
   [ROUTES.DASHBOARD_RESTAURANT_ORDERS]: ['super_admin', 'admin', 'cashier'],
-  [ROUTES.DASHBOARD_CATEGORIES]: ['super_admin', 'admin', 'manager', 'supervisor'],
-  [ROUTES.DASHBOARD_PRODUCTS]: ['super_admin', 'admin', 'manager', 'supervisor'],
-  [ROUTES.DASHBOARD_CUSTOMERS]: ['super_admin', 'admin', 'support'],
+  [ROUTES.DASHBOARD_CATEGORIES]: ['super_admin', 'admin', 'supervisor', 'cashier'],
+  [ROUTES.DASHBOARD_PRODUCTS]: ['super_admin', 'admin', 'supervisor', 'cashier'],
+  [ROUTES.DASHBOARD_CUSTOMERS]: ['super_admin', 'admin', 'supervisor'],
   [ROUTES.DASHBOARD_TEAM]: ['super_admin', 'admin'],
-  [ROUTES.DASHBOARD_DELIVERY]: ['super_admin', 'admin'],
-  [ROUTES.DASHBOARD_PAYMENTS]: ['super_admin', 'admin'],
-  [ROUTES.DASHBOARD_NOTIFICATIONS]: ['super_admin', 'admin', 'manager', 'supervisor'],
+  [ROUTES.DASHBOARD_DELIVERY]: ['super_admin', 'admin', 'cashier'],
+  [ROUTES.DASHBOARD_PAYMENTS]: ['super_admin', 'admin', 'cashier'],
+  [ROUTES.DASHBOARD_NOTIFICATIONS]: ['super_admin', 'admin', 'supervisor'],
   [ROUTES.DASHBOARD_POS]: ['super_admin', 'admin', 'cashier'],
   [ROUTES.DASHBOARD_EXPENSES]: ['super_admin', 'admin', 'cashier'],
   [ROUTES.DASHBOARD_REPORTS]: ['super_admin', 'admin'],
-  [ROUTES.DASHBOARD_SETTINGS]: ['super_admin', 'admin'],
+  [ROUTES.DASHBOARD_SETTINGS]: ['super_admin', 'admin', 'supervisor', 'cashier'],
   [ROUTES.DASHBOARD_DRIVER_CLOSING]: ['super_admin', 'admin', 'cashier'],
   [ROUTES.DASHBOARD_DAILY_CLOSING]: ['super_admin', 'admin', 'cashier'],
   [ROUTES.DASHBOARD_CLOSINGS]: ['super_admin', 'admin', 'cashier'],
@@ -26,13 +26,8 @@ export function getDefaultDashboardRouteForRole(role: string | null | undefined)
   switch (role) {
     case 'cashier':
       return ROUTES.DASHBOARD_POS
-    case 'manager':
     case 'supervisor':
       return ROUTES.DASHBOARD_PRODUCTS
-    case 'delivery':
-      return ROUTES.DASHBOARD_ORDERS
-    case 'support':
-      return ROUTES.DASHBOARD_CUSTOMERS
     case 'super_admin':
     case 'admin':
       return ROUTES.DASHBOARD
@@ -50,7 +45,7 @@ export function canRoleOpenDashboardRoute(role: string | null | undefined, pathn
 
   if (!route) {
     if (normalizedPath === '/dashboard' || normalizedPath.startsWith('/dashboard/')) {
-      return role === 'super_admin' || role === 'admin' || role === 'manager' || role === 'supervisor' || role === 'cashier' || role === 'delivery' || role === 'support'
+      return role === 'super_admin' || role === 'admin' || role === 'supervisor' || role === 'cashier'
     }
     return false
   }

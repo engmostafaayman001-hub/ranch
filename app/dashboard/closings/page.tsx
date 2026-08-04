@@ -158,7 +158,7 @@ export default function ClosingsPage() {
   const latestClosingId = closings[0]?.id
 
   const loadClosings = useCallback(async () => {
-    const nextClosings = await readAllClosings()
+    const nextClosings = await readAllClosings({ repair: true })
     setClosings(nextClosings)
     return nextClosings
   }, [])
@@ -179,12 +179,13 @@ export default function ClosingsPage() {
     window.addEventListener('closings:updated', handleStorageChange)
     
     const interval = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return
       const updated = readClosings()
       const hasChanges = updated.length !== closingsLength || (updated[0]?.id !== latestClosingId)
       if (hasChanges) {
         void loadClosings()
       }
-    }, 300)
+    }, 60000)
     
     return () => {
       window.removeEventListener('storage', handleStorageChange)

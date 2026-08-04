@@ -286,7 +286,9 @@ export default function DashboardPosPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(loadShiftData, 0)
-    const interval = window.setInterval(loadShiftData, 60000)
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void loadShiftData()
+    }, 120000)
     return () => {
       window.clearTimeout(timer)
       window.clearInterval(interval)
@@ -358,7 +360,9 @@ export default function DashboardPosPage() {
     }
 
     loadCustomers()
-    const interval = window.setInterval(loadCustomers, 120000)
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void loadCustomers()
+    }, 300000)
     return () => {
       active = false
       window.clearInterval(interval)
@@ -639,6 +643,9 @@ export default function DashboardPosPage() {
     setLoading(true)
     setMessage('')
     try {
+      const orderId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? `POS-${crypto.randomUUID()}`
+        : `POS-${Date.now()}-${Math.random().toString(16).slice(2)}`
       const saleSnapshot = {
         customer: { ...customer, address: orderAddress },
         orderType: orderTypeLabel,
@@ -657,6 +664,8 @@ export default function DashboardPosPage() {
         total,
       }
       const requestPayload = {
+        id: orderId,
+        externalReference: orderId,
         source: 'restaurant_pos',
         shiftId: daySession.shiftId,
         shiftOpenedAt: daySession.openedAt,

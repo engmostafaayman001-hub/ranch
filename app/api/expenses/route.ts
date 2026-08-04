@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server'
 import { canRequestAccessDashboard, getRequestDashboardAccess } from '@/lib/server-access'
 import { createServerExpense, deleteServerExpense, readServerExpenses } from '@/lib/server-expenses'
 import { createShift, ensureShiftExists, getCurrentOpenShift, isShiftLocked } from '@/lib/shifts'
+import { getSettledClosingIds } from '@/lib/closings'
+import { readServerClosings } from '@/lib/server-closings'
 
 export const runtime = 'nodejs'
 
@@ -18,7 +20,12 @@ function json(data: unknown, init?: ResponseInit) {
 export async function GET(request: NextRequest) {
   if (!(await canRequestAccessDashboard(request))) return json({ error: 'Unauthorized' }, { status: 401 })
   const shiftId = String(request.nextUrl.searchParams.get('shiftId') || '').trim() || undefined
-  const expenses = await readServerExpenses({ shiftId })
+  const excludeSettled = request.nextUrl.searchParams.get('excludeSettled') === '1'
+  let expenses = await readServerExpenses({ shiftId })
+  if (excludeSettled) {
+    const { expenseIds: settledExpenseIds } = getSettledClosingIds(await readServerClosings())
+    expenses = expenses.filter((expense) => !settledExpenseIds.has(expense.id))
+  }
   return json({ expenses })
 }
 

@@ -55,7 +55,7 @@ export default function DashboardCustomersPage() {
       try {
         const [customersResponse, ordersResponse] = await Promise.all([
           fetch('/api/customers', { cache: 'no-store' }),
-          fetch('/api/pos/orders', { cache: 'no-store' }),
+          fetch('/api/pos/orders?limit=1000&excludeSettled=1', { cache: 'no-store' }),
         ])
         const customersData = await customersResponse.json().catch(() => ({}))
         const ordersData = await ordersResponse.json().catch(() => ({}))
@@ -119,7 +119,9 @@ export default function DashboardCustomersPage() {
     }
 
     const timer = window.setTimeout(loadCustomers, 0)
-    const interval = window.setInterval(loadCustomers, 120000)
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void loadCustomers()
+    }, 300000)
     return () => {
       active = false
       window.clearTimeout(timer)

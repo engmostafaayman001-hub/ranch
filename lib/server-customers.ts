@@ -5,6 +5,19 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 
 const DATA_DIR = process.env.VERCEL ? '/tmp/ranch-data' : join(process.cwd(), 'data')
 const CUSTOMERS_FILE = join(DATA_DIR, 'customers.json')
+const CUSTOMERS_CACHE_MS = 60000
+
+let customersCache: { data: AppCustomer[]; at: number } | null = null
+let customersReadPromise: Promise<AppCustomer[]> | null = null
+
+function setCustomersCache(data: AppCustomer[]) {
+  customersCache = { data, at: Date.now() }
+}
+
+function clearCustomersCache() {
+  customersCache = null
+  customersReadPromise = null
+}
 
 function canUseSupabaseRuntimeTables() {
   return Boolean(
@@ -142,6 +155,17 @@ async function ensureDataFile() {
 }
 
 export async function readServerCustomers(): Promise<AppCustomer[]> {
+  if (customersCache && Date.now() - customersCache.at < CUSTOMERS_CACHE_MS) return customersCache.data
+  if (customersReadPromise) return customersReadPromise
+
+  customersReadPromise = readServerCustomersFresh().finally(() => {
+    customersReadPromise = null
+  })
+
+  return customersReadPromise
+}
+
+async function readServerCustomersFresh(): Promise<AppCustomer[]> {
   const registeredCustomers = await readRegisteredAuthCustomers()
 
   if (canUseSupabaseRuntimeTables()) {
@@ -152,7 +176,9 @@ export async function readServerCustomers(): Promise<AppCustomer[]> {
       .order('updated_at', { ascending: false })
 
     if (!error && Array.isArray(data)) {
-      return mergeCustomers((data as AppCustomerRow[]).map(fromRow), registeredCustomers)
+      const customers = mergeCustomers((data as AppCustomerRow[]).map(fromRow), registeredCustomers)
+      setCustomersCache(customers)
+      return customers
     }
 
     if (shouldRequireSupabaseRuntimeTables()) {
@@ -164,8 +190,11 @@ export async function readServerCustomers(): Promise<AppCustomer[]> {
   try {
     const raw = await readFile(CUSTOMERS_FILE, 'utf8')
     const parsed = JSON.parse(raw)
-    return mergeCustomers(Array.isArray(parsed) ? parsed : [], registeredCustomers)
+    const customers = mergeCustomers(Array.isArray(parsed) ? parsed : [], registeredCustomers)
+    setCustomersCache(customers)
+    return customers
   } catch {
+    setCustomersCache(registeredCustomers)
     return registeredCustomers
   }
 }
@@ -196,6 +225,7 @@ export async function upsertServerCustomer(input: {
       .single()
 
     if (!error && data) {
+      clearCustomersCache()
       return fromRow(data as AppCustomerRow)
     }
 
@@ -233,6 +263,7 @@ export async function upsertServerCustomer(input: {
     : [customer, ...customers]
 
   await writeFile(CUSTOMERS_FILE, JSON.stringify(updated, null, 2), 'utf8')
+  clearCustomersCache()
   return customer
 }
 
@@ -272,6 +303,7 @@ export async function deleteServerCustomer(input: {
       }
     }
 
+    clearCustomersCache()
     return { deleted: appCustomerIds.length }
   }
 
@@ -287,5 +319,6 @@ export async function deleteServerCustomer(input: {
   })
 
   await writeFile(CUSTOMERS_FILE, JSON.stringify(kept, null, 2), 'utf8')
+  clearCustomersCache()
   return { deleted: customers.length - kept.length }
 }

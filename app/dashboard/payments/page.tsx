@@ -75,7 +75,9 @@ export default function DashboardPaymentsPage() {
     }
 
     loadPayments()
-    const interval = window.setInterval(loadPayments, 60000)
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void loadPayments()
+    }, 120000)
     return () => {
       mounted = false
       window.clearInterval(interval)

@@ -168,10 +168,8 @@ export default function DashboardPage() {
         if (!active) return
         const currentOrders = Array.isArray(ordersData.orders) ? ordersData.orders as TrackedOrder[] : []
         const currentExpenses = Array.isArray(expensesData.expenses) ? expensesData.expenses as DashboardExpense[] : []
-        const closingOrders = closingRecords.flatMap((closing) => closing.orders || [])
-        const closingExpenses = closingRecords.flatMap((closing) => closing.expenses || [])
-        setOrders(uniqueOrders(currentOrders, closingOrders))
-        setExpenses(uniqueExpenses(currentExpenses, closingExpenses))
+        setOrders(uniqueOrders(currentOrders))
+        setExpenses(uniqueExpenses(currentExpenses))
         setClosings(closingRecords)
         setCustomers(Array.isArray(customersData.customers) ? customersData.customers : [])
       } catch {
@@ -187,7 +185,9 @@ export default function DashboardPage() {
     }
 
     const timer = window.setTimeout(loadDashboardData, 0)
-    const interval = window.setInterval(loadDashboardData, 120000)
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void loadDashboardData()
+    }, 300000)
     return () => {
       active = false
       window.clearTimeout(timer)
@@ -199,21 +199,26 @@ export default function DashboardPage() {
     const activeStatuses = new Set(['placed', 'confirmed', 'preparing', 'ready_for_delivery', 'out_for_delivery'])
     const activeOrders = orders.filter((order) => activeStatuses.has(order.status)).length
     const completedOrders = orders.filter((order) => order.status !== 'cancelled')
-    const cancelledOrders = orders.length - completedOrders.length
     const summary = summarizeClosingData(orders, expenses)
+    const closingOrdersCount = closings.reduce((sum, closing) => sum + Number(closing.ordersCount || 0), 0)
+    const closingCancelledOrders = closings.reduce((sum, closing) => sum + Number(closing.cancelledOrdersCount || 0), 0)
+    const closingNetSales = closings.reduce((sum, closing) => sum + Number(closing.salesWithoutDelivery || 0), 0)
+    const closingExpenses = closings.reduce((sum, closing) => sum + Number(closing.expensesTotal || 0), 0)
+    const totalOrders = orders.length + closingOrdersCount
+    const cancelledOrders = orders.length - completedOrders.length + closingCancelledOrders
     const closedShiftCount = closings.filter((closing) => closing.type !== 'driver').length
     const appOrders = completedOrders.filter((order) => order.source !== 'restaurant_pos').length
     const restaurantOrders = completedOrders.filter((order) => order.source === 'restaurant_pos').length
 
     return [
-      [isArabic ? 'إجمالي طلبات التطبيق' : 'All App Orders', String(orders.length)],
-      [isArabic ? 'صافي مبيعات التطبيق' : 'App Net Sales', money(summary.netSales, currency)],
-      [isArabic ? 'إجمالي المصروفات' : 'Total Expenses', money(summary.expenses, currency)],
+      [isArabic ? 'إجمالي طلبات التطبيق' : 'All App Orders', String(totalOrders)],
+      [isArabic ? 'صافي مبيعات التطبيق' : 'App Net Sales', money(summary.netSales + closingNetSales, currency)],
+      [isArabic ? 'إجمالي المصروفات' : 'Total Expenses', money(summary.expenses + closingExpenses, currency)],
       [isArabic ? 'الطلبات الملغية' : 'Cancelled Orders', String(cancelledOrders)],
       [isArabic ? 'طلبات نشطة حاليا' : 'Active Orders Now', String(activeOrders)],
       [isArabic ? 'الورديات المقفولة' : 'Closed Shifts', String(closedShiftCount)],
-      [isArabic ? 'طلبات التطبيق' : 'Customer App Orders', String(appOrders)],
-      [isArabic ? 'طلبات المطعم' : 'Restaurant Orders', String(restaurantOrders)],
+      [isArabic ? 'طلبات التطبيق الحالية' : 'Current Customer App Orders', String(appOrders)],
+      [isArabic ? 'طلبات المطعم الحالية' : 'Current Restaurant Orders', String(restaurantOrders)],
       [isArabic ? 'العملاء' : 'Customers', String(customers.length)],
       [isArabic ? 'الأشخاص النشطون الآن' : 'Active People Now', String(activeDashboardUsers)],
     ]

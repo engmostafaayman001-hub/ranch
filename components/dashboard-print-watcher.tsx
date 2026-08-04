@@ -149,7 +149,7 @@ export function DashboardPrintWatcher() {
 
   useEffect(() => {
     let active = true
-    fetchWithRetry('/api/auth/dashboard-access', { cache: 'no-store' }, { retries: 2 })
+    fetchWithRetry('/api/auth/dashboard-access', { cache: 'no-store' }, { retries: 1 })
       .then((response) => response.json())
       .then((data) => {
         if (active) setDashboardRole(typeof data.role === 'string' ? data.role : null)
@@ -169,10 +169,11 @@ export function DashboardPrintWatcher() {
 
     const checkOrders = async () => {
       if (checkingOrders.current) return
+      if (document.visibilityState === 'hidden') return
       checkingOrders.current = true
       try {
         if (!watcherStartedAt.current) watcherStartedAt.current = Date.now()
-        const response = await fetchWithRetry('/api/pos/orders?source=app&limit=40', { cache: 'no-store' }, { retries: 3 })
+        const response = await fetchWithRetry('/api/pos/orders?source=app&limit=40&excludeSettled=1', { cache: 'no-store' }, { retries: 1 })
         const data = await response.json().catch(() => ({}))
         if (!active) return
 
@@ -277,7 +278,7 @@ export function DashboardPrintWatcher() {
     }
 
     checkOrders()
-    const interval = window.setInterval(checkOrders, 15000)
+    const interval = window.setInterval(checkOrders, 60000)
     return () => {
       active = false
       window.clearInterval(interval)

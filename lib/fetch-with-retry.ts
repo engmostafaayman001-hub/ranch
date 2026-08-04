@@ -24,7 +24,7 @@ function isRetryableNetworkError(error: unknown) {
 
 export async function fetchWithRetry(input: RequestInfo | URL, init: RequestInit = {}, options: RetryableFetchOptions = {}) {
   const method = getRequestMethod(init)
-  const retries = options.retries ?? (method === 'GET' ? 3 : 0)
+  const retries = options.retries ?? (method === 'GET' ? 1 : 0)
   const baseDelayMs = options.baseDelayMs ?? 350
   const maxDelayMs = options.maxDelayMs ?? 2500
   const retryStatuses = options.retryStatuses ?? DEFAULT_RETRY_STATUSES

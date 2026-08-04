@@ -11,6 +11,35 @@ type SharedAppData = {
   settings?: AppSettings
 }
 
+const SHARED_APP_DATA_CACHE_MS = 60000
+let sharedAppDataCache: { data: SharedAppData; at: number } | null = null
+let sharedAppDataPromise: Promise<SharedAppData> | null = null
+
+async function fetchSharedAppData() {
+  if (sharedAppDataCache && Date.now() - sharedAppDataCache.at < SHARED_APP_DATA_CACHE_MS) {
+    return sharedAppDataCache.data
+  }
+  if (sharedAppDataPromise) return sharedAppDataPromise
+
+  sharedAppDataPromise = fetchWithRetry('/api/app-data', { cache: 'no-store' }, { retries: 1 })
+    .then(async (response) => {
+      const data = (await response.json().catch(() => ({}))) as SharedAppData
+      if (!response.ok) throw new Error('Could not load shared app data')
+      sharedAppDataCache = { data, at: Date.now() }
+      return data
+    })
+    .finally(() => {
+      sharedAppDataPromise = null
+    })
+
+  return sharedAppDataPromise
+}
+
+function invalidateSharedAppDataCache() {
+  sharedAppDataCache = null
+  sharedAppDataPromise = null
+}
+
 function normalizeDriverValue(value?: string) {
   return typeof value === 'string' ? value.trim() : ''
 }
@@ -80,9 +109,8 @@ export function useSharedAppData(options: { poll?: boolean } = {}) {
       if (loadingRef.current) return
       loadingRef.current = true
       try {
-        const response = await fetchWithRetry('/api/app-data', { cache: 'no-store' }, { retries: 3 })
-        const data = (await response.json().catch(() => ({}))) as SharedAppData
-        if (!active || !response.ok) return
+        const data = await fetchSharedAppData()
+        if (!active) return
 
         if (Array.isArray(data.categories) && Array.isArray(data.products)) {
           setCatalog({ categories: data.categories, products: data.products })
@@ -100,7 +128,9 @@ export function useSharedAppData(options: { poll?: boolean } = {}) {
     }
 
     const timer = window.setTimeout(load, 0)
-    const interval = poll ? window.setInterval(load, 60000) : undefined
+    const interval = poll ? window.setInterval(() => {
+      if (document.visibilityState === 'visible') void load()
+    }, 300000) : undefined
     return () => {
       active = false
       window.clearTimeout(timer)
@@ -112,6 +142,7 @@ export function useSharedAppData(options: { poll?: boolean } = {}) {
 }
 
 export async function saveSharedCatalog(categories: MenuCategory[], products: MenuProduct[]) {
+  invalidateSharedAppDataCache()
   const response = await fetchWithRetry('/api/app-data', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -123,6 +154,7 @@ export async function saveSharedCatalog(categories: MenuCategory[], products: Me
 }
 
 export async function saveSharedSettings(settings: AppSettings) {
+  invalidateSharedAppDataCache()
   const localPrinters = useAppStore.getState().settings.printers
   const response = await fetchWithRetry('/api/app-data', {
     method: 'PATCH',
@@ -136,6 +168,7 @@ export async function saveSharedSettings(settings: AppSettings) {
 }
 
 export async function saveSharedDrivers(drivers: DeliveryDriver[]) {
+  invalidateSharedAppDataCache()
   const mergedDrivers = mergeDrivers(useAppStore.getState().drivers, drivers)
   const response = await fetchWithRetry('/api/drivers', {
     method: 'PATCH',
@@ -150,7 +183,7 @@ export async function saveSharedDrivers(drivers: DeliveryDriver[]) {
 }
 
 export async function fetchSharedDrivers() {
-  const response = await fetchWithRetry('/api/drivers', { cache: 'no-store' }, { retries: 3 })
+  const response = await fetchWithRetry('/api/drivers', { cache: 'no-store' }, { retries: 1 })
   const data = await response.json().catch(() => ({}))
   if (!response.ok || !Array.isArray(data.drivers)) {
     throw new Error(data.message || data.error || 'Could not load drivers')
