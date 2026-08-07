@@ -22,7 +22,7 @@ const arabicTitle = `${APP_NAME_AR} | ${SITE_TAGLINE_AR}`;
 const shareImage = "/og-ar.png?v=20260603-ar";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://ranch-a.vercel.app"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://ranch1.shop"),
   title: arabicTitle,
   description: SITE_DESCRIPTION_AR,
   applicationName: `${APP_NAME_AR} - ${APP_NAME_EN}`,
